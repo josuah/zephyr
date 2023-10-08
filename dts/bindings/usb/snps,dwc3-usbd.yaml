@@ -1,0 +1,16 @@
+# Copyright (c) 2023 tinyVision.ai
+# SPDX-License-Identifier: Apache-2.0
+
+description: |
+    Synopsys DesignWare DWC3 Controller in device mode
+
+compatible: "snps,dwc3-usbd"
+
+include: usb-ep.yaml
+
+properties:
+  reg:
+    required: true
+
+  # interrupts:
+  #   required: true

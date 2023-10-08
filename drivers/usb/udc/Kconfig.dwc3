@@ -2,22 +2,9 @@
 # SPDX-License-Identifier: Apache-2.0
 
 config UDC_DWC3
-	bool "DWC3 USB device controller"
+	bool "DesignWare USB device controller driver"
+	imply UDC_WORKQUEUE
 	default y
-	depends on DT_HAS_ZEPHYR_UDC_DWC3_ENABLED
+	depends on DT_HAS_SNPS_DWC3_USBD_ENABLED
 	help
 	  Synopsys DesignWare DWC3 USB device controller driver.
-
-config UDC_DWC3_STACK_SIZE
-	int "UDC internal thread stack size"
-	depends on UDC_DWC3
-	default 512
-	help
-	  DWC3 device controller driver internal thread stack size.
-
-config UDC_DWC3_THREAD_PRIORITY
-	int "UDC thread priority"
-	depends on UDC_DWC3
-	default 8
-	help
-	  DWC3 device controller driver thread priority.

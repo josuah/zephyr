@@ -11,9 +11,10 @@
  * in include/zephyr/sys/util.h or include/zephyr/usb/usb_ch9.h that you can use.
  * Please keep all identifiers and logging messages concise and clear.
  */
+#define DT_DRV_COMPAT snps_dwc3_usbd
 
 #include "udc_common.h"
-#indlude "dwc3.h"
+#include "udc_dwc3.h"
 
 #include <string.h>
 #include <stdio.h>
@@ -480,8 +481,6 @@ static const struct udc_api dwc3_api = {
 	.ep_enqueue = dwc3_ep_enqueue,
 	.ep_dequeue = dwc3_ep_dequeue,
 };
-
-#define DT_DRV_COMPAT zephyr_dwc3
 
 #define DWC3_DEVICE_DEFINE(n)							\
 	K_THREAD_STACK_DEFINE(dwc3_stack_##n, CONFIG_DWC3);			\
