@@ -14,7 +14,7 @@
 struct dwc3_trb {
 	/* uint64_t address at which DWC3 should perform the DMA request */
 	uint32_t addr_lo;
-	uint32_t addr_hi;
+	uint32_t addr_up;
 
 	/* Status of the DMA transaction to perform, featuring the BUFSIZ field */
 	uint32_t status;

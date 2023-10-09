@@ -26,8 +26,8 @@
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(dwc3, CONFIG_UDC_DRIVER_LOG_LEVEL);
 
-#define UPPER_32_BITS(u64) ((u64) >> 32)
-#define LOWER_32_BITS(u64) ((u64) & 0xffffffff)
+#define UPPER_32_BITS(u64) ((uint32_t)((uint64_t)(u64) >> 32))
+#define LOWER_32_BITS(u64) ((uint32_t)((uint64_t)(u64) & 0xffffffffull))
 
 /*
  * Structure for holding controller configuration items that can remain in
@@ -38,9 +38,8 @@ struct dwc3_config {
 	size_t num_of_eps;
 	struct udc_ep_config *ep_cfg_in;
 	struct udc_ep_config *ep_cfg_out;
-	void (*make_thread)(const struct device *dev);
 	int speed_idx;
-	uint32_t *regs;
+	uint32_t *base;
 };
 
 /*
@@ -66,89 +65,89 @@ struct dwc3_data {
 	struct dwc3_ep_data *ep_data;
 };
 
-static inline uint32_t dwc3_read_u32(const struct device *dev, int addr)
+static inline uint32_t dwc3_read_u32(const struct device *dev, uint32_t addr)
 {
 	const struct dwc3_config *config = dev->config;
 
-	return config->regs[addr];
+	return config->base[addr];
 }
 
-static inline void dwc3_write_u32(const struct device *dev, int addr, uint32_t value)
+static inline void dwc3_write_u32(const struct device *dev, uint32_t addr, uint32_t value)
 {
 	const struct dwc3_config *config = dev->config;
 
-	config->regs[addr] = value;
+	config->base[addr] = value;
 }
 
-static void dwc3_ep_wait_cmd_completion(const struct device *dev, struct udc_ep_config *const ep_cfg)
+static void dwc3_poll_u32(const struct device *dev, uint32_t addr, uint32_t mask)
 {
 	uint32_t reg;
 	
 	do {
-		reg = dwc3_read_u32(dev, DWC3_DEPCMD(ep_cfg->addr));
-	} while (reg & DWC3_DEPCMD_CMDACT)
+		reg = dwc3_read_u32(dev, addr);
+	} while (reg & mask);
 }
 
-static void dwc3_ep_cmd_set_config(const struct device *dev, struct udc_ep_config *const ep_cfg
-	uint32_t param0, uint32_t param1)
+static void dwc3_ep_cmd_set_config(const struct device *dev, struct udc_ep_config *const ep_cfg,
+	uint64_t addr)
 {
-	dwc3_write_u32(dev, DWC3_DEPCMDPAR0(ep_cfg->addr), param0);
-	dwc3_write_u32(dev, DWC3_DEPCMDPAR1(ep_cfg->addr), param1);
+	dwc3_write_u32(dev, DWC3_DEPCMDPAR0(ep_cfg->addr), UPPER_32_BITS(addr));
+	dwc3_write_u32(dev, DWC3_DEPCMDPAR1(ep_cfg->addr), LOWER_32_BITS(addr));
 	dwc3_write_u32(dev, DWC3_DEPCMD(ep_cfg->addr), DWC3_DEPCMD_DEPCFG);
-	dwc3_ep_wait_cmd_completion(dev, ep_cfg);
+	dwc3_poll_u32(dev, DWC3_DEPCMD(ep_cfg->addr), DWC3_DEPCMD_CMDACT);
 }
 
 static void dwc3_ep_cmd_set_xfer_config(const struct device *dev, struct udc_ep_config *const ep_cfg,
-	uint32_t param0)
+	uint32_t config)
 {
-	dwc3_write_u32(dev, DWC3_DEPCMDPAR0(ep_cfg->addr), param0);
+	dwc3_write_u32(dev, DWC3_DEPCMDPAR0(ep_cfg->addr), config);
 	dwc3_write_u32(dev, DWC3_DEPCMD(ep_cfg->addr), DWC3_DEPCMD_DEPXFERCFG);
-	dwc3_ep_wait_cmd_completion(dev, ep_cfg);
+	dwc3_poll_u32(dev, DWC3_DEPCMD(ep_cfg->addr), DWC3_DEPCMD_CMDACT);
 }
 
 static void dwc3_ep_cmd_get_data_seq_num(const struct device *dev, struct udc_ep_config *const ep_cfg)
 {
 	dwc3_write_u32(dev, DWC3_DEPCMD(ep_cfg->addr), DWC3_DEPCMD_DEPGETDSEQ);
-	dwc3_ep_wait_cmd_completion(dev, ep_cfg);
+	dwc3_poll_u32(dev, DWC3_DEPCMD(ep_cfg->addr), DWC3_DEPCMD_CMDACT);
 }
 
 static void dwc3_ep_cmd_set_stall(const struct device *dev, struct udc_ep_config *const ep_cfg)
 {
 	dwc3_write_u32(dev, DWC3_DEPCMD(ep_cfg->addr), DWC3_DEPCMD_DEPSETSTALL);
-	dwc3_ep_wait_cmd_completion(dev, ep_cfg);
+	dwc3_poll_u32(dev, DWC3_DEPCMD(ep_cfg->addr), DWC3_DEPCMD_CMDACT);
 }
 
 static void dwc3_ep_cmd_clear_stall(const struct device *dev, struct udc_ep_config *const ep_cfg)
 {
 	dwc3_write_u32(dev, DWC3_DEPCMD(ep_cfg->addr), DWC3_DEPCMD_DEPCSTALL);
-	dwc3_ep_wait_cmd_completion(dev, ep_cfg);
+	dwc3_poll_u32(dev, DWC3_DEPCMD(ep_cfg->addr), DWC3_DEPCMD_CMDACT);
 }
 
 static void dwc3_ep_cmd_start_xfer(const struct device *dev, struct udc_ep_config *const ep_cfg,
-	uint64_t address)
+	uint64_t addr)
 {
-	dwc3_write_u32(dev, DWC3_DEPCMDPAR0(ep_cfg->addr), UPPER_32_BITS(param0));
-	dwc3_write_u32(dev, DWC3_DEPCMDPAR1(ep_cfg->addr), LOWER_32_BITS(param1));
+	dwc3_write_u32(dev, DWC3_DEPCMDPAR0(ep_cfg->addr), UPPER_32_BITS(addr));
+	dwc3_write_u32(dev, DWC3_DEPCMDPAR1(ep_cfg->addr), LOWER_32_BITS(addr));
 	dwc3_write_u32(dev, DWC3_DEPCMD(ep_cfg->addr), DWC3_DEPCMD_DEPSTRTXFER);
-	dwc3_ep_wait_cmd_completion(dev, ep_cfg);
+	dwc3_poll_u32(dev, DWC3_DEPCMD(ep_cfg->addr), DWC3_DEPCMD_CMDACT);
 }
 
 static void dwc3_ep_cmd_update_xfer(const struct device *dev, struct udc_ep_config *const ep_cfg)
 {
 	dwc3_write_u32(dev, DWC3_DEPCMD(ep_cfg->addr), DWC3_DEPCMD_DEPUPDXFER);
-	dwc3_ep_wait_cmd_completion(dev, ep_cfg);
+	dwc3_poll_u32(dev, DWC3_DEPCMD(ep_cfg->addr), DWC3_DEPCMD_CMDACT);
 }
 
 static void dwc3_ep_cmd_end_xfer(const struct device *dev, struct udc_ep_config *const ep_cfg)
 {
 	dwc3_write_u32(dev, DWC3_DEPCMD(ep_cfg->addr), DWC3_DEPCMD_DEPENDXFER);
-	dwc3_ep_wait_cmd_completion(dev, ep_cfg);
+	dwc3_poll_u32(dev, DWC3_DEPCMD(ep_cfg->addr), DWC3_DEPCMD_CMDACT);
 }
 
 static void dwc3_ep_cmd_start_config(const struct device *dev, struct udc_ep_config *const ep_cfg)
 {
 	dwc3_write_u32(dev, DWC3_DEPCMD(ep_cfg->addr), DWC3_DEPCMD_DEPSTARTCFG);
-	dwc3_ep_wait_cmd_completion(dev, ep_cfg);
+	dwc3_poll_u32(dev, DWC3_DEPCMD(ep_cfg->addr), DWC3_DEPCMD_CMDACT);
 }
 
 static ALWAYS_INLINE void dwc3_thread_handler(void *const arg)
@@ -164,9 +163,9 @@ static ALWAYS_INLINE void dwc3_thread_handler(void *const arg)
 static struct dwc3_trb *dwc3_ep_new_trb(const struct device *dev, struct udc_ep_config *const ep_cfg)
 {
 	struct dwc3_data *priv = udc_get_private(dev);
-	assert(ep_cfg->addr < ARRAY_SIZE(priv->ep_data));
+	__ASSERT(ep_cfg->addr < ARRAY_SIZE(priv->ep_data), "");
 	struct dwc3_ep_data *ep_data = &priv->ep_data[ep_cfg->addr];
-	struct dwc3_trb *trb = &ep_data->trb_pool[ep_data->trb_enqueue];
+	struct dwc3_trb *trb = &ep_data->trb_ring[ep_data->trb_enqueue];
 
 	/* If the Hardware has not cleared the HWO flag, it is not free */
 	if (trb->ctrl & DWC3_TRB_CTRL_HWO) {
@@ -179,9 +178,9 @@ static struct dwc3_trb *dwc3_ep_new_trb(const struct device *dev, struct udc_ep_
 
 	/* This is a ring buffer, wrap around. */
 	ep_data->trb_enqueue++;
-	ep_data->trb_euqueue %= ep_data->trb_num;
+	ep_data->trb_enqueue %= ep_data->trb_num;
 
-	memset(trb, 0);
+	memset(trb, 0, sizeof(*trb));
 	return trb;
 }
 
@@ -214,12 +213,12 @@ static int dwc3_ep_enqueue(const struct device *dev, struct udc_ep_config *const
 		LOG_ERR("Out of free TRB buffers, all are being processed by DWC3.");
 		return -ENOMEM;
 	}
-	trb->addr_hi = (uint32_t)(buf->data >> 32);
-	trb->addr_lo = (uint32_t)(buf->data & 0xFFFFFFFF)
+	trb->addr_up = UPPER_32_BITS((uintptr_t)buf->data);
+	trb->addr_lo = LOWER_32_BITS((uintptr_t)buf->data);
 	trb->status = buf->size << DWC3_TRB_STATUS_BUFSIZ_SHIFT;
 
 	/* The TRB is ready, submit it to DWC3 directly. */
-	dwc3_ep_cmd_start_xfer(dev, ep_cfg, (uint64_t)buf->data);
+	dwc3_ep_cmd_start_xfer(dev, ep_cfg, (uintptr_t)buf->data);
 
 	return 0;
 }
@@ -337,9 +336,6 @@ static int dwc3_disable(const struct device *dev)
  */
 static int dwc3_init(const struct device *dev)
 {
-	uint32_t reg;
-	int err;
-
 	if (udc_ep_enable_internal(dev, USB_CONTROL_EP_OUT,
 				   USB_EP_TYPE_CONTROL, 64, 0)) {
 		LOG_ERR("Failed to enable control endpoint");
@@ -352,9 +348,7 @@ static int dwc3_init(const struct device *dev)
 		return -EIO;
 	}
 
-	reg = dwc3_read_u32(dev, DWC3_GSNPSID);
-	LOG_INF("core revision 0x%02x", reg);
-
+	// dwc3_check_pid_guid
 	// dwc3_init_phy
 	// dwc3_setup_ulpi
 	// dwc3_soft_reset
@@ -448,9 +442,6 @@ static int dwc3_driver_preinit(const struct device *dev)
 		}
 	}
 
-	config->make_thread(dev);
-	LOG_INF("Device %p (max. speed %d)", dev, config->speed_idx);
-
 	return 0;
 }
 
@@ -483,23 +474,24 @@ static const struct udc_api dwc3_api = {
 };
 
 #define DWC3_DEVICE_DEFINE(n)							\
-	K_THREAD_STACK_DEFINE(dwc3_stack_##n, CONFIG_DWC3);			\
 										\
 	static struct udc_ep_config						\
 		ep_cfg_out[DT_INST_PROP(n, num_bidir_endpoints)];		\
+										\
 	static struct udc_ep_config						\
 		ep_cfg_in[DT_INST_PROP(n, num_bidir_endpoints)];		\
+										\
 	static const struct dwc3_config dwc3_config_##n = {			\
+		.base = (uint32_t *)DT_INST_REG_ADDR(n),			\
 		.num_of_eps = DT_INST_PROP(n, num_bidir_endpoints),		\
 		.ep_cfg_in = ep_cfg_in,						\
 		.ep_cfg_out = ep_cfg_out,					\
-		.make_thread = dwc3_make_thread_##n,				\
 		.speed_idx = DT_ENUM_IDX(DT_DRV_INST(n), maximum_speed),	\
-		.regs = (uint32_t *)DT_INST_REG_ADDR(n),			\
 	};									\
 										\
 	static struct dwc3_ep_data						\
 		ep_data[DT_INST_PROP(n, num_bidir_endpoints)];			\
+										\
 	static struct dwc3_data udc_priv_##n = {				\
 		.ep_data = ep_data,						\
 	};									\
