@@ -300,6 +300,22 @@ struct usbd_class_node {
 		.name = STRINGIFY(device_name),				\
 		.dev = uhc_dev,						\
 		.desc = &desc_##device_name,				\
+	};
+
+#define USBD_DEVICE_QUALIFIER_DEFINE(name)				\
+	static struct usb_device_qual_descriptor			\
+	qual_desc_##name = {						\
+		.bLength = sizeof(struct usb_device_qual_descriptor),	\
+		.bDescriptorType = USB_DESC_DEVICE_QUALIFIER,		\
+		.bcdUSB = sys_cpu_to_le16(USB_SRN_2_0),			\
+		.bDeviceClass = USB_BCC_MISCELLANEOUS,			\
+		.bDeviceSubClass = 2,					\
+		.bDeviceProtocol = 1,					\
+		.bMaxPacketSize0 = USB_CONTROL_EP_MPS,			\
+		.bNumConfigurations = 0,				\
+	};								\
+	static struct usbd_desc_node name = {				\
+		.desc = &qual_desc_##name,				\
 	}
 
 #define USBD_CONFIGURATION_DEFINE(name, attrib, power)			\

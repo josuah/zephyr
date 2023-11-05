@@ -465,6 +465,8 @@ static int sreq_get_descriptor(struct usbd_contex *const uds_ctx,
 		return sreq_get_desc_cfg(uds_ctx, buf, desc_idx);
 	case USB_DESC_STRING:
 		return sreq_get_desc(uds_ctx, buf, USB_DESC_STRING, desc_idx);
+	case USB_DESC_DEVICE_QUALIFIER:
+		return sreq_get_desc(uds_ctx, buf, USB_DESC_DEVICE_QUALIFIER, 0);
 	case USB_DESC_INTERFACE:
 	case USB_DESC_ENDPOINT:
 	case USB_DESC_OTHER_SPEED:
