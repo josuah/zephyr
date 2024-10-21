@@ -106,7 +106,7 @@ static inline void video_closest_frmival(const struct device *dev, enum video_en
 	struct video_frmival desired = match->discrete;
 	struct video_frmival_enum fie = {.format = match->format};
 
-	__ASSERT(match->type == VIDEO_FRMIVAL_TYPE_DISCRETE,
+	__ASSERT(match->type != VIDEO_FRMIVAL_TYPE_STEPWISE,
 		 "cannot find range matching the range, only a value matching the range");
 
 	while (video_enum_frmival(dev, ep, &fie) == 0) {
@@ -130,7 +130,11 @@ static inline void video_closest_frmival(const struct device *dev, enum video_en
 		if (diff_nsec < best_diff_nsec) {
 			best_diff_nsec = diff_nsec;
 			memcpy(&match->discrete, &tmp, sizeof(tmp));
-			match->index = fie.index;
+
+			/* The video_enum_frmival() function will increment fie.index every time.
+			 * Compensate for it to get the current index, not the next index.
+			 */
+			match->index = fie.index - 1;
 		}
 	}
 }

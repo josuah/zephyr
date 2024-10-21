@@ -9,3 +9,4 @@ zephyr_library_include_directories(
 )
 
 target_sources(app PRIVATE src/video_common.c)
+target_sources(app PRIVATE src/video_emul.c)

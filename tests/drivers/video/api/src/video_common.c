@@ -145,18 +145,12 @@ ZTEST(video_common, test_video_closest_frmival_stepwise)
 	desired.numerator = 1;
 	desired.denominator = 120;
 	video_closest_frmival_stepwise(&stepwise, &desired, &match);
-	printk("%d/%d\n", match.numerator, match.denominator);
 	zassert_equal(video_frmival_nsec(&match), video_frmival_nsec(&stepwise.min), "1 / 120");
 
 	desired.numerator = 100;
 	desired.denominator = 1;
 	video_closest_frmival_stepwise(&stepwise, &desired, &match);
 	zassert_equal(video_frmival_nsec(&match), video_frmival_nsec(&stepwise.max), "100 / 1");
-}
-
-ZTEST(video_common, test_video_closest_frmival)
-{
-	video_closest_frmival();
 }
 
 ZTEST_SUITE(video_common, NULL, NULL, NULL, NULL, NULL);
