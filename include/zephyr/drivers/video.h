@@ -203,36 +203,218 @@ struct video_frmival_enum {
 };
 
 /**
- * @brief Port / Endpoint DT Helpers
- *
+ * @name Port and Endpoint DT Helpers
+ * @{
  */
 
 #define _DT_INST_PORT_BY_ID(n, pid)                                                                \
 	COND_CODE_1(DT_NODE_EXISTS(DT_INST_CHILD(n, ports)),                                       \
 		(DT_CHILD(DT_INST_CHILD(n, ports), port_##pid)), (DT_INST_CHILD(n, port_##pid)))
 
-/* pid = 0 means port_0 or port (without id). It works for both cases */
+/**
+ * @brief Get a device's port node.
+ *
+ * Given a device node, return the port node specified by its ID.
+ * It handles the variable ways of how ports can be defined.
+ *
+ * @code{.c}
+ *	DT_PROP(DT_INST_PORT_BY_ID(inst, 0), property)
+ * @endcode
+ *
+ * This snippet will return @c "port_property" for each @c &device listed below:
+ *
+ * @code{.dts}
+ *	&device {
+ *		ports {
+ *			port@0 {
+ *				reg = <0x0>;
+ *				property = "port_property";
+ *			};
+ *		};
+ *	};
+ * @endcode
+ *
+ * @code{.dts}
+ *	&device {
+ *		port@0 {
+ *			reg = <0x0>;
+ *			property = "port_property";
+ *		};
+ *	};
+ * @endcode
+ *
+ * @code{.dts}
+ *	&device {
+ *		port {
+ *			property = "port_property";
+ *		};
+ *	};
+ * @endcode
+ *
+ * @param n device instance number
+ * @param pid port ID to access
+ * @return the port node associated with @p pid
+ */
 #define DT_INST_PORT_BY_ID(n, pid)                                                                 \
 	COND_CODE_1(DT_NODE_EXISTS(_DT_INST_PORT_BY_ID(n, pid)),                                   \
 		(_DT_INST_PORT_BY_ID(n, pid)), (DT_INST_CHILD(n, port)))
 
 #define _DT_INST_ENDPOINT_BY_ID(n, pid, eid) DT_CHILD(DT_INST_PORT_BY_ID(n, pid), endpoint_##eid)
 
-/* pid/eid = 0 means port_0/endpoint_0 or port/endpoint (without id) */
+/**
+ * @brief Get a device's endpoint node.
+ *
+ * Given a port node, access the endpoint node specified by its port ID and endpoint ID.
+ * It handles the variable ways of how ports and endpoint can be defined as described in
+ * @ref DT_INST_PORT_BY_ID and below.
+ *
+ * @code{.c}
+ *	DT_PROPT(DT_INST_ENDPOINT_BY_ID(inst, 0, 5), property)
+ * @endcode
+ *
+ * This snippet returns @c "endpoint_property" for each of the @c &device listed below:
+ *
+ * @code{.dts}
+ *	&device {
+ *		port {
+ *			endpoint {
+ *				property = "endpoint_property";
+ *			};
+ *		};
+ *	};
+ * @endcode
+ *
+ * @code{.dts}
+ *	&device {
+ *		port {
+ *			endpoint@5 {
+ *				reg = <0x5>;
+ *				property = "endpoint_property";
+ *			};
+ *		};
+ *	};
+ * @endcode
+ *
+ * @code{.dts}
+ *	&device {
+ *		ports {
+ *			port@0 {
+ *				reg = <0x0>;
+ *
+ *				endpoint@5 {
+ *					reg = <0x5>;
+ *					property = "endpoint_property";
+ *				};
+ *			};
+ *		};
+ *	};
+ * @endcode
+ *
+ * @param n instance number
+ * @param pid port ID to access
+ * @param eid endpoint ID to access
+ * @return the node assoiated with @p eid and @p pid
+ */
 #define DT_INST_ENDPOINT_BY_ID(n, pid, eid)                                                        \
 	COND_CODE_1(DT_NODE_EXISTS(_DT_INST_ENDPOINT_BY_ID(n, pid, eid)),                          \
 		(_DT_INST_ENDPOINT_BY_ID(n, pid, eid)),                                            \
 			(DT_CHILD(DT_INST_PORT_BY_ID(n, pid), endpoint)))
 
-/* Get node id of the device from its local endpoint node id */
-#define _DT_NODE_BY_ENDPOINT(ep)                                                                   \
+/**
+ * @brief Get the parent device of an endpoint.
+ *
+ * Given an endpoint node, access the parent device node.
+ * This handles the variable ways of how ports and endpoint can be defined as described in
+ * @ref DT_NODE_BY_ENDPOINT.
+ *
+ * @code{.c}
+ *	DT_PROP(DT_NODE_BY_ENDPOINT(DT_NODELABEL(ep5)), property)
+ * @endcode
+ *
+ * This snippet returns @c "device_property" in all of the @c ep5 below:
+ *
+ * @code{.dts}
+ *	&device {
+ *		property = "device_property";
+ *
+ *		port {
+ *			ep5: endpoint@5 {
+ *				reg = <0x5>;
+ *			};
+ *		};
+ *	};
+ * @endcode
+ *
+ * @code{.dts}
+ *	&device {
+ *		property = "device_property";
+ *
+ *		ports {
+ *			port@0 {
+ *				reg = <0x0>;
+ *
+ *				ep5: endpoint@5 {
+ *					reg = <0x5>;
+ *				};
+ *			};
+ *		};
+ *	};
+ * @endcode
+ *
+ * @param ep endpoint node
+ * @return the device node parent of @n
+ */
+#define DT_NODE_BY_ENDPOINT(ep)                                                                    \
 	COND_CODE_1(DT_NODE_EXISTS(DT_CHILD(DT_PARENT(DT_GPARENT(ep)), ports)),                    \
 		(DT_PARENT(DT_GPARENT(ep))), (DT_GPARENT(ep)))
 
-/* Get remote device object from the local endpoint node id */
+/**
+ * @brief Get the parent device struct of an endpoint node.
+ *
+ * Given an endpoint node, access the parent device struct.
+ * This handles the variable ways of how ports and endpoint can be defined as described in
+ * @ref DT_INST_PORT_BY_ID and @ref DT_INST_ENDPOINT_BY_ID.
+ *
+ * @code{.c}
+ *	const struct device *dev1 = DEVICE_DT_GET_REMOTE_DEVICE(DT_NODELABEL(ep5))
+ * @endcode
+ *
+ * This snippet fetches the remote @c device1 connected to this @c device0 node,
+ * by traversing the endpoints via the @c remote-endpoint-label property:
+ *
+ * @code{.dts}
+ *	&device0 {
+ *		port {
+ *			device0_ep_out: endpoint@5 {
+ *				reg = <0x5>;
+ *				remote-endpoint-label = "device1_ep_in";
+ *			};
+ *		};
+ *	};
+ *
+ *	&device1 {
+ *		ports {
+ *			port@0 {
+ *				reg = <0x0>;
+ *
+ *				device1_ep_in: endpoint {
+ *					remote-endpoint-label = "device0_ep_out";
+ *				};
+ *			};
+ *		};
+ *	};
+ * @endcode
+ *
+ * @param ep endpoint node
+ * @return the device node parent of @n
+ */
 #define DEVICE_DT_GET_REMOTE_DEVICE(ep)                                                            \
 	DEVICE_DT_GET(                                                                             \
-		_DT_NODE_BY_ENDPOINT(DT_NODELABEL(DT_STRING_TOKEN(ep, remote_endpoint_label))))
+		DT_NODE_BY_ENDPOINT(DT_NODELABEL(DT_STRING_TOKEN(ep, remote_endpoint_label))))
+
+/**
+ * @}
+ */
 
 /**
  * @brief video_endpoint_id enum
