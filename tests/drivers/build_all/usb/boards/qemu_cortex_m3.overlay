@@ -1,0 +1,20 @@
+/*
+ * SPDX-FileCopyrightText: Copyright The Zephyr Project Contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+/* This is only a placeholder, will be removed once this PR matured */
+
+/ {
+	soc {
+		zephyr_udc0: usb@b0000000 {
+			compatible = "snps,dwc3";
+			reg = <0xb0000000 0x1000000>;
+			maximum-speed = "high-speed";
+			interrupts = <42 0>;
+			num-bidir-endpoints = <16>;
+			num-in-endpoints = <8>;
+			num-out-endpoints = <8>;
+		};
+	};
+};
