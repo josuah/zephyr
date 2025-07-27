@@ -3,6 +3,7 @@
 
 zephyr_library()
 zephyr_library_include_directories(${CMAKE_CURRENT_SOURCE_DIR})
+zephyr_library_include_directories(${ZEPHYR_BASE}/subsys/usb/common)
 
 zephyr_library_sources(
 	usbd_device.c
@@ -78,6 +79,10 @@ zephyr_library_sources_ifdef(
   class/usbd_midi2.c
 )
 
+zephyr_include_directories_ifdef(
+	CONFIG_USBD_VIDEO_CLASS
+	${ZEPHYR_BASE}/drivers/video
+)
 zephyr_library_sources_ifdef(
 	CONFIG_USBD_VIDEO_CLASS
 	class/usbd_uvc.c

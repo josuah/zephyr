@@ -16,8 +16,8 @@
  * - USB Device Class Definition for Video Devices: Motion-JPEG Payload (Revision 1.5)
  */
 
-#ifndef ZEPHYR_INCLUDE_USBD_CLASS_UVC_H_
-#define ZEPHYR_INCLUDE_USBD_CLASS_UVC_H_
+#ifndef ZEPHYR_INCLUDE_USB_CLASS_UVC_H
+#define ZEPHYR_INCLUDE_USB_CLASS_UVC_H
 
 #include <zephyr/usb/usb_ch9.h>
 

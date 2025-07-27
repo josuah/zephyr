@@ -34,12 +34,26 @@
 LOG_MODULE_REGISTER(usbh_uvc, CONFIG_USBH_VIDEO_LOG_LEVEL);
 
 struct usbh_uvc_data {
-	int todo;
+	/* TODO support multiple streaming interfaces per UVC class instance */
+	uint8_t streaming_interface;
+	uint8_t streaming_endpoint;
+	/* TODO support multiple instance of terminal/unit IDs */
+	uint8_t camera_terminal_id;
+	uint8_t processing_unit_id;
+	uint8_t encoding_unit_id;
+	uint8_t extension_unit_id;
 };
 
 struct usbh_uvc_config {
 	struct usbh_context *uhs_ctx;
 };
+
+struct usbh_uvc_parsing_ctx {
+	uint32_t current_fourcc;
+};
+
+/* TODO replace with per-instance config */
+static struct usbh_uvc_data usbh_uvc_data_0;
 
 static int usbh_uvc_request(struct usbh_context *const uhs_ctx, struct uhc_transfer *const xfer,
 			    int err)
@@ -51,56 +65,86 @@ static int usbh_uvc_request(struct usbh_context *const uhs_ctx, struct uhc_trans
 
 static int usbh_uvc_parse_control_header(struct usbh_context *const uhs_ctx,
 					 struct usbh_uvc_data *const uvc,
-					 struct uvc_control_header_descriptor *desc)
+					 struct uvc_control_header_descriptor *const desc)
 {
+	uvc->streaming_interface = desc->baInterfaceNr[0];
+
 	return 0;
 }
 
 static int usbh_uvc_parse_output_terminal(struct usbh_context *const uhs_ctx,
 					 struct usbh_uvc_data *const uvc,
-					 struct uvc_output_terminal_descriptor *desc)
+					 struct uvc_output_terminal_descriptor *const desc)
 {
 	return 0;
 }
 
 static int usbh_uvc_parse_input_terminal(struct usbh_context *const uhs_ctx,
 					struct usbh_uvc_data *const uvc,
-					struct uvc_camera_terminal_descriptor *desc)
+					struct uvc_camera_terminal_descriptor *const desc)
 {
+	const uint16_t wTerminalType = sys_le32_to_cpu(desc->wTerminalType);
+
+	if (wTerminalType != UVC_ITT_CAMERA) {
+		LOG_WRN("Unsupported input terminal type %u", wTerminalType);
+	}
+
+	if (uvc->camera_terminal_id != 0) {
+		LOG_WRN("Already a camera terminal %u set", uvc->camera_terminal_id);
+	}
+	uvc->camera_terminal_id = desc->bTerminalID;
+
 	return 0;
 }
 
 static int usbh_uvc_parse_selector_unit(struct usbh_context *const uhs_ctx,
 					struct usbh_uvc_data *const uvc,
-					struct uvc_selector_unit_descriptor *desc)
+					struct uvc_selector_unit_descriptor *const desc)
 {
+	/* Not implemented */
 	return 0;
 }
 
 static int usbh_uvc_parse_processing_unit(struct usbh_context *const uhs_ctx,
 					  struct usbh_uvc_data *const uvc,
-					  struct uvc_processing_unit_descriptor *desc)
+					  struct uvc_processing_unit_descriptor *const desc)
 {
+	if (uvc->processing_unit_id != 0) {
+		LOG_WRN("Already a processing unit %u set", uvc->processing_unit_id);
+	}
+	uvc->processing_unit_id = desc->bUnitID;
+
 	return 0;
 }
 
 static int usbh_uvc_parse_extension_unit(struct usbh_context *const uhs_ctx,
 					 struct usbh_uvc_data *const uvc,
-					 struct uvc_extension_unit_descriptor *desc)
+					 struct uvc_extension_unit_descriptor *const desc)
 {
+	if (uvc->extension_unit_id != 0) {
+		LOG_WRN("Already an extension unit %u set", uvc->extension_unit_id);
+	}
+	uvc->extension_unit_id = desc->bUnitID;
+
 	return 0;
 }
 
 static int usbh_uvc_parse_encoding_unit(struct usbh_context *const uhs_ctx,
 					struct usbh_uvc_data *const uvc,
-					struct uvc_encoding_unit_descriptor *desc)
+					struct uvc_encoding_unit_descriptor *const desc)
 {
+	if (uvc->encoding_unit_id != 0) {
+		LOG_WRN("Already an encoding unit %u set", uvc->encoding_unit_id);
+	}
+	uvc->encoding_unit_id = desc->bUnitID;
+
 	return 0;
 }
 
 static int usbh_uvc_parse_control_desc(struct usbh_context *const uhs_ctx,
 				       struct usbh_uvc_data *const uvc,
-				       struct usb_if_descriptor *const if_control)
+				       struct usb_if_descriptor *const if_control,
+				       struct usbh_uvc_parsing_ctx *const ctx)
 {
 	struct uvc_if_descriptor *desc = (void *)if_control;
 	int ret = 0;
@@ -178,6 +222,8 @@ static int usbh_uvc_parse_input_header(struct usbh_context *const uhs_ctx,
 				       struct usbh_uvc_data *const uvc,
 				       struct uvc_stream_header_descriptor *const desc)
 {
+	;
+
 	return 0;
 }
 
@@ -185,6 +231,8 @@ static int usbh_uvc_parse_output_header(struct usbh_context *const uhs_ctx,
 					struct usbh_uvc_data *const uvc,
 					struct uvc_stream_header_descriptor *const desc)
 {
+	uvc->streaming_endpoint = desc->bEndpointAddress;
+
 	return 0;
 }
 
@@ -216,9 +264,17 @@ static int usbh_uvc_parse_color(struct usbh_context *const uhs_ctx,
 	return 0;
 }
 
+static int usbh_uvc_parse_streaming_ep(struct usbh_context *const uhs_ctx,
+				       struct usbh_uvc_data *const uvc,
+				       struct usb_ep_descriptor *const copy)
+{
+	return 0;
+}
+
 static int usbh_uvc_parse_streaming_desc(struct usbh_context *const uhs_ctx,
 					 struct usbh_uvc_data *const uvc,
-					 struct usb_if_descriptor *const if_streaming)
+					 struct usb_if_descriptor *const if_streaming,
+					 struct usbh_uvc_parsing_ctx *const ctx)
 {
 	struct uvc_if_descriptor *desc = (void *)if_streaming;
 	int ret;
@@ -278,6 +334,7 @@ static int usbh_uvc_parse_streaming_desc(struct usbh_context *const uhs_ctx,
 
 			memcpy(&copy, desc, MIN(sizeof(copy), desc->bLength));
 			LOG_DBG("VideoStreaming Endpoint", copy.bEndpointAddress);
+			ret = usbh_uvc_parse_streaming_ep(uhs_ctx, uvc, &copy);
 		} else {
 			LOG_DBG("VideoStreaming descriptor: unknown type %u, skipping",
 				desc->bDescriptorType);
@@ -290,9 +347,10 @@ static int usbh_uvc_parse_streaming_desc(struct usbh_context *const uhs_ctx,
 static int usbh_uvc_connected(struct usbh_context *const uhs_ctx)
 {
 	struct usb_device *const udev = uhs_ctx->root;
-	struct usbh_uvc_data *const uvc = NULL;
+	struct usbh_uvc_data *const uvc = &usbh_uvc_data_0;
 	struct usb_if_descriptor *if_control = NULL;
 	struct usb_if_descriptor *if_streaming = NULL;
+	struct usbh_uvc_parsing_ctx ctx = {};
 	int ret;
 
 	LOG_DBG("%p", uhs_ctx);
@@ -318,12 +376,12 @@ static int usbh_uvc_connected(struct usbh_context *const uhs_ctx)
 		return -EINVAL;
 	}
 
-	ret = usbh_uvc_parse_control_desc(uhs_ctx, uvc, if_control);
+	ret = usbh_uvc_parse_control_desc(uhs_ctx, uvc, if_control, &ctx);
 	if (ret != 0) {
 		return ret;
 	}
 
-	ret = usbh_uvc_parse_streaming_desc(uhs_ctx, uvc, if_streaming);
+	ret = usbh_uvc_parse_streaming_desc(uhs_ctx, uvc, if_streaming, &ctx);
 	if (ret != 0) {
 		return ret;
 	}
