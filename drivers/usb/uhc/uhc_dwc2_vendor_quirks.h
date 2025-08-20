@@ -147,7 +147,7 @@ static inline int esp32_usb_otg_get_phy_clock(struct phy_context_t *phy_ctx)
 	return 0;
 }
 
-#define QUIRK_ESP32_USB_OTG_DEFINE(n)                                          \
+#define QUIRK_ESP32_USB_OTG_DEFINE(n)                                           \
 																				\
 	static struct phy_context_t phy_ctx_##n = {                                 \
 		.target = USB_PHY_TARGET_INT,                                           \
@@ -212,6 +212,63 @@ static inline int esp32_usb_otg_get_phy_clock(struct phy_context_t *phy_ctx)
 DT_INST_FOREACH_STATUS_OKAY(QUIRK_ESP32_USB_OTG_DEFINE)
 
 #endif /*DT_HAS_COMPAT_STATUS_OKAY(espressif_esp32_usb_otg) */
+
+#if DT_HAS_COMPAT_STATUS_OKAY(nordic_nrf_usbhs_nrf54l)
+
+#include <zephyr/logging/log.h>
+
+#define USBHS_DT_WRAPPER_REG_ADDR(n) UINT_TO_POINTER(DT_INST_REG_ADDR_BY_NAME(n, wrapper))
+
+static void uhc_dwc2_isr_handler(const struct device *dev);
+
+static inline int nrf_usbhs_init(const struct device *dev)
+{
+	NRF_USBHS_Type *wrapper = USBHS_DT_WRAPPER_REG_ADDR(0);
+
+	wrapper->PHY.OVERRIDEVALUES = (1 << 24) | (1 << 23);
+	wrapper->PHY.INPUTOVERRIDE =  (1 << 31) | (1 << 30) | (1 << 24) | (1 << 23);
+
+	return 0;
+}
+
+static inline int nrf_usbhs_pre_enable(const struct device *dev)
+{
+	return 0;
+}
+
+static inline int nrf_usbhs_disable(const struct device *dev)
+{
+	return 0;
+}
+
+static inline int nrf_usbhs_irq_enable_func(const struct device *dev)
+{
+	return 0;
+}
+
+static inline int nrf_usbhs_irq_disable_func(const struct device *dev)
+{
+	return 0;
+}
+
+static inline int nrf_usbhs_get_phy_clk(const struct device *dev)
+{
+	return 0;
+}
+
+#define QUIRK_NRF_USBHS_DEFINE(n)						                          \
+	struct uhc_dwc2_vendor_quirks uhc_dwc2_vendor_quirks_##n = {                  \
+		.init = nrf_usbhs_init,                                                   \
+		.pre_enable = nrf_usbhs_pre_enable,                                       \
+		.disable = nrf_usbhs_disable,                                             \
+		.irq_enable_func = nrf_usbhs_irq_enable_func,                             \
+		.irq_disable_func = nrf_usbhs_irq_disable_func,                           \
+		.get_phy_clk = nrf_usbhs_get_phy_clk,                                     \
+	};
+
+DT_INST_FOREACH_STATUS_OKAY(QUIRK_NRF_USBHS_DEFINE)
+
+#endif /* DT_HAS_COMPAT_STATUS_OKAY(nordic_nrf_usbhs_nrf54l) */
 
 /* Add next vendor quirks definition above this line */
 
