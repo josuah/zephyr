@@ -11,7 +11,6 @@
 
 	aliases {
 		sw0 = &button_0;
-		sdhc0 = &sdhc0;
 	};
 
 	buttons {
@@ -48,7 +47,7 @@
 	pinctrl-names = "default";
 
 	sdmmc {
-		compatible = "zephyr,sdmmc-disk";
+		//compatible = "zephyr,sdmmc-disk";
 		disk-name = "SD";
 	};
 };
