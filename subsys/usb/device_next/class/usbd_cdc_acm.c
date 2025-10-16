@@ -315,6 +315,7 @@ static int usbd_cdc_acm_request(struct usbd_class_data *const c_data,
 
 		LOG_HEXDUMP_INF(buf->data, buf->len, "");
 		done = ring_buf_put(data->rx_fifo.rb, buf->data, buf->len);
+		LOG_INF("done %u, data->cb %p", done, (void *)data->cb);
 		if (done && data->cb) {
 			cdc_acm_work_submit(&data->irq_cb_work);
 		}
@@ -991,6 +992,8 @@ static void cdc_acm_irq_callback_set(const struct device *dev,
 				     void *const cb_data)
 {
 	struct cdc_acm_uart_data *const data = dev->data;
+
+	LOG_WRN("%s, cb %p, cb_data %p", __func__, (void *)cb, (void *)cb_data);
 
 	data->cb = cb;
 	data->cb_data = cb_data;
