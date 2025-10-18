@@ -41,6 +41,10 @@
 	cs-gpios = <&gpio0 12 GPIO_ACTIVE_LOW>;
 };
 
+zephyr_udc0: &usbd {
+	status = "okay";
+};
+
 /* Off by default. To enable, spi0 needs to be turned off to free GPIO12_SDH_CLK */
 &sdhc0 {
 	pinctrl-0 = <&sdh_default>;
