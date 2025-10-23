@@ -84,15 +84,21 @@ static enum udc_bus_speed udc_bflb_bl61x_device_speed(const struct device *const
 	const struct udc_bflb_bl61x_config *const cfg = dev->config;
 	uint32_t speed;
 
+	/* TODO: sleep time to make sure the speed has time to be applied */
+	k_sleep(K_MSEC(20));
+
 	speed = sys_read32(cfg->base + USB_OTG_CSR_OFFSET);
 	speed &= USB_SPD_TYP_HOV_POV_MASK;
 	speed = speed >> USB_SPD_TYP_HOV_POV_SHIFT;
 
 	if (speed == USB_BL61X_SPEED_FULL) {
+		LOG_WRN("SPEED FULL");
 		return UDC_BUS_SPEED_FS;
 	} else if (speed == USB_BL61X_SPEED_HIGH) {
+		LOG_WRN("SPEED HIGH");
 		return UDC_BUS_SPEED_HS;
 	} else {
+		LOG_WRN("SPEED UNKNOWN");
 		return UDC_BUS_UNKNOWN;
 	}
 
@@ -634,7 +640,7 @@ static void udc_bflb_bl61x_work_handler(struct k_work *item)
 			} else if (buf->len == 0) {
 				LOG_DBG("IN: EMPTY LENGTH");
 				udc_bflb_bl61x_ep_ack(ev->dev, ep_idx);
-				udc_bflb_bl61x_ep_evt_end();
+				udc_bflb_bl61x_ep_evt_end(ev->dev, ep_cfg);
 			} else {
 				if (udc_get_buf_info(buf)->zlp) {
 					LOG_DBG("IN: ZLP");
@@ -678,8 +684,8 @@ static void udc_bflb_bl61x_ev_submit(const struct device *const dev,
 }
 
 static int udc_bflb_bl61x_ep_enqueue(const struct device *const dev,
-				   struct udc_ep_config *const config,
-				   struct net_buf *buf)
+				     struct udc_ep_config *const config,
+				     struct net_buf *buf)
 {
 	const uint8_t ep_idx = USB_EP_GET_IDX(config->addr);
 
