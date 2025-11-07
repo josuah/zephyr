@@ -34,12 +34,12 @@ LOG_MODULE_REGISTER(uhc_dwc2, CONFIG_UHC_DRIVER_LOG_LEVEL);
 #define CTRL_EP_MAX_MPS_LS   8U
 #define CTRL_EP_MAX_MPS_HSFS 64U
 
-enum {
+enum uhc_dwc2_event {
 	/* Root port event */
 	UHC_DWC2_EVENT_PORT,
 	/* Root pipe event */
 	UHC_DWC2_EVENT_PIPE,
-} uhc_dwc2_event_t;
+};
 
 const char *uhc_dwc2_speed_str[] = {
 	"High Speed",
@@ -47,19 +47,19 @@ const char *uhc_dwc2_speed_str[] = {
 	"Low Speed",
 };
 
-typedef enum {
+enum uhc_dwc2_xfer_type {
 	UHC_DWC2_XFER_TYPE_CTRL = 0,
 	UHC_DWC2_XFER_TYPE_ISOCHRONOUS = 1,
 	UHC_DWC2_XFER_TYPE_BULK = 2,
 	UHC_DWC2_XFER_TYPE_INTR = 3,
-} uhc_dwc2_xfer_type_t;
+};
 
-typedef enum {
+enum uhc_dwc2_speed {
 	UHC_DWC2_SPEED_HIGH = 0,
 	UHC_DWC2_SPEED_FULL = 1,
 	UHC_DWC2_SPEED_LOW = 2,
-} uhc_dwc2_speed_t;
-typedef enum {
+};
+enum uhc_port_event {
 	/* No event has occurred or the event is no longer valid */
 	UHC_PORT_EVENT_NONE,
 	/* A device has been connected to the port */
@@ -72,12 +72,12 @@ typedef enum {
 	UHC_PORT_EVENT_ERROR,
 	/* Overcurrent detected. Port is now UHC_PORT_STATE_RECOVERY */
 	UHC_PORT_EVENT_OVERCURRENT,
-} uhc_port_event_t;
+};
 
 const char *uhc_port_event_str[] = {
 	"None", "Connection", "Enabled", "Disconnection", "Error", "Overcurrent",
 };
-typedef enum {
+enum uhc_port_state {
 	/* The port is not powered */
 	UHC_PORT_STATE_NOT_POWERED,
 	/* The port is powered but no device is connected */
@@ -95,13 +95,13 @@ typedef enum {
 	UHC_PORT_STATE_ENABLED,
 	/* Port needs to be recovered from a fatal error (error, overcurrent, or disconnection) */
 	UHC_PORT_STATE_RECOVERY,
-} uhc_port_state_t;
+};
 
 const char *uhc_port_state_str[] = {
 	"Not Powered", "Disconnected", "Disabled", "Resetting",
 	"Suspended",   "Resuming",     "Enabled",  "Recovery",
 };
-typedef enum {
+enum uhc_dwc2_core_event {
 	/* No event occurred, or could not decode interrupt */
 	UHC_DWC2_CORE_EVENT_NONE,
 	/* A channel event has occurred. Call the channel event handler instead */
@@ -118,19 +118,19 @@ typedef enum {
 	UHC_DWC2_CORE_EVENT_OVRCUR,
 	/* The host port has been cleared of the overcurrent condition */
 	UHC_DWC2_CORE_EVENT_OVRCUR_CLR,
-} uhc_dwc2_core_event_t;
+};
 
 const char *dwc2_core_event_str[] = {
 	"None",    "Channel",  "Connect",     "Disconnect",
 	"Enabled", "Disabled", "Overcurrent", "Overcurrent Cleared",
 };
 
-typedef enum {
+enum uhc_dwc2_pipe_event {
 	PIPE_EVENT_NONE = 0,
 	PIPE_EVENT_XFER_DONE,
 	PIPE_EVENT_ERROR,
 	PIPE_EVENT_HALTED,
-} pipe_event_t;
+};
 
 const char *uhc_pipe_event_str[] = {
 	"None",
@@ -139,7 +139,7 @@ const char *uhc_pipe_event_str[] = {
 	"Halted",
 };
 
-typedef enum {
+enum uhc_dwc2_chan_event {
 	/* The channel has completed execution of a transfer. Channel is now halted */
 	DWC2_CHAN_EVENT_CPLT,
 	/* The channel has encountered an error. Channel is now halted */
@@ -148,15 +148,15 @@ typedef enum {
 	DWC2_CHAN_EVENT_HALT_REQ,
 	/* No event (interrupt ran for internal processing) */
 	DWC2_CHAN_EVENT_NONE,
-} dwc2_hal_chan_event_t;
+};
 
-const char *dwc2_chan_event_str[] = {
+const char *uhc_dwc2_chan_event_str[] = {
 	"CPLT",
 	"ERROR",
 	"HALT_REQ",
 	"NONE",
 };
-typedef struct {
+struct uhc_dwc2_constant_config {
 	/* Number of available channels */
 	size_t numchannels;
 	/* High-speed PHY type */
@@ -170,9 +170,9 @@ typedef struct {
 	/* FIFO depth in WORDs */
 	uint16_t fifodepth;
 	/* TODO: Port context and callback? */
-} uhc_dwc2_constant_config_t;
+};
 
-typedef struct {
+struct uhc_dwc2_ep_char {
 	union {
 		struct {
 			/* Type of endpoint */
@@ -197,15 +197,16 @@ typedef struct {
 		/* High-speed flag */
 		bool is_hs;
 	} periodic;
-} uhc_dwc2_ep_char_t;
-typedef enum {
+};
+
+enum uhc_dwc2_pipe_state {
 	/* Pipe is active */
 	UHC_PIPE_STATE_ACTIVE,
 	/* Pipe is halted */
 	UHC_PIPE_STATE_HALTED,
-} pipe_state_t;
+};
 
-typedef struct {
+struct uhc_dwc2_channel {
 	union {
 		struct {
 			/* Is channel enabled */
@@ -226,18 +227,18 @@ typedef struct {
 	/* TODO: Add channel error? */
 
 	/* The transfer type of the channel */
-	uhc_dwc2_xfer_type_t type;
+	enum uhc_dwc2_xfer_type type;
 
 	/* Context variable for the owner of the channel */
 	void *chan_ctx;
-} uhc_dwc2_channel_t;
+};
 
-typedef enum {
+enum uhc_dwc2_ctrl_stage {
 	CTRL_STAGE_DATA0 = 0,
 	CTRL_STAGE_DATA2 = 1,
 	CTRL_STAGE_DATA1 = 2,
 	CTRL_STAGE_SETUP = 3,
-} ctrl_stage_t;
+};
 
 const char *pipe_buffer_stage_str[] = {
 	"Data0",
@@ -246,22 +247,22 @@ const char *pipe_buffer_stage_str[] = {
 	"Setup",
 };
 
-typedef struct {
+struct uhc_dwc2_pipe_config {
 	/* Speed of the device */
-	uhc_dwc2_speed_t dev_speed;
+	enum uhc_dwc2_speed dev_speed;
 	/* Device address */
 	uint8_t dev_addr;
-} uhc_pipe_config_t;
+};
 
-typedef enum {
+enum usb_transfer_type {
 	USB_TRANSFER_TYPE_CTRL = 0,
 	USB_TRANSFER_TYPE_ISOCHRONOUS,
 	USB_TRANSFER_TYPE_BULK,
 	USB_TRANSFER_TYPE_INTR,
-} usb_transfer_type_t;
+};
 
 /* Object representing a buffer of a pipe's sindle or multi buffer implementation */
-typedef struct {
+struct uhc_dwc2_dma_buffer {
 	/* Pointer to the transfer associated with the buffer */
 	struct uhc_transfer *xfer;
 	union {
@@ -291,9 +292,9 @@ typedef struct {
 		};
 		uint32_t val;
 	} status_flags;
-} dma_buffer_t;
+};
 
-struct pipe_obj_s {
+struct uhc_dwc2_pipe {
 	/* XFER queuing related */
 	sys_dlist_t xfer_pending_list;
 
@@ -302,15 +303,15 @@ struct pipe_obj_s {
 	int num_xfer_done;
 
 	/* Single-buffer control */
-	dma_buffer_t *buffer;
+	struct uhc_dwc2_dma_buffer *buffer;
 
 	/* HAL related */
-	uhc_dwc2_channel_t *chan_obj;
-	uhc_dwc2_ep_char_t ep_char;
+	struct uhc_dwc2_channel *chan_obj;
+	struct uhc_dwc2_ep_char ep_char;
 
 	/* Pipe status/state/events related */
-	pipe_state_t state;
-	pipe_event_t last_event;
+	enum uhc_dwc2_pipe_state state;
+	enum uhc_dwc2_pipe_event last_event;
 	union {
 		struct {
 			uint32_t waiting_halt: 1;
@@ -325,17 +326,14 @@ struct pipe_obj_s {
 	} flags;
 };
 
-typedef struct pipe_obj_s pipe_t;
-typedef pipe_t *pipe_hdl_t;
-
-typedef struct {
+struct uhc_dwc2_fifo_config {
 	uint16_t top;
 	uint16_t nptxfsiz;
 	uint16_t rxfsiz;
 	uint16_t ptxfsiz;
-} uhc_dwc2_fifo_config_t;
+};
 
-struct uhc_dwc2_data_s {
+struct uhc_dwc2_data {
 	struct k_sem irq_sem;
 	/* TODO: spinlock? */
 	struct k_thread thread_data;
@@ -348,17 +346,17 @@ struct uhc_dwc2_data_s {
 	/* TODO: Pipes/channels LIST? */
 
 	/* FIFO */
-	uhc_dwc2_fifo_config_t fifo;
+	struct uhc_dwc2_fifo_config fifo;
 
 	/* Data, that doesn't changed after initialization */
-	uhc_dwc2_constant_config_t const_cfg;
+	struct uhc_dwc2_constant_config const_cfg;
 	struct {
 		/* Number of channels currently allocated */
 		size_t num_allocated;
 		/* Bit mask of channels with pending interrupts */
 		uint32_t pending_intrs_msk;
 		/* Handles of each channel */
-		uhc_dwc2_channel_t **hdls;
+		struct uhc_dwc2_channel **hdls;
 	} channels;
 
 	/* Data, that is used in multiple threads */
@@ -378,8 +376,8 @@ struct uhc_dwc2_data_s {
 			};
 			uint32_t val;
 		} flags;
-		uhc_port_event_t last_event;
-		uhc_port_state_t port_state;
+		enum uhc_port_event last_event;
+		enum uhc_port_state port_state;
 	} dynamic;
 
 	/* Number of idle pipes */
@@ -388,8 +386,8 @@ struct uhc_dwc2_data_s {
 	uint8_t num_pipes_queued;
 
 	/* TODO: Dynamic pipe allocation on enqueue? */
-	pipe_t pipe;
-	pipe_hdl_t ctrl_pipe_hdl;
+	struct uhc_dwc2_pipe pipe;
+	struct uhc_dwc2_pipe *ctrl_pipe;
 };
 
 /* Host channel registers address */
@@ -420,8 +418,8 @@ enum {
 	EPSIZE_ISO_HS_MAX = 1024,
 };
 
-static inline void uhc_dwc2_config_fifo_fixed_dma(const uhc_dwc2_constant_config_t *const_cfg,
-						  uhc_dwc2_fifo_config_t *fifo)
+static inline void uhc_dwc2_config_fifo_fixed_dma(const struct uhc_dwc2_constant_config *const_cfg,
+						  struct uhc_dwc2_fifo_config *fifo)
 {
 	LOG_DBG("Configuring FIFO sizes");
 	fifo->top = const_cfg->fifodepth;
@@ -562,7 +560,7 @@ static inline void dwc2_hal_toggle_power(struct usb_dwc2_reg *const dwc2, bool p
 }
 
 static inline int dwc2_hal_get_config(struct usb_dwc2_reg *const dwc2,
-				      uhc_dwc2_constant_config_t *const cfg)
+				      struct uhc_dwc2_constant_config *const cfg)
 {
 	uint32_t gsnpsid = sys_read32((mem_addr_t)&dwc2->gsnpsid);
 	uint32_t ghwcfg2 = sys_read32((mem_addr_t)&dwc2->ghwcfg2);
@@ -643,7 +641,7 @@ static inline int dwc2_hal_get_config(struct usb_dwc2_reg *const dwc2,
 	return 0;
 }
 
-static void dwc2_hal_channel_configure(uhc_dwc2_channel_t *chan_obj, uhc_dwc2_ep_char_t *ep_char)
+static void dwc2_hal_channel_configure(struct uhc_dwc2_channel *chan_obj, struct uhc_dwc2_ep_char *ep_char)
 {
 	__ASSERT(!chan_obj->flags.active && !chan_obj->flags.halt_requested,
 		 "Cannot change endpoint characteristics while channel is active or halted");
@@ -681,7 +679,7 @@ static void dwc2_hal_channel_configure(uhc_dwc2_channel_t *chan_obj, uhc_dwc2_ep
 }
 
 static inline void dwc2_hal_apply_fifo_config(struct usb_dwc2_reg *const dwc2,
-					      uhc_dwc2_fifo_config_t *const fifo)
+					      struct uhc_dwc2_fifo_config *const fifo)
 {
 	/* Get FIFO top from config */
 	uint16_t fifo_available = fifo->top;
@@ -711,16 +709,16 @@ static inline void dwc2_hal_apply_fifo_config(struct usb_dwc2_reg *const dwc2,
 		fifo->ptxfsiz * 4);
 }
 
-static inline uhc_dwc2_speed_t dwc2_hal_get_port_speed(struct usb_dwc2_reg *const dwc2)
+static inline enum uhc_dwc2_speed dwc2_hal_get_port_speed(struct usb_dwc2_reg *const dwc2)
 {
 	uint32_t hprt = sys_read32((mem_addr_t)&dwc2->hprt);
 	return (hprt & USB_DWC2_HPRT_PRTSPD_MASK) >> USB_DWC2_HPRT_PRTSPD_POS;
 }
 
-static inline int uhc_dwc2_get_port_speed(const struct device *dev, uhc_dwc2_speed_t *speed)
+static inline int uhc_dwc2_get_port_speed(const struct device *dev, enum uhc_dwc2_speed *speed)
 {
 	const struct uhc_dwc2_config *const config = dev->config;
-	struct uhc_dwc2_data_s *priv = uhc_get_private(dev);
+	struct uhc_dwc2_data *priv = uhc_get_private(dev);
 	struct usb_dwc2_reg *const dwc2 = config->base;
 
 	if (priv->dynamic.port_state != UHC_PORT_STATE_ENABLED) {
@@ -735,8 +733,8 @@ static inline int uhc_dwc2_get_port_speed(const struct device *dev, uhc_dwc2_spe
 
 static inline void dwc2_hal_port_enable(const struct device *dev, struct usb_dwc2_reg *const dwc2)
 {
-	struct uhc_dwc2_data_s *priv = uhc_get_private(dev);
-	uhc_dwc2_speed_t speed = dwc2_hal_get_port_speed(dwc2);
+	struct uhc_dwc2_data *priv = uhc_get_private(dev);
+	enum uhc_dwc2_speed speed = dwc2_hal_get_port_speed(dwc2);
 	uint32_t hcfg = sys_read32((mem_addr_t)&dwc2->hcfg);
 	uint32_t hfir = sys_read32((mem_addr_t)&dwc2->hfir);
 
@@ -796,7 +794,7 @@ static void uhc_dwc2_lock_enable(const struct device *dev)
 {
 	const struct uhc_dwc2_config *const config = dev->config;
 	struct usb_dwc2_reg *const dwc2 = config->base;
-	struct uhc_dwc2_data_s *const priv = uhc_get_private(dev);
+	struct uhc_dwc2_data *const priv = uhc_get_private(dev);
 	/* Disable Connection and disconnection interrupts to prevent spurious events */
 	sys_clear_bits((mem_addr_t)&dwc2->gintmsk,
 		       USB_DWC2_GINTSTS_PRTINT | USB_DWC2_GINTSTS_DISCONNINT);
@@ -807,7 +805,7 @@ static inline void uhc_dwc2_lock_disable(const struct device *dev)
 {
 	const struct uhc_dwc2_config *const config = dev->config;
 	struct usb_dwc2_reg *const dwc2 = config->base;
-	struct uhc_dwc2_data_s *const priv = uhc_get_private(dev);
+	struct uhc_dwc2_data *const priv = uhc_get_private(dev);
 	priv->dynamic.flags.lock_enabled = 0;
 	/* Clear Connection and disconnection interrupt in case it triggered again */
 	sys_set_bits((mem_addr_t)&dwc2->gintsts, USB_DWC2_GINTSTS_DISCONNINT);
@@ -821,7 +819,7 @@ static inline void uhc_dwc2_lock_disable(const struct device *dev)
 static int uhc_dwc2_power_on(const struct device *dev)
 {
 	const struct uhc_dwc2_config *const config = dev->config;
-	struct uhc_dwc2_data_s *priv = uhc_get_private(dev);
+	struct uhc_dwc2_data *priv = uhc_get_private(dev);
 	struct usb_dwc2_reg *const dwc2 = config->base;
 
 	/* Port can only be powered on if it's currently unpowered */
@@ -838,7 +836,7 @@ static int uhc_dwc2_power_on(const struct device *dev)
 static inline int uhc_dwc2_config_phy(const struct device *dev)
 {
 	const struct uhc_dwc2_config *const config = dev->config;
-	struct uhc_dwc2_data_s *priv = uhc_get_private(dev);
+	struct uhc_dwc2_data *priv = uhc_get_private(dev);
 	struct usb_dwc2_reg *const dwc2 = config->base;
 
 	/* Init PHY based on the speed */
@@ -923,7 +921,7 @@ static inline void uhc_dwc2_set_defaults(const struct device *dev)
 {
 	const struct uhc_dwc2_config *const config = dev->config;
 	struct usb_dwc2_reg *const dwc2 = config->base;
-	struct uhc_dwc2_data_s *priv = uhc_get_private(dev);
+	struct uhc_dwc2_data *priv = uhc_get_private(dev);
 
 	/* Disable Global Interrupt */
 	sys_clear_bits((mem_addr_t)&dwc2->gahbcfg, USB_DWC2_GAHBCFG_GLBINTRMASK);
@@ -966,7 +964,7 @@ static inline void uhc_dwc2_set_defaults(const struct device *dev)
 static int uhc_dwc2_init_controller(const struct device *dev)
 {
 	const struct uhc_dwc2_config *const config = dev->config;
-	struct uhc_dwc2_data_s *priv = uhc_get_private(dev);
+	struct uhc_dwc2_data *priv = uhc_get_private(dev);
 	struct usb_dwc2_reg *const dwc2 = config->base;
 
 	int ret;
@@ -1008,14 +1006,14 @@ static int uhc_dwc2_init_controller(const struct device *dev)
 	return ret;
 }
 
-static uhc_port_event_t uhc_dwc2_decode_hprt(const struct device *dev,
-					     uhc_dwc2_core_event_t core_event)
+static enum uhc_port_event uhc_dwc2_decode_hprt(const struct device *dev,
+					     enum uhc_dwc2_core_event core_event)
 {
 	const struct uhc_dwc2_config *const config = dev->config;
-	struct uhc_dwc2_data_s *priv = uhc_get_private(dev);
+	struct uhc_dwc2_data *priv = uhc_get_private(dev);
 	struct usb_dwc2_reg *const dwc2 = config->base;
 
-	uhc_port_event_t port_event = UHC_PORT_EVENT_NONE;
+	enum uhc_port_event port_event = UHC_PORT_EVENT_NONE;
 	switch (core_event) {
 	case UHC_DWC2_CORE_EVENT_CONN: {
 		port_event = UHC_PORT_EVENT_CONNECTION;
@@ -1078,14 +1076,14 @@ static uhc_port_event_t uhc_dwc2_decode_hprt(const struct device *dev,
 	return port_event;
 }
 
-static inline uhc_dwc2_core_event_t uhc_dwc2_decode_intr(const struct device *dev)
+static inline enum uhc_dwc2_core_event uhc_dwc2_decode_intr(const struct device *dev)
 {
 	const struct uhc_dwc2_config *const config = dev->config;
-	struct uhc_dwc2_data_s *priv = uhc_get_private(dev);
+	struct uhc_dwc2_data *priv = uhc_get_private(dev);
 	struct usb_dwc2_reg *const dwc2 = config->base;
 	mem_addr_t hprt_reg = (mem_addr_t)&dwc2->hprt;
 
-	uhc_dwc2_core_event_t core_event = UHC_DWC2_CORE_EVENT_NONE;
+	enum uhc_dwc2_core_event core_event = UHC_DWC2_CORE_EVENT_NONE;
 	/* Read and clear core interrupt status */
 	uint32_t core_intrs = sys_read32((mem_addr_t)&dwc2->gintsts);
 	sys_write32(core_intrs, (mem_addr_t)&dwc2->gintsts);
@@ -1155,9 +1153,9 @@ static inline uhc_dwc2_core_event_t uhc_dwc2_decode_intr(const struct device *de
 	return core_event;
 }
 
-uhc_dwc2_channel_t *uhc_dwc2_get_chan_pending_intr(const struct device *dev)
+struct uhc_dwc2_channel *uhc_dwc2_get_chan_pending_intr(const struct device *dev)
 {
-	struct uhc_dwc2_data_s *priv = uhc_get_private(dev);
+	struct uhc_dwc2_data *priv = uhc_get_private(dev);
 
 	if (priv->channels.hdls == NULL) {
 		LOG_WRN("uhc_dwc2_get_chan_pending_intr: No channels allocated");
@@ -1174,7 +1172,7 @@ uhc_dwc2_channel_t *uhc_dwc2_get_chan_pending_intr(const struct device *dev)
 	}
 }
 
-static inline void *uhc_dwc2_chan_get_context(uhc_dwc2_channel_t *chan_obj)
+static inline void *uhc_dwc2_chan_get_context(struct uhc_dwc2_channel *chan_obj)
 {
 	if (chan_obj == NULL) {
 		LOG_ERR("uhc_dwc2_chan_get_context: Channel object is NULL");
@@ -1183,7 +1181,7 @@ static inline void *uhc_dwc2_chan_get_context(uhc_dwc2_channel_t *chan_obj)
 	return chan_obj->chan_ctx;
 }
 
-dwc2_hal_chan_event_t uhc_dwc2_hal_chan_decode_intr(uhc_dwc2_channel_t *chan_obj)
+enum uhc_dwc2_chan_event uhc_dwc2_hal_chan_decode_intr(struct uhc_dwc2_channel *chan_obj)
 {
 	mem_addr_t hcint_reg = (mem_addr_t)&chan_obj->regs->hcint;
 
@@ -1191,7 +1189,7 @@ dwc2_hal_chan_event_t uhc_dwc2_hal_chan_decode_intr(uhc_dwc2_channel_t *chan_obj
 	/* Clear the interrupt bits by writing them back */
 	sys_write32(hcint, hcint_reg);
 
-	dwc2_hal_chan_event_t chan_event;
+	enum uhc_dwc2_chan_event chan_event;
 
 	/*
 	 * Note:
@@ -1240,7 +1238,7 @@ dwc2_hal_chan_event_t uhc_dwc2_hal_chan_decode_intr(uhc_dwc2_channel_t *chan_obj
 	return chan_event;
 }
 
-struct uhc_transfer *pipe_get_next_xfer(pipe_t *pipe)
+struct uhc_transfer *pipe_get_next_xfer(struct uhc_dwc2_pipe *pipe)
 {
 	struct uhc_transfer *xfer;
 	sys_dnode_t *node = sys_dlist_peek_head(&pipe->xfer_pending_list);
@@ -1256,9 +1254,9 @@ static inline uint16_t calc_packet_count(const uint16_t size, const uint8_t mps)
 	}
 }
 
-static inline bool _buffer_check_done(pipe_t *pipe)
+static inline bool _buffer_check_done(struct uhc_dwc2_pipe *pipe)
 {
-	dma_buffer_t *buffer = pipe->buffer;
+	struct uhc_dwc2_dma_buffer *buffer = pipe->buffer;
 	/* Only control transfers need to be continued */
 	if (pipe->ep_char.type != UHC_DWC2_XFER_TYPE_CTRL) {
 		return true;
@@ -1267,7 +1265,7 @@ static inline bool _buffer_check_done(pipe_t *pipe)
 	return (buffer->flags.ctrl.cur_stg == 2);
 }
 
-static inline void _buffer_fill_ctrl(dma_buffer_t *buffer, struct uhc_transfer *const xfer)
+static inline void _buffer_fill_ctrl(struct uhc_dwc2_dma_buffer *buffer, struct uhc_transfer *const xfer)
 {
 	/* Get information about the control transfer by analyzing the setup packet */
 	const struct usb_setup_packet *setup_pkt = (const struct usb_setup_packet *)xfer->setup_pkt;
@@ -1292,7 +1290,7 @@ static inline void _buffer_fill_ctrl(dma_buffer_t *buffer, struct uhc_transfer *
 	/* TODO Sync data from cache to memory. For OUT and CTRL transfers */
 }
 
-static void IRAM_ATTR _buffer_fill(pipe_t *pipe)
+static void IRAM_ATTR _buffer_fill(struct uhc_dwc2_pipe *pipe)
 {
 	struct uhc_transfer *xfer = pipe_get_next_xfer(pipe);
 	pipe->num_xfer_pending--;
@@ -1312,7 +1310,7 @@ static void IRAM_ATTR _buffer_fill(pipe_t *pipe)
 	/* TODO: sync CACHE */
 }
 
-static inline ctrl_stage_t cal_next_pid(ctrl_stage_t pid, uint8_t pkt_count)
+static inline enum uhc_dwc2_ctrl_stage cal_next_pid(enum uhc_dwc2_ctrl_stage pid, uint8_t pkt_count)
 {
 	if (pkt_count & 0x01) {
 		/* Toggle DATA0 and DATA1 */
@@ -1322,9 +1320,9 @@ static inline ctrl_stage_t cal_next_pid(ctrl_stage_t pid, uint8_t pkt_count)
 	}
 }
 
-static void IRAM_ATTR _buffer_exec_proceed(pipe_t *pipe)
+static void IRAM_ATTR _buffer_exec_proceed(struct uhc_dwc2_pipe *pipe)
 {
-	dma_buffer_t *buffer_exec = pipe->buffer;
+	struct uhc_dwc2_dma_buffer *buffer_exec = pipe->buffer;
 	struct uhc_transfer *const xfer = pipe->buffer->xfer;
 	const struct usb_dwc2_host_chan *const chan_regs = pipe->chan_obj->regs;
 
@@ -1334,7 +1332,7 @@ static void IRAM_ATTR _buffer_exec_proceed(pipe_t *pipe)
 		 buffer_exec->flags.ctrl.cur_stg);
 
 	bool next_dir_is_in;
-	ctrl_stage_t next_pid;
+	enum uhc_dwc2_ctrl_stage next_pid;
 	uint16_t size = 0;
 	uint8_t *dma_addr = NULL;
 
@@ -1403,15 +1401,15 @@ static void IRAM_ATTR _buffer_exec_proceed(pipe_t *pipe)
 	sys_write32(hcchar, (mem_addr_t)&chan_regs->hcchar);
 }
 
-static inline void _buffer_done(pipe_t *pipe, pipe_event_t pipe_event, bool canceled)
+static inline void _buffer_done(struct uhc_dwc2_pipe *pipe, enum uhc_dwc2_pipe_event pipe_event, bool canceled)
 {
-	dma_buffer_t *buffer_done = pipe->buffer;
+	struct uhc_dwc2_dma_buffer *buffer_done = pipe->buffer;
 	buffer_done->status_flags.executing = 0;
 	buffer_done->status_flags.was_canceled = canceled;
 	buffer_done->status_flags.pipe_event = pipe_event;
 }
 
-static inline bool _buffer_can_fill(pipe_t *pipe)
+static inline bool _buffer_can_fill(struct uhc_dwc2_pipe *pipe)
 {
 	/* We can only fill if there are pending XFRs and at least one unfilled buffer */
 	return (pipe->num_xfer_pending > 0);
@@ -1419,7 +1417,7 @@ static inline bool _buffer_can_fill(pipe_t *pipe)
 	/* TODO: Double buffering scheme? */
 }
 
-static inline bool _buffer_can_exec(pipe_t *pipe)
+static inline bool _buffer_can_exec(struct uhc_dwc2_pipe *pipe)
 {
 	/* TODO: Double buffering scheme? */
 	/* For one buffer we can execute it always */
@@ -1430,12 +1428,12 @@ static inline bool _buffer_can_exec(pipe_t *pipe)
  * Decode a channel interrupt and take appropriate action
  * Interrupt context.
  */
-static pipe_event_t uhc_dwc2_decode_chan(pipe_t *pipe, uhc_dwc2_channel_t *chan_obj)
+static enum uhc_dwc2_pipe_event uhc_dwc2_decode_chan(struct uhc_dwc2_pipe *pipe,struct uhc_dwc2_channel *chan_obj)
 {
-	dwc2_hal_chan_event_t chan_event = uhc_dwc2_hal_chan_decode_intr(chan_obj);
-	pipe_event_t pipe_event = PIPE_EVENT_NONE;
+	enum uhc_dwc2_chan_event chan_event = uhc_dwc2_hal_chan_decode_intr(chan_obj);
+	enum uhc_dwc2_pipe_event pipe_event = PIPE_EVENT_NONE;
 
-	LOG_DBG("Channel event: %s", dwc2_chan_event_str[chan_event]);
+	LOG_DBG("Channel event: %s", uhc_dwc2_chan_event_str[chan_event]);
 
 	switch (chan_event) {
 	case DWC2_CHAN_EVENT_NONE: {
@@ -1486,9 +1484,9 @@ static pipe_event_t uhc_dwc2_decode_chan(pipe_t *pipe, uhc_dwc2_channel_t *chan_
 	return pipe_event;
 }
 
-static IRAM_ATTR void _buffer_exec(pipe_t *pipe)
+static IRAM_ATTR void _buffer_exec(struct uhc_dwc2_pipe *pipe)
 {
-	dma_buffer_t *buffer_exec = pipe->buffer;
+	struct uhc_dwc2_dma_buffer *buffer_exec = pipe->buffer;
 	struct uhc_transfer *const xfer = (struct uhc_transfer *)buffer_exec->xfer;
 	const struct usb_dwc2_host_chan *const chan_regs = pipe->chan_obj->regs;
 
@@ -1531,17 +1529,17 @@ static IRAM_ATTR void _buffer_exec(pipe_t *pipe)
 
 static void uhc_dwc2_isr_handler(const struct device *dev)
 {
-	struct uhc_dwc2_data_s *priv = uhc_get_private(dev);
+	struct uhc_dwc2_data *priv = uhc_get_private(dev);
 
 	unsigned int key = irq_lock();
 
-	uhc_dwc2_core_event_t core_event = uhc_dwc2_decode_intr(dev);
+	enum uhc_dwc2_core_event core_event = uhc_dwc2_decode_intr(dev);
 	if (core_event == UHC_DWC2_CORE_EVENT_CHAN) {
 		/* Channel event. Cycle through each pending channel */
-		uhc_dwc2_channel_t *chan_obj = uhc_dwc2_get_chan_pending_intr(dev);
+struct uhc_dwc2_channel *chan_obj = uhc_dwc2_get_chan_pending_intr(dev);
 		while (chan_obj != NULL) {
-			pipe_t *pipe = (pipe_t *)uhc_dwc2_chan_get_context(chan_obj);
-			pipe_event_t pipe_event = uhc_dwc2_decode_chan(pipe, chan_obj);
+			struct uhc_dwc2_pipe *pipe = (struct uhc_dwc2_pipe *)uhc_dwc2_chan_get_context(chan_obj);
+			enum uhc_dwc2_pipe_event pipe_event = uhc_dwc2_decode_chan(pipe, chan_obj);
 			if (pipe_event != PIPE_EVENT_NONE) {
 				pipe->last_event = pipe_event;
 				pipe->flags.event_pending = 1;
@@ -1554,7 +1552,7 @@ static void uhc_dwc2_isr_handler(const struct device *dev)
 	} else {
 		if (core_event != UHC_DWC2_CORE_EVENT_NONE) {
 			/* Port event */
-			uhc_port_event_t port_event = uhc_dwc2_decode_hprt(dev, core_event);
+			enum uhc_port_event port_event = uhc_dwc2_decode_hprt(dev, core_event);
 			if (port_event != UHC_PORT_EVENT_NONE) {
 				priv->dynamic.last_event = port_event;
 				priv->dynamic.flags.event_pending = 1;
@@ -1575,7 +1573,7 @@ static void uhc_dwc2_isr_handler(const struct device *dev)
 static inline bool uhc_dwc2_port_debounce(const struct device *dev)
 {
 	const struct uhc_dwc2_config *const config = dev->config;
-	struct uhc_dwc2_data_s *priv = uhc_get_private(dev);
+	struct uhc_dwc2_data *priv = uhc_get_private(dev);
 	struct usb_dwc2_reg *const dwc2 = config->base;
 
 	/* TODO: exit critical section */
@@ -1594,11 +1592,11 @@ static inline bool uhc_dwc2_port_debounce(const struct device *dev)
 	return is_connected;
 }
 
-static inline uhc_port_event_t uhc_dwc2_get_port_event(const struct device *dev)
+static inline enum uhc_port_event uhc_dwc2_get_port_event(const struct device *dev)
 {
-	struct uhc_dwc2_data_s *priv = uhc_get_private(dev);
+	struct uhc_dwc2_data *priv = uhc_get_private(dev);
 
-	uhc_port_event_t ret = UHC_PORT_EVENT_NONE;
+	enum uhc_port_event ret = UHC_PORT_EVENT_NONE;
 	/* TODO: enter critial section */
 	if (priv->dynamic.flags.event_pending) {
 		priv->dynamic.flags.event_pending = 0;
@@ -1641,7 +1639,7 @@ static inline void uhc_dwc2_flush_pipes(const struct device *dev)
 static inline int uhc_dwc2_port_reset(const struct device *dev)
 {
 	const struct uhc_dwc2_config *const config = dev->config;
-	struct uhc_dwc2_data_s *priv = uhc_get_private(dev);
+	struct uhc_dwc2_data *priv = uhc_get_private(dev);
 	struct usb_dwc2_reg *const dwc2 = config->base;
 
 	int ret;
@@ -1756,7 +1754,7 @@ static inline int uhc_dwc2_port_recovery(const struct device *dev)
 /*
  * Submit a new device connected event to the higher logic.
  */
-static inline void uhc_dwc2_submit_new_device(const struct device *dev, uhc_dwc2_speed_t speed)
+static inline void uhc_dwc2_submit_new_device(const struct device *dev, enum uhc_dwc2_speed speed)
 {
 	enum uhc_event_type type;
 
@@ -1791,11 +1789,11 @@ static inline void uhc_dwc2_submit_dev_gone(const struct device *dev)
 /*
  * Fills the endpoint characteristics for a pipe.
  */
-static void uhc_dwc2_pipe_set_ep_char(const uhc_pipe_config_t *pipe_config,
-				      usb_transfer_type_t type, bool is_ctrl_pipe, int pipe_idx,
-				      uhc_dwc2_speed_t port_speed, uhc_dwc2_ep_char_t *ep_char)
+static void uhc_dwc2_pipe_set_ep_char(const struct uhc_dwc2_pipe_config *pipe_config,
+				      enum usb_transfer_type type, bool is_ctrl_pipe, int pipe_idx,
+				      enum uhc_dwc2_speed port_speed, struct uhc_dwc2_ep_char *ep_char)
 {
-	uhc_dwc2_xfer_type_t dw2_ll_xfer_type;
+	enum uhc_dwc2_xfer_type dw2_ll_xfer_type;
 
 	if (type == USB_TRANSFER_TYPE_CTRL) {
 		dw2_ll_xfer_type = UHC_DWC2_XFER_TYPE_CTRL;
@@ -1828,11 +1826,11 @@ static void uhc_dwc2_pipe_set_ep_char(const uhc_pipe_config_t *pipe_config,
 /*
  * Adds the channel object to the channel list and initializes it.
  */
-static inline bool uhc_dwc2_chan_alloc(const struct device *dev, uhc_dwc2_channel_t *chan_obj,
+static inline bool uhc_dwc2_chan_alloc(const struct device *dev,struct uhc_dwc2_channel *chan_obj,
 				       void *context)
 {
 	const struct uhc_dwc2_config *const config = dev->config;
-	struct uhc_dwc2_data_s *priv = uhc_get_private(dev);
+	struct uhc_dwc2_data *priv = uhc_get_private(dev);
 	struct usb_dwc2_reg *const dwc2 = config->base;
 
 	__ASSERT(priv->channels.hdls, "uhc_dwc2_chan_alloc: Channel handles list not allocated");
@@ -1859,7 +1857,7 @@ static inline bool uhc_dwc2_chan_alloc(const struct device *dev, uhc_dwc2_channe
 	/* Initialize channel object */
 	LOG_DBG("Allocating channel %d", chan_idx);
 
-	memset(chan_obj, 0, sizeof(uhc_dwc2_channel_t));
+	memset(chan_obj, 0, sizeof(struct uhc_dwc2_channel));
 
 	chan_obj->flags.chan_idx = chan_idx;
 	chan_obj->regs = UHC_DWC2_CHAN_REG(dwc2, chan_idx);
@@ -1880,10 +1878,10 @@ static inline bool uhc_dwc2_chan_alloc(const struct device *dev, uhc_dwc2_channe
 	return true;
 }
 
-static inline void uhc_dwc2_chan_free(const struct device *dev, uhc_dwc2_channel_t *chan_obj)
+static inline void uhc_dwc2_chan_free(const struct device *dev,struct uhc_dwc2_channel *chan_obj)
 {
 	const struct uhc_dwc2_config *const config = dev->config;
-	struct uhc_dwc2_data_s *priv = uhc_get_private(dev);
+	struct uhc_dwc2_data *priv = uhc_get_private(dev);
 	struct usb_dwc2_reg *const dwc2 = config->base;
 
 	__ASSERT(priv->channels.hdls, "uhc_dwc2_chan_alloc: Channel handles list not allocated");
@@ -1915,15 +1913,15 @@ static inline void uhc_dwc2_chan_free(const struct device *dev, uhc_dwc2_channel
 /*
  * Allocate one DMA buffer block for a pipe.
  */
-static dma_buffer_t *dma_buffer_block_alloc(usb_transfer_type_t type)
+static struct uhc_dwc2_dma_buffer *dma_buffer_block_alloc(enum usb_transfer_type type)
 {
 	(void)type;
 	/* Buffer DMA mode needs only one simple buffer for now */
-	dma_buffer_t *buffer = k_malloc(sizeof(dma_buffer_t));
+	struct uhc_dwc2_dma_buffer *buffer = k_malloc(sizeof(struct uhc_dwc2_dma_buffer));
 	return buffer;
 }
 
-static void dma_buffer_block_free(dma_buffer_t *buffer)
+static void dma_buffer_block_free(struct uhc_dwc2_dma_buffer *buffer)
 {
 	if (buffer) {
 		k_free(buffer);
@@ -1934,22 +1932,22 @@ static void dma_buffer_block_free(dma_buffer_t *buffer)
  * Allocate a pipe holding the underlying channel object and the DMA buffer for transfer purposes.
  */
 static inline int uhc_dwc2_pipe_alloc(const struct device *dev,
-				      const uhc_pipe_config_t *pipe_config, pipe_hdl_t *pipe_hdl)
+				      const struct uhc_dwc2_pipe_config *pipe_config, struct uhc_dwc2_pipe **pipe_ptr)
 {
-	struct uhc_dwc2_data_s *priv = uhc_get_private(dev);
+	struct uhc_dwc2_data *priv = uhc_get_private(dev);
 
 	int ret;
 
 	/* TODO: Allocate the pipe and it's resources */
-	pipe_t *pipe = &priv->pipe;
+	struct uhc_dwc2_pipe *pipe = &priv->pipe;
 
-	uhc_dwc2_channel_t *chan_obj = k_malloc(sizeof(uhc_dwc2_channel_t));
+	struct uhc_dwc2_channel *chan_obj = k_malloc(sizeof(struct uhc_dwc2_channel));
 	if (pipe == NULL || chan_obj == NULL) {
 		LOG_ERR("Failed to allocate pipe or channel object");
 		ret = -ENOMEM;
 		goto err;
 	}
-	memset(chan_obj, 0, sizeof(uhc_dwc2_channel_t));
+	memset(chan_obj, 0, sizeof(struct uhc_dwc2_channel));
 
 	/* Save channel object in the pipe object */
 	pipe->chan_obj = chan_obj;
@@ -1957,11 +1955,11 @@ static inline int uhc_dwc2_pipe_alloc(const struct device *dev,
 	/* TODO: Double buffering scheme? */
 
 	/* TODO: Support all types of transfers */
-	uhc_dwc2_ep_char_t ep_char;
+	struct uhc_dwc2_ep_char ep_char;
 
-	usb_transfer_type_t type = USB_TRANSFER_TYPE_CTRL;
+	enum usb_transfer_type type = USB_TRANSFER_TYPE_CTRL;
 	/* TODO: Refactor to get port speed, static for now */
-	uhc_dwc2_speed_t port_speed = UHC_DWC2_SPEED_FULL;
+	enum uhc_dwc2_speed port_speed = UHC_DWC2_SPEED_FULL;
 	bool is_default = true;
 	int pipe_idx = 0;
 
@@ -1974,7 +1972,7 @@ static inline int uhc_dwc2_pipe_alloc(const struct device *dev,
 	}
 
 	uhc_dwc2_pipe_set_ep_char(pipe_config, type, is_default, pipe_idx, port_speed, &ep_char);
-	memcpy(&pipe->ep_char, &ep_char, sizeof(uhc_dwc2_ep_char_t));
+	memcpy(&pipe->ep_char, &ep_char, sizeof(struct uhc_dwc2_ep_char));
 	pipe->state = UHC_PIPE_STATE_ACTIVE;
 
 	/* TODO: enter critical section */
@@ -2003,7 +2001,7 @@ static inline int uhc_dwc2_pipe_alloc(const struct device *dev,
 
 	/* TODO: exit critical section */
 
-	*pipe_hdl = (pipe_hdl_t)pipe;
+	*pipe_ptr = pipe;
 	return 0;
 err:
 	if (pipe->buffer) {
@@ -2018,10 +2016,9 @@ err:
 /*
  * Free the pipe and its resources.
  */
-static inline int uhc_dwc2_pipe_free(const struct device *dev, pipe_hdl_t pipe_hdl)
+static inline int uhc_dwc2_pipe_free(const struct device *dev, struct uhc_dwc2_pipe *pipe)
 {
-	struct uhc_dwc2_data_s *priv = uhc_get_private(dev);
-	pipe_t *pipe = (pipe_t *)pipe_hdl;
+	struct uhc_dwc2_data *priv = uhc_get_private(dev);
 
 	if (pipe->num_xfer_pending && pipe->flags.has_xfer) {
 		LOG_ERR("Unable to free pipe with pending XFERs");
@@ -2039,8 +2036,8 @@ static inline int uhc_dwc2_pipe_free(const struct device *dev, pipe_hdl_t pipe_h
 
 static inline void uhc_dwc2_handle_port_events(const struct device *dev)
 {
-	struct uhc_dwc2_data_s *priv = uhc_get_private(dev);
-	uhc_port_event_t port_event = uhc_dwc2_get_port_event(dev);
+	struct uhc_dwc2_data *priv = uhc_get_private(dev);
+	enum uhc_port_event port_event = uhc_dwc2_get_port_event(dev);
 	int ret;
 
 	LOG_DBG("Port event: %s", uhc_port_event_str[port_event]);
@@ -2059,7 +2056,7 @@ static inline void uhc_dwc2_handle_port_events(const struct device *dev)
 		priv->dynamic.port_state = UHC_PORT_STATE_ENABLED;
 		/* TODO: exit critical section */
 
-		uhc_dwc2_speed_t speed;
+		enum uhc_dwc2_speed speed;
 
 		ret = uhc_dwc2_get_port_speed(dev, &speed);
 		if (ret) {
@@ -2068,19 +2065,19 @@ static inline void uhc_dwc2_handle_port_events(const struct device *dev)
 		}
 
 		/* Allocate the Pipe for the EP0 Control Endpoint */
-		pipe_hdl_t ctrl_pipe_hdl;
-		uhc_pipe_config_t pipe_config = {
+		struct uhc_dwc2_pipe *ctrl_pipe;
+		struct uhc_dwc2_pipe_config pipe_config = {
 			.dev_speed = speed,
 			.dev_addr = 0,
 		};
 
-		ret = uhc_dwc2_pipe_alloc(dev, &pipe_config, &ctrl_pipe_hdl);
+		ret = uhc_dwc2_pipe_alloc(dev, &pipe_config, &ctrl_pipe);
 		if (ret) {
 			LOG_ERR("Failed to initialize channels: %d", ret);
 			break;
 		}
 		/* Save the control pipe handle in the private data */
-		priv->ctrl_pipe_hdl = ctrl_pipe_hdl;
+		priv->ctrl_pipe = ctrl_pipe;
 		/* Notify the higher logic about the new device */
 		uhc_dwc2_submit_new_device(dev, speed);
 		break;
@@ -2106,8 +2103,8 @@ static inline void uhc_dwc2_handle_port_events(const struct device *dev)
 		/* TODO: exit critical section */
 
 		if (port_has_device) {
-			uhc_dwc2_pipe_free(dev, priv->ctrl_pipe_hdl);
-			priv->ctrl_pipe_hdl = NULL;
+			uhc_dwc2_pipe_free(dev, priv->ctrl_pipe);
+			priv->ctrl_pipe = NULL;
 			uhc_dwc2_submit_dev_gone(dev);
 		}
 		/* Recover the port */
@@ -2121,10 +2118,10 @@ static inline void uhc_dwc2_handle_port_events(const struct device *dev)
 
 static inline void uhc_dwc2_handle_pipe_events(const struct device *dev)
 {
-	struct uhc_dwc2_data_s *priv = uhc_get_private(dev);
+	struct uhc_dwc2_data *priv = uhc_get_private(dev);
 
 	/* TODO: support more than CTRL pipe */
-	pipe_t *pipe = &priv->pipe;
+	struct uhc_dwc2_pipe *pipe = &priv->pipe;
 
 	LOG_DBG("Pipe event: %s", uhc_pipe_event_str[pipe->last_event]);
 
@@ -2166,7 +2163,7 @@ static inline void uhc_dwc2_handle_pipe_events(const struct device *dev)
 static inline void uhc_dwc2_thread_handler(void *const arg)
 {
 	const struct device *dev = (const struct device *)arg;
-	struct uhc_dwc2_data_s *const priv = uhc_get_private(dev);
+	struct uhc_dwc2_data *const priv = uhc_get_private(dev);
 
 	uint32_t evt = k_event_wait(&priv->drv_evt, UINT32_MAX, false, K_FOREVER);
 
@@ -2185,11 +2182,10 @@ static inline void uhc_dwc2_thread_handler(void *const arg)
 	uhc_unlock_internal(dev);
 }
 
-static inline int uhc_dwc2_submit_ctrl_xfer(const struct device *dev, pipe_hdl_t pipe_hdl,
+static inline int uhc_dwc2_submit_ctrl_xfer(const struct device *dev, struct uhc_dwc2_pipe *pipe,
 					    struct uhc_transfer *const xfer)
 {
-	pipe_t *pipe = (pipe_t *)pipe_hdl;
-	struct uhc_dwc2_data_s *priv = uhc_get_private(dev);
+	struct uhc_dwc2_data *priv = uhc_get_private(dev);
 
 	LOG_HEXDUMP_WRN(xfer->setup_pkt, 8, "setup");
 
@@ -2283,11 +2279,11 @@ static int uhc_dwc2_bus_resume(const struct device *dev)
 
 static int uhc_dwc2_enqueue(const struct device *dev, struct uhc_transfer *const xfer)
 {
-	struct uhc_dwc2_data_s *priv = uhc_get_private(dev);
+	struct uhc_dwc2_data *priv = uhc_get_private(dev);
 
 	int ret;
 	if (USB_EP_GET_IDX(xfer->ep) == 0) {
-		ret = uhc_dwc2_submit_ctrl_xfer(dev, priv->ctrl_pipe_hdl, xfer);
+		ret = uhc_dwc2_submit_ctrl_xfer(dev, priv->ctrl_pipe, xfer);
 		if (ret) {
 			LOG_ERR("Failed to submit xfer: %d", ret);
 			return ret;
@@ -2309,11 +2305,11 @@ static int uhc_dwc2_dequeue(const struct device *dev, struct uhc_transfer *const
 static int uhc_dwc2_preinit(const struct device *dev)
 {
 	const struct uhc_dwc2_config *const config = dev->config;
-	struct uhc_dwc2_data_s *priv = uhc_get_private(dev);
+	struct uhc_dwc2_data *priv = uhc_get_private(dev);
 
 	/* Initialize the private data structure */
-	memset(priv, 0, sizeof(struct uhc_dwc2_data_s));
-	priv->ctrl_pipe_hdl = NULL;
+	memset(priv, 0, sizeof(struct uhc_dwc2_data));
+	priv->ctrl_pipe = NULL;
 	k_mutex_init(&priv->mutex);
 	k_event_init(&priv->drv_evt);
 
@@ -2327,7 +2323,7 @@ static int uhc_dwc2_preinit(const struct device *dev)
 
 static int uhc_dwc2_init(const struct device *dev)
 {
-	struct uhc_dwc2_data_s *priv = uhc_get_private(dev);
+	struct uhc_dwc2_data *priv = uhc_get_private(dev);
 
 	int ret;
 
@@ -2343,7 +2339,8 @@ static int uhc_dwc2_init(const struct device *dev)
 	}
 
 	/* Allocate memory for the channel objects */
-	priv->channels.hdls = k_malloc(priv->const_cfg.numchannels * sizeof(uhc_dwc2_channel_t *));
+	priv->channels.hdls =
+		k_malloc(priv->const_cfg.numchannels * sizeof(struct uhc_dwc2_channel *));
 	if (priv->channels.hdls == NULL) {
 		LOG_ERR("Failed to allocate channel handles");
 		return -ENOMEM;
@@ -2429,7 +2426,7 @@ static void uhc_dwc2_thread(void *arg1, void *arg2, void *arg3)
 
 static void uhc_dwc2_make_thread(const struct device *dev)
 {
-	struct uhc_dwc2_data_s *priv = uhc_get_private(dev);
+	struct uhc_dwc2_data *priv = uhc_get_private(dev);
 
 	k_thread_create(&priv->thread_data, uhc_dwc2_stack, K_THREAD_STACK_SIZEOF(uhc_dwc2_stack),
 			uhc_dwc2_thread, (void *)dev, NULL, NULL,
@@ -2456,10 +2453,11 @@ static const struct uhc_api uhc_dwc2_api = {
 };
 
 #define UHC_DWC2_DT_INST_REG_ADDR(n)                                                               \
-	COND_CODE_1(DT_NUM_REGS(DT_DRV_INST(n)), (DT_INST_REG_ADDR(n)),		\
-					(DT_INST_REG_ADDR_BY_NAME(n, core)))
+	COND_CODE_1(DT_NUM_REGS(DT_DRV_INST(n)),                                                   \
+		    (DT_INST_REG_ADDR(n)),                                                         \
+		    (DT_INST_REG_ADDR_BY_NAME(n, core)))
 
-static struct uhc_dwc2_data_s uhc_dwc2_data = {
+static struct uhc_dwc2_data uhc_dwc2_data = {
 	.irq_sem = Z_SEM_INITIALIZER(uhc_dwc2_data.irq_sem, 0, 1),
 };
 
