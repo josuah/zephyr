@@ -12,7 +12,6 @@
 #include <zephyr/drivers/usb/uhc.h>
 #include <usb_dwc2_hw.h>
 
-
 /* Vendor quirks per driver instance */
 struct uhc_dwc2_vendor_quirks {
 	/* Called at the beginning of uhc_dwc2_init() */
@@ -64,27 +63,26 @@ struct uhc_dwc2_config {
 
 #include "uhc_dwc2_vendor_quirks.h"
 
-#define UHC_DWC2_VENDOR_QUIRK_GET(n)                                            \
-	COND_CODE_1(DT_NODE_VENDOR_HAS_IDX(DT_DRV_INST(n), 1),                      \
-			(&uhc_dwc2_vendor_quirks_##n),                                      \
-			(NULL))
+#define UHC_DWC2_VENDOR_QUIRK_GET(n)                                                               \
+	COND_CODE_1(DT_NODE_VENDOR_HAS_IDX(DT_DRV_INST(n), 1),                                     \
+		    (&uhc_dwc2_vendor_quirks_##n),                                                 \
+		    (NULL))
 
-
-#define DWC2_QUIRK_FUNC_DEFINE(fname)                                           \
-static inline int uhc_dwc2_quirk_##fname(const struct device *dev)              \
-{                                                                               \
-	const struct uhc_dwc2_config *const config = dev->config;                   \
-	const struct uhc_dwc2_vendor_quirks *const quirks =                         \
-		COND_CODE_1(IS_EQ(DT_NUM_INST_STATUS_OKAY(snps_dwc2), 1),               \
-			(UHC_DWC2_VENDOR_QUIRK_GET(0); ARG_UNUSED(config);),                \
-			(config->quirks;))                                                  \
-																				\
-	if (quirks != NULL && quirks->fname != NULL) {                              \
-		return quirks->fname(dev);                                              \
-	}                                                                           \
-																				\
-	return 0;                                                                   \
-}
+#define DWC2_QUIRK_FUNC_DEFINE(fname)                                                              \
+	static inline int uhc_dwc2_quirk_##fname(const struct device *dev)                         \
+	{                                                                                          \
+		__maybe_unused const struct uhc_dwc2_config *const config = dev->config;           \
+		const struct uhc_dwc2_vendor_quirks *const quirks =                                \
+			COND_CODE_1(IS_EQ(DT_NUM_INST_STATUS_OKAY(snps_dwc2), 1),                  \
+				    (UHC_DWC2_VENDOR_QUIRK_GET(0)),                                \
+				    (config->quirks));                                             \
+                                                                                                   \
+		if (quirks != NULL && quirks->fname != NULL) {                                     \
+			return quirks->fname(dev);                                                 \
+		}                                                                                  \
+                                                                                                   \
+		return 0;                                                                          \
+	}
 
 DWC2_QUIRK_FUNC_DEFINE(init)
 DWC2_QUIRK_FUNC_DEFINE(pre_enable)
