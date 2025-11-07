@@ -1017,7 +1017,7 @@ struct shell_ctx {
 
 	struct k_event signal_event;
 
-	struct k_sem lock_sem;
+	struct k_mutex lock;
 	k_tid_t tid;
 	int ret_val;
 };
