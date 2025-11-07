@@ -175,11 +175,16 @@ typedef struct {
 typedef struct {
 	union {
 		struct {
-			uint32_t type: 2;             /**< Type of endpoint */
-			uint32_t bEndpointAddress: 8; /**< Endpoint address */
-			uint32_t mps: 11;             /**< Maximum Packet Size */
-			uint32_t dev_addr: 8;         /**< Device Address */
-			uint32_t ls_via_fs_hub: 1;    /**< LS device is routed via FS hub */
+			/* Type of endpoint */
+			uint32_t type: 2;
+			/* Endpoint address */
+			uint32_t bEndpointAddress: 8;
+			/* Maximum Packet Size */
+			uint32_t mps: 11;
+			/* Device Address */
+			uint32_t dev_addr: 8;
+			/* LS device is routed via FS hub */
+			uint32_t ls_via_fs_hub: 1;
 			uint32_t reserved2: 2;
 		};
 		uint32_t val;
@@ -203,10 +208,13 @@ typedef enum {
 typedef struct {
 	union {
 		struct {
-			uint32_t active: 1;         /**< Is channel enabled */
-			uint32_t halt_requested: 1; /**< Halt has been requested */
+			/* Is channel enabled */
+			uint32_t active: 1;
+			/* Halt has been requested */
+			uint32_t halt_requested: 1;
 			uint32_t reserved: 2;
-			uint32_t chan_idx: 4; /**< The index of the channel */
+			/* The index of the channel */
+			uint32_t chan_idx: 4;
 			uint32_t reserved24: 24;
 		};
 		uint32_t val;
@@ -239,8 +247,10 @@ const char *pipe_buffer_stage_str[] = {
 };
 
 typedef struct {
-	uhc_dwc2_speed_t dev_speed; /**< Speed of the device */
-	uint8_t dev_addr;           /**< Device address */
+	/* Speed of the device */
+	uhc_dwc2_speed_t dev_speed;
+	/* Device address */
+	uint8_t dev_addr;
 } uhc_pipe_config_t;
 
 typedef enum {
@@ -250,19 +260,22 @@ typedef enum {
 	USB_TRANSFER_TYPE_INTR,
 } usb_transfer_type_t;
 
-/**
- * @brief Object representing a buffer of a pipe's sindle or multi buffer implementation
- */
+/* Object representing a buffer of a pipe's sindle or multi buffer implementation */
 typedef struct {
 	/* Pointer to the transfer associated with the buffer */
 	struct uhc_transfer *xfer;
 	union {
 		struct {
-			uint32_t data_stg_in: 1;   /**< Data stage is IN */
-			uint32_t data_stg_skip: 1; /**< Has no data stage */
-			uint32_t cur_stg: 2;       /**< Stage index */
-			uint32_t set_addr: 1;      /**< Set address request */
-			uint32_t new_addr: 7;      /**< New address */
+			/* Data stage is IN */
+			uint32_t data_stg_in: 1;
+			/* Has no data stage */
+			uint32_t data_stg_skip: 1;
+			/* Stage index */
+			uint32_t cur_stg: 2;
+			/* Set address request */
+			uint32_t set_addr: 1;
+			/* New address */
+			uint32_t new_addr: 7;
 			uint32_t reserved20: 20;
 		} ctrl;
 		uint32_t val;
@@ -302,8 +315,10 @@ struct pipe_obj_s {
 		struct {
 			uint32_t waiting_halt: 1;
 			uint32_t pipe_cmd_processing: 1;
-			uint32_t has_xfer: 1;      /**< XFER: pending, in-flight or done */
-			uint32_t event_pending: 1; /**< Pipe event is pending */
+			/* XFER: pending, in-flight or done */
+			uint32_t has_xfer: 1;
+			/* Pipe event is pending */
+			uint32_t event_pending: 1;
 			uint32_t reserved28: 28;
 		};
 		uint32_t val;
@@ -346,13 +361,18 @@ struct uhc_dwc2_data_s {
 		uhc_dwc2_channel_t **hdls;
 	} channels;
 
+	/* Data, that is used in multiple threads */
 	struct {
 		union {
 			struct {
-				uint32_t lock_enabled: 1;    /**< Debounce lock */
-				uint32_t event_pending: 1;   /**< Port event is pending */
-				uint32_t conn_dev_ena: 1;    /**< Device is connected */
-				uint32_t waiting_disable: 1; /**< Waiting to be disabled */
+				/* Debounce lock */
+				uint32_t lock_enabled: 1;
+				/* Port event is pending */
+				uint32_t event_pending: 1;
+				/* Device is connected */
+				uint32_t conn_dev_ena: 1;
+				/* Waiting to be disabled */
+				uint32_t waiting_disable: 1;
 				uint32_t reserved: 4;
 				uint32_t reserved24: 24;
 			};
@@ -360,7 +380,7 @@ struct uhc_dwc2_data_s {
 		} flags;
 		uhc_port_event_t last_event;
 		uhc_port_state_t port_state;
-	} dynamic; /* Data, that is used in multiple threads */
+	} dynamic;
 
 	/* Number of idle pipes */
 	uint8_t num_pipes_idle;
@@ -376,11 +396,8 @@ struct uhc_dwc2_data_s {
 #define UHC_DWC2_CHAN_REG(base, chan_idx)                                                          \
 	((struct usb_dwc2_host_chan *)(((mem_addr_t)(base)) + 0x500UL + ((chan_idx) * 0x20UL)))
 
-/* ===============================================================================================
- */
-/* ================================ DWC2 FIFO Management =========================================
- */
-/* ===============================================================================================
+/*
+ * DWC2 FIFO Management
  */
 
 /* Programming Guide 2.1.2 FIFO RAM allocation
@@ -426,15 +443,8 @@ static inline void uhc_dwc2_config_fifo_fixed_dma(const uhc_dwc2_constant_config
 		fifo->rxfsiz * 4, fifo->ptxfsiz * 4);
 }
 
-/* ===============================================================================================
- */
-/* =================================== DWC2 HAL Functions ========================================
- */
-/* ===============================================================================================
- */
-
 /*
- * Common functions for both DWC2 device and host driver
+ * DWC2 low-level Functions,
  */
 
 void dwc2_hal_flush_rx_fifo(struct usb_dwc2_reg *const dwc2)
@@ -764,11 +774,8 @@ static inline void dwc2_hal_port_enable(const struct device *dev, struct usb_dwc
 	}
 }
 
-/* ===============================================================================================
- */
-/* ================================== DWC2 Port Management =======================================
- */
-/* ===============================================================================================
+/*
+ * DWC2 Port Management
  */
 
 /* Host Port Control and Status Register */
@@ -1419,13 +1426,9 @@ static inline bool _buffer_can_exec(pipe_t *pipe)
 	return true;
 }
 
-/**
- * @brief Decode a channel interrupt and take appropriate action
- *
- * @note Interrupt context.
- *
- * @param pipe The pipe associated with the channel
- * @param chan_obj The channel object
+/*
+ * Decode a channel interrupt and take appropriate action
+ * Interrupt context.
  */
 static pipe_event_t uhc_dwc2_decode_chan(pipe_t *pipe, uhc_dwc2_channel_t *chan_obj)
 {
@@ -1635,15 +1638,6 @@ static inline void uhc_dwc2_flush_pipes(const struct device *dev)
 	/* TODO: Sync CACHE */
 }
 
-/**
- * @brief Reset the port.
- *
- * @note Port-related logic, thread context.
- *
- * @param[in] dev Pointer to the device structure.
- *
- * @return 0 on success, negative error code on failure.
- */
 static inline int uhc_dwc2_port_reset(const struct device *dev)
 {
 	const struct uhc_dwc2_config *const config = dev->config;
@@ -1718,16 +1712,8 @@ bailout:
 	return ret;
 }
 
-/**
- * @brief Perform a port recovery operation.
- *
+/*
  * Port recovery is necessary when the port is in an error state and needs to be reset.
- *
- * @note Port-related logic, thread context.
- *
- * @param[in] dev Pointer to the device structure.
- *
- * @return 0 on success, negative error code on failure.
  */
 static inline int uhc_dwc2_port_recovery(const struct device *dev)
 {
@@ -1767,11 +1753,8 @@ static inline int uhc_dwc2_port_recovery(const struct device *dev)
 	return ret;
 }
 
-/**
- * @brief Submit a new device connected event to the higher logic.
- *
- * @param[in] dev Pointer to the device structure.
- * @param[in] speed The speed of the new device.
+/*
+ * Submit a new device connected event to the higher logic.
  */
 static inline void uhc_dwc2_submit_new_device(const struct device *dev, uhc_dwc2_speed_t speed)
 {
@@ -1796,10 +1779,8 @@ static inline void uhc_dwc2_submit_new_device(const struct device *dev, uhc_dwc2
 	uhc_submit_event(dev, type, 0);
 }
 
-/**
- * @brief Submit a device gone event to the higher logic.
- *
- * @param[in] dev Pointer to the device structure.
+/*
+ * Submit a device gone event to the higher logic.
  */
 static inline void uhc_dwc2_submit_dev_gone(const struct device *dev)
 {
@@ -1807,15 +1788,8 @@ static inline void uhc_dwc2_submit_dev_gone(const struct device *dev)
 	uhc_submit_event(dev, UHC_EVT_DEV_REMOVED, 0);
 }
 
-/**
- * @brief Fills the endpoint characteristics for a pipe.
- *
- * @param[in] pipe_config Pointer to the pipe configuration.
- * @param[in] type The type of USB transfer.
- * @param[in] is_ctrl_pipe Whether the pipe is a control pipe.
- * @param[in] pipe_idx The index of the pipe.
- * @param[in] port_speed The speed of the port.
- * @param[out] ep_char Pointer to the endpoint characteristics structure to be filled.
+/*
+ * Fills the endpoint characteristics for a pipe.
  */
 static void uhc_dwc2_pipe_set_ep_char(const uhc_pipe_config_t *pipe_config,
 				      usb_transfer_type_t type, bool is_ctrl_pipe, int pipe_idx,
@@ -1851,16 +1825,8 @@ static void uhc_dwc2_pipe_set_ep_char(const uhc_pipe_config_t *pipe_config,
 	ep_char->periodic.offset = 0;
 }
 
-/**
- * @brief Allocate a DWC2 HAL channel.
- *
+/*
  * Adds the channel object to the channel list and initializes it.
- *
- * @param[in] dev Pointer to the device structure.
- * @param[in] chan_obj Pointer to the channel object to be allocated.
- * @param[in] context Pointer to the context associated with the channel.
- *
- * @return true if the channel was successfully allocated, false otherwise.
  */
 static inline bool uhc_dwc2_chan_alloc(const struct device *dev, uhc_dwc2_channel_t *chan_obj,
 				       void *context)
@@ -1946,12 +1912,8 @@ static inline void uhc_dwc2_chan_free(const struct device *dev, uhc_dwc2_channel
 	k_free(chan_obj);
 }
 
-/**
- * @brief Allocate one DMA buffer block for a pipe.
- *
- * @param[in] type The type of USB transfer.
- *
- * @return Pointer to the allocated DMA buffer block, or NULL on failure.
+/*
+ * Allocate one DMA buffer block for a pipe.
  */
 static dma_buffer_t *dma_buffer_block_alloc(usb_transfer_type_t type)
 {
@@ -1961,11 +1923,6 @@ static dma_buffer_t *dma_buffer_block_alloc(usb_transfer_type_t type)
 	return buffer;
 }
 
-/**
- * @brief Free a DMA buffer block.
- *
- * @param[in] buffer Pointer to the DMA buffer block to be freed.
- */
 static void dma_buffer_block_free(dma_buffer_t *buffer)
 {
 	if (buffer) {
@@ -1973,16 +1930,8 @@ static void dma_buffer_block_free(dma_buffer_t *buffer)
 	}
 }
 
-/**
- * @brief Allocate a pipe and its resources.
- *
- * @note Pipe holds the underlying channel object and the DMA buffer for transfer purposes.
- *
- * Thread context.
- *
- * @param[in] dev Pointer to the device structure.
- * @param[in] pipe_config Pointer to the pipe configuration structure.
- * @param[out] pipe_hdl Pointer to the pipe handle to be filled.
+/*
+ * Allocate a pipe holding the underlying channel object and the DMA buffer for transfer purposes.
  */
 static inline int uhc_dwc2_pipe_alloc(const struct device *dev,
 				      const uhc_pipe_config_t *pipe_config, pipe_hdl_t *pipe_hdl)
@@ -2066,10 +2015,8 @@ err:
 	return ret;
 }
 
-/**
- * @brief Free the pipe and its resources.
- *
- * @param dev Pointer to the device structure.
+/*
+ * Free the pipe and its resources.
  */
 static inline int uhc_dwc2_pipe_free(const struct device *dev, pipe_hdl_t pipe_hdl)
 {
@@ -2090,13 +2037,6 @@ static inline int uhc_dwc2_pipe_free(const struct device *dev, pipe_hdl_t pipe_h
 	return 0;
 }
 
-/**
- * @brief Handle port events.
- *
- * @note Thread context.
- *
- * @param dev Pointer to the device structure.
- */
 static inline void uhc_dwc2_handle_port_events(const struct device *dev)
 {
 	struct uhc_dwc2_data_s *priv = uhc_get_private(dev);
@@ -2179,13 +2119,6 @@ static inline void uhc_dwc2_handle_port_events(const struct device *dev)
 	}
 }
 
-/**
- * @brief Handle pipe events.
- *
- * @note Thread context.
- *
- * @param dev Pointer to the device structure.
- */
 static inline void uhc_dwc2_handle_pipe_events(const struct device *dev)
 {
 	struct uhc_dwc2_data_s *priv = uhc_get_private(dev);
@@ -2227,12 +2160,8 @@ static inline void uhc_dwc2_handle_pipe_events(const struct device *dev)
 	}
 }
 
-/**
- * @brief Thread handler for the UHC DWC2 USB driver.
- *
+/*
  * Thread that processes USB events from the DWC2 controller: Port, Pipe.
- *
- * @param arg Pointer to the device structure.
  */
 static inline void uhc_dwc2_thread_handler(void *const arg)
 {
@@ -2307,11 +2236,8 @@ static inline int uhc_dwc2_submit_ctrl_xfer(const struct device *dev, pipe_hdl_t
 	return 0;
 }
 
-/* ===============================================================================================
- */
-/* ================================== UHC DWC2 Driver API ========================================
- */
-/* ===============================================================================================
+/*
+ * UHC DWC2 Driver API
  */
 
 static int uhc_dwc2_lock(const struct device *dev)
@@ -2488,11 +2414,8 @@ static int uhc_dwc2_shutdown(const struct device *dev)
 	return -ENOSYS;
 }
 
-/* ===============================================================================================
- */
-/* ======================== Device Definition and Initialization =================================
- */
-/* ===============================================================================================
+/*
+ * Device Definition and Initialization
  */
 
 K_THREAD_STACK_DEFINE(uhc_dwc2_stack, CONFIG_UHC_DWC2_STACK_SIZE);
@@ -2541,21 +2464,14 @@ static struct uhc_dwc2_data_s uhc_dwc2_data = {
 };
 
 static const struct uhc_dwc2_config uhc_dwc2_config_host = {
-	.base = (struct usb_dwc2_reg *)UHC_DWC2_DT_INST_REG_ADDR(0), /* Base register address */
-	.make_thread = uhc_dwc2_make_thread,                         /* Create the thread */
-	.quirks = UHC_DWC2_VENDOR_QUIRK_GET(0),                      /* Vendors' quirks */
+	.base = (struct usb_dwc2_reg *)UHC_DWC2_DT_INST_REG_ADDR(0),
+	.make_thread = uhc_dwc2_make_thread,
+	.quirks = UHC_DWC2_VENDOR_QUIRK_GET(0),
 };
 
 static struct uhc_data uhc_dwc2_priv_data = {
-	.priv = &uhc_dwc2_data, /* Pointer to the private data */
+	.priv = &uhc_dwc2_data,
 };
 
-DEVICE_DT_INST_DEFINE(0,                     /* Device instance number */
-		      uhc_dwc2_preinit,      /* Initialization function (called before main) */
-		      NULL,                  /* Power management resources (optional) */
-		      &uhc_dwc2_priv_data,   /* Reference to instance data */
-		      &uhc_dwc2_config_host, /* Reference to instance configuration */
-		      POST_KERNEL,           /* Initialization level */
-		      99,                    /* Initialization priority */
-		      &uhc_dwc2_api          /* Reference to API operations */
-);
+DEVICE_DT_INST_DEFINE(0, uhc_dwc2_preinit, NULL, &uhc_dwc2_priv_data, &uhc_dwc2_config_host,
+		      POST_KERNEL, 99, &uhc_dwc2_api);
