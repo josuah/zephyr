@@ -143,22 +143,21 @@ struct uhc_dwc2_constant_config {
 };
 
 struct uhc_dwc2_ep_char {
-	/* Type of endpoint */
-	uint32_t type: 2;
-	/* Endpoint address */
-	uint32_t bEndpointAddress: 8;
 	/* Maximum Packet Size */
-	uint32_t mps: 11;
+	uint16_t mps;
+	/* Endpoint address */
+	uint8_t bEndpointAddress;
 	/* Device Address */
-	uint32_t dev_addr: 8;
-	/* LS device is routed via FS hub */
-	uint32_t ls_via_fs_hub: 1;
+	uint8_t dev_addr;
+	/* Type of endpoint */
+	enum uhc_dwc2_xfer_type type;
 	/* Interval in frames (FS) or microframes (HS) */
 	unsigned int interval;
 	/* Offset in the periodic scheduler */
 	uint32_t offset;
 	/* High-speed flag */
 	bool is_hs;
+	bool ls_via_fs_hub;
 };
 
 enum uhc_dwc2_pipe_state {
@@ -169,18 +168,18 @@ enum uhc_dwc2_pipe_state {
 };
 
 struct uhc_dwc2_channel {
-	/* Is channel enabled */
-	uint32_t active: 1;
-	/* Halt has been requested */
-	uint32_t halt_requested: 1;
-	/* The index of the channel */
-	uint32_t chan_idx: 4;
 	/* Pointer to the Host channel's register set */
 	const struct usb_dwc2_host_chan *regs;
 	/* The transfer type of the channel */
 	enum uhc_dwc2_xfer_type type;
 	/* Context variable for the owner of the channel */
 	void *chan_ctx;
+	/* The index of the channel */
+	uint8_t chan_idx;
+	/* Is channel enabled */
+	uint8_t active: 1;
+	/* Halt has been requested */
+	uint8_t halt_requested: 1;
 	/* TODO: Add channel error? */
 };
 
@@ -209,22 +208,22 @@ enum usb_transfer_type {
 struct uhc_dwc2_dma_buffer {
 	/* Pointer to the transfer associated with the buffer */
 	struct uhc_transfer *xfer;
-	/* Set address request */
-	uint32_t set_addr: 1;
-	/* New address */
-	uint32_t new_addr: 7;
-	/* Data stage is IN */
-	uint32_t data_stg_in: 1;
-	/* Has no data stage */
-	uint32_t data_stg_skip: 1;
-	/* Stage index */
-	uint32_t cur_stg: 2;
 	/* The pipe event type */
-	uint32_t pipe_event: 8;
+	enum uhc_dwc2_pipe_event pipe_event;
+	/* Stage index */
+	uint8_t cur_stg;
+	/* New address */
+	uint8_t new_addr;
+	/* Set address request */
+	uint8_t set_addr: 1;
+	/* Data stage is IN */
+	uint8_t data_stg_in: 1;
+	/* Has no data stage */
+	uint8_t data_stg_skip: 1;
 	/* This DMA buffer is currently being executed */
-	uint32_t executing: 1;
+	uint8_t executing: 1;
 	/* THis DMA buffer was canceled before completion  */
-	uint32_t was_canceled: 1;
+	uint8_t was_canceled: 1;
 };
 
 struct uhc_dwc2_pipe {
@@ -241,12 +240,12 @@ struct uhc_dwc2_pipe {
 	/* Pipe status/state/events related */
 	enum uhc_dwc2_pipe_state state;
 	enum uhc_dwc2_pipe_event last_event;
-	uint32_t waiting_halt: 1;
-	uint32_t pipe_cmd_processing: 1;
+	uint8_t waiting_halt: 1;
+	uint8_t pipe_cmd_processing: 1;
 	/* XFER: pending, in-flight or done */
-	uint32_t has_xfer: 1;
+	uint8_t has_xfer: 1;
 	/* Pipe event is pending */
-	uint32_t event_pending: 1;
+	uint8_t event_pending: 1;
 };
 
 struct uhc_dwc2_fifo_config {
@@ -268,29 +267,29 @@ struct uhc_dwc2_data {
 	struct uhc_dwc2_fifo_config fifo;
 	/* Data, that doesn't changed after initialization */
 	struct uhc_dwc2_constant_config const_cfg;
+	struct uhc_dwc2_pipe pipe;
+	struct uhc_dwc2_pipe *ctrl_pipe;
+	/* Handles of each channel */
+	struct uhc_dwc2_channel **channels;
 	/* Number of channels currently allocated */
 	size_t num_channels;
 	/* Bit mask of channels with pending interrupts */
 	uint32_t pending_channel_intrs_msk;
-	/* Handles of each channel */
-	struct uhc_dwc2_channel **channels;
 	/* Data, that is used in multiple threads */
-	/* Debounce lock */
-	uint32_t lock_enabled: 1;
-	/* Port event is pending */
-	uint32_t event_pending: 1;
-	/* Device is connected */
-	uint32_t conn_dev_ena: 1;
-	/* Waiting to be disabled */
-	uint32_t waiting_disable: 1;
 	enum uhc_port_event last_event;
 	enum uhc_port_state port_state;
 	/* Number of idle pipes */
 	uint8_t num_pipes_idle;
 	/* Number of pipes queued for processing */
 	uint8_t num_pipes_queued;
-	struct uhc_dwc2_pipe pipe;
-	struct uhc_dwc2_pipe *ctrl_pipe;
+	/* Debounce lock */
+	uint8_t lock_enabled: 1;
+	/* Port event is pending */
+	uint8_t event_pending: 1;
+	/* Device is connected */
+	uint8_t conn_dev_ena: 1;
+	/* Waiting to be disabled */
+	uint8_t waiting_disable: 1;
 	/* TODO: Dynamic pipe allocation on enqueue? */
 	/* TODO: FRAME LIST? */
 	/* TODO: Pipes/channels LIST? */
@@ -2075,7 +2074,7 @@ static inline void uhc_dwc2_thread_handler(void *const arg)
 	/* The role of this line is only to shift the .text area or insert delay, either
 	 * of which temporarily fixes a crash which I am currently debugging step-by-step.
 	 */
-	LOG_DBG("%d", __LINE__);
+	//LOG_DBG("%d", __LINE__);
 	uhc_lock_internal(dev, K_FOREVER);
 
 	if (evt & BIT(UHC_DWC2_EVENT_PORT)) {
