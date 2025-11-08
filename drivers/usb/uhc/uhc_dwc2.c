@@ -41,12 +41,6 @@ enum uhc_dwc2_event {
 	UHC_DWC2_EVENT_PIPE,
 };
 
-const char *uhc_dwc2_speed_str[] = {
-	"High Speed",
-	"Full Speed",
-	"Low Speed",
-};
-
 enum uhc_dwc2_xfer_type {
 	UHC_DWC2_XFER_TYPE_CTRL = 0,
 	UHC_DWC2_XFER_TYPE_ISOCHRONOUS = 1,
@@ -59,6 +53,7 @@ enum uhc_dwc2_speed {
 	UHC_DWC2_SPEED_FULL = 1,
 	UHC_DWC2_SPEED_LOW = 2,
 };
+
 enum uhc_port_event {
 	/* No event has occurred or the event is no longer valid */
 	UHC_PORT_EVENT_NONE,
@@ -74,9 +69,6 @@ enum uhc_port_event {
 	UHC_PORT_EVENT_OVERCURRENT,
 };
 
-const char *uhc_port_event_str[] = {
-	"None", "Connection", "Enabled", "Disconnection", "Error", "Overcurrent",
-};
 enum uhc_port_state {
 	/* The port is not powered */
 	UHC_PORT_STATE_NOT_POWERED,
@@ -97,10 +89,6 @@ enum uhc_port_state {
 	UHC_PORT_STATE_RECOVERY,
 };
 
-const char *uhc_port_state_str[] = {
-	"Not Powered", "Disconnected", "Disabled", "Resetting",
-	"Suspended",   "Resuming",     "Enabled",  "Recovery",
-};
 enum uhc_dwc2_core_event {
 	/* No event occurred, or could not decode interrupt */
 	UHC_DWC2_CORE_EVENT_NONE,
@@ -120,23 +108,11 @@ enum uhc_dwc2_core_event {
 	UHC_DWC2_CORE_EVENT_OVRCUR_CLR,
 };
 
-const char *dwc2_core_event_str[] = {
-	"None",    "Channel",  "Connect",     "Disconnect",
-	"Enabled", "Disabled", "Overcurrent", "Overcurrent Cleared",
-};
-
 enum uhc_dwc2_pipe_event {
 	PIPE_EVENT_NONE = 0,
 	PIPE_EVENT_XFER_DONE,
 	PIPE_EVENT_ERROR,
 	PIPE_EVENT_HALTED,
-};
-
-const char *uhc_pipe_event_str[] = {
-	"None",
-	"XFER Done",
-	"Error",
-	"Halted",
 };
 
 enum uhc_dwc2_chan_event {
@@ -150,12 +126,6 @@ enum uhc_dwc2_chan_event {
 	DWC2_CHAN_EVENT_NONE,
 };
 
-const char *uhc_dwc2_chan_event_str[] = {
-	"CPLT",
-	"ERROR",
-	"HALT_REQ",
-	"NONE",
-};
 struct uhc_dwc2_constant_config {
 	/* Number of available channels */
 	size_t numchannels;
@@ -238,13 +208,6 @@ enum uhc_dwc2_ctrl_stage {
 	CTRL_STAGE_DATA2 = 1,
 	CTRL_STAGE_DATA1 = 2,
 	CTRL_STAGE_SETUP = 3,
-};
-
-const char *pipe_buffer_stage_str[] = {
-	"Data0",
-	"Data2",
-	"Data1",
-	"Setup",
 };
 
 struct uhc_dwc2_pipe_config {
@@ -1433,7 +1396,7 @@ static enum uhc_dwc2_pipe_event uhc_dwc2_decode_chan(struct uhc_dwc2_pipe *pipe,
 	enum uhc_dwc2_chan_event chan_event = uhc_dwc2_hal_chan_decode_intr(chan_obj);
 	enum uhc_dwc2_pipe_event pipe_event = PIPE_EVENT_NONE;
 
-	LOG_DBG("Channel event: %s", uhc_dwc2_chan_event_str[chan_event]);
+	LOG_DBG("Channel event: %d", chan_event);
 
 	switch (chan_event) {
 	case DWC2_CHAN_EVENT_NONE: {
@@ -1756,9 +1719,10 @@ static inline int uhc_dwc2_port_recovery(const struct device *dev)
  */
 static inline void uhc_dwc2_submit_new_device(const struct device *dev, enum uhc_dwc2_speed speed)
 {
+	const char *uhc_dwc2_speed_str[] = { "High", "Full", "Low" };
 	enum uhc_event_type type;
 
-	LOG_WRN("New dev, speed %s", uhc_dwc2_speed_str[speed]);
+	LOG_WRN("New dev, %s Speed", uhc_dwc2_speed_str[speed]);
 
 	switch (speed) {
 	case UHC_DWC2_SPEED_LOW:
@@ -2040,7 +2004,7 @@ static inline void uhc_dwc2_handle_port_events(const struct device *dev)
 	enum uhc_port_event port_event = uhc_dwc2_get_port_event(dev);
 	int ret;
 
-	LOG_DBG("Port event: %s", uhc_port_event_str[port_event]);
+	LOG_DBG("Port event: %d", port_event);
 
 	switch (port_event) {
 	case UHC_PORT_EVENT_NONE:
@@ -2096,8 +2060,7 @@ static inline void uhc_dwc2_handle_port_events(const struct device *dev)
 			port_has_device = true;
 			break;
 		default:
-			LOG_ERR("Unexpected port state %s",
-				uhc_port_state_str[priv->dynamic.port_state]);
+			LOG_ERR("Unexpected port state %d", priv->dynamic.port_state);
 			break;
 		}
 		/* TODO: exit critical section */
@@ -2123,7 +2086,7 @@ static inline void uhc_dwc2_handle_pipe_events(const struct device *dev)
 	/* TODO: support more than CTRL pipe */
 	struct uhc_dwc2_pipe *pipe = &priv->pipe;
 
-	LOG_DBG("Pipe event: %s", uhc_pipe_event_str[pipe->last_event]);
+	LOG_DBG("Pipe event: %d", pipe->last_event);
 
 	if (pipe->last_event == PIPE_EVENT_XFER_DONE) {
 		/* XFER transfer is done, process the transfer and release the pipe buffer */
@@ -2153,7 +2116,7 @@ static inline void uhc_dwc2_handle_pipe_events(const struct device *dev)
 
 	} else {
 		/* TODO: Handle the rest pipe events */
-		LOG_ERR("Unhandled pipe event %s", uhc_pipe_event_str[pipe->last_event]);
+		LOG_ERR("Unhandled pipe event %d", pipe->last_event);
 	}
 }
 
