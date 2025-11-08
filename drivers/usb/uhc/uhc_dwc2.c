@@ -2072,6 +2072,10 @@ static inline void uhc_dwc2_thread_handler(void *const arg)
 
 	uint32_t evt = k_event_wait(&priv->drv_evt, UINT32_MAX, false, K_FOREVER);
 
+	/* The role of this line is only to shift the .text area or insert delay, either
+	 * of which temporarily fixes a crash which I am currently debugging step-by-step.
+	 */
+	LOG_DBG("%d", __LINE__);
 	uhc_lock_internal(dev, K_FOREVER);
 
 	if (evt & BIT(UHC_DWC2_EVENT_PORT)) {
