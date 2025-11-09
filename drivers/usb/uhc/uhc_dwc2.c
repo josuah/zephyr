@@ -201,8 +201,6 @@ struct uhc_dwc2_data {
 	/* Main events the driver thread waits for */
 	struct k_event drv_evt;
 	struct uhc_dwc2_chan chan[UHC_DWC2_MAX_CHAN];
-	/* Number of channels currently allocated */
-	size_t num_channels;
 	/* Bit mask of channels with pending interrupts */
 	uint32_t pending_channel_intrs_msk;
 	/* Data, that is used in multiple threads */
@@ -835,7 +833,6 @@ static int uhc_dwc2_init_controller(const struct device *dev)
 	priv->last_event = UHC_PORT_EVENT_NONE;
 
 	/* TODO: Clear all the flags and channels */
-	priv->num_channels = 0;
 	priv->pending_channel_intrs_msk = 0;
 
 	return 0;
@@ -1636,54 +1633,18 @@ static inline void uhc_dwc2_submit_dev_gone(const struct device *dev)
 }
 
 /*
- * Adds the channel object to the channel list and initializes it.
- */
-static inline bool uhc_dwc2_chan_init(const struct device *dev, struct uhc_dwc2_chan *chan)
-{
-	const struct uhc_dwc2_config *const config = dev->config;
-	struct uhc_dwc2_data *priv = uhc_get_private(dev);
-	struct usb_dwc2_reg *const dwc2 = config->base;
-	const struct usb_dwc2_host_chan *chan_regs;
-
-	/* TODO: FIFO sizes should be set before attempting to allocate a channel */
-
-	if (priv->num_channels == UHC_DWC2_NUMHSTCHNL(config) + 1) {
-		return false;
-	}
-
-	chan->chan_idx = priv->num_channels;
-	priv->num_channels++;
-
-	chan_regs = UHC_DWC2_CHAN_REG(dwc2, chan->chan_idx);
-
-	LOG_DBG("Allocating channel %d", chan->chan_idx);
-
-	/* Init underlying channel registers */
-
-	/* Clear the interrupt bits by writing them back */
-	uint32_t hcint = sys_read32((mem_addr_t)&chan_regs->hcint);
-	sys_write32(hcint, (mem_addr_t)&chan_regs->hcint);
-
-	/* Enable channel interrupts in the core */
-	sys_set_bits((mem_addr_t)&dwc2->haintmsk, (1 << chan->chan_idx));
-
-	/* Enable transfer complete and channel halted interrupts */
-	sys_set_bits((mem_addr_t)&chan_regs->hcintmsk,
-		     USB_DWC2_HCINT_XFERCOMPL | USB_DWC2_HCINT_CHHLTD);
-	return true;
-}
-
-/*
  * Allocate a chan holding the underlying channel object and the DMA buffer for transfer purposes.
  */
-static inline int uhc_dwc2_chan_alloc(const struct device *dev, uint8_t chan_idx, uint8_t ep_addr,
-				      uint8_t dev_addr, enum uhc_dwc2_speed dev_speed,
-				      enum uhc_dwc2_speed port_speed, enum uhc_dwc2_xfer_type type)
+static inline int uhc_dwc2_chan_config(const struct device *dev, uint8_t chan_idx, uint8_t ep_addr,
+				       uint8_t dev_addr, enum uhc_dwc2_speed dev_speed,
+				       enum uhc_dwc2_speed port_speed, enum uhc_dwc2_xfer_type type)
 {
 	struct uhc_dwc2_data *priv = uhc_get_private(dev);
 	/* TODO: Allocate the chan and it's resources */
 	struct uhc_dwc2_chan *chan = &priv->chan[0];
-	/* TODO: Refactor to get port speed, static for now */
+	const struct uhc_dwc2_config *const config = dev->config;
+	struct usb_dwc2_reg *const dwc2 = config->base;
+	const struct usb_dwc2_host_chan *chan_regs;
 
 	/* TODO: Double buffering scheme? */
 
@@ -1706,7 +1667,26 @@ static inline int uhc_dwc2_chan_alloc(const struct device *dev, uint8_t chan_idx
 		return -ENODEV;
 	}
 
-	uhc_dwc2_chan_init(dev, chan);
+	/* TODO: FIFO sizes should be set before attempting to allocate a channel */
+
+	chan->chan_idx = chan_idx;
+
+	chan_regs = UHC_DWC2_CHAN_REG(dwc2, chan->chan_idx);
+
+	LOG_DBG("Allocating channel %d", chan->chan_idx);
+
+	/* Init underlying channel registers */
+
+	/* Clear the interrupt bits by writing them back */
+	uint32_t hcint = sys_read32((mem_addr_t)&chan_regs->hcint);
+	sys_write32(hcint, (mem_addr_t)&chan_regs->hcint);
+
+	/* Enable channel interrupts in the core */
+	sys_set_bits((mem_addr_t)&dwc2->haintmsk, (1 << chan->chan_idx));
+
+	/* Enable transfer complete and channel halted interrupts */
+	sys_set_bits((mem_addr_t)&chan_regs->hcintmsk,
+		     USB_DWC2_HCINT_XFERCOMPL | USB_DWC2_HCINT_CHHLTD);
 
 	dwc2_channel_configure(dev, chan);
 
@@ -1743,12 +1723,7 @@ static inline int uhc_dwc2_chan_deinit(const struct device *dev, struct uhc_dwc2
 
 	sys_clear_bits((mem_addr_t)&dwc2->haintmsk, (1 << chan->chan_idx));
 
-	priv->num_channels--;
-
-	LOG_DBG("Freeing channel %d, num_channels=%d", chan->chan_idx, priv->num_channels);
-
-	__ASSERT(priv->num_channels >= 0, "Number of allocated channels is negative: %d",
-		 priv->num_channels);
+	LOG_DBG("Freeing channel %d", chan->chan_idx);
 
 	/* TODO: Remove the chan from the list of idle chans in the port object */
 	priv->num_chans_idle--;
@@ -1778,22 +1753,23 @@ static inline void uhc_dwc2_handle_port_events(const struct device *dev)
 		priv->port_state = UHC_PORT_STATE_ENABLED;
 		/* TODO: exit critical section */
 
-		enum uhc_dwc2_speed speed;
+		enum uhc_dwc2_speed port_speed;
 
-		ret = uhc_dwc2_get_port_speed(dev, &speed);
+		ret = uhc_dwc2_get_port_speed(dev, &port_speed);
 		if (ret) {
 			LOG_ERR("Failed to get port speed");
 			break;
 		}
 
-		ret = uhc_dwc2_chan_alloc(dev, 0, 0, 0, UHC_DWC2_SPEED_FULL, UHC_DWC2_SPEED_FULL,
-					  UHC_DWC2_XFER_TYPE_CTRL);
+		ret = uhc_dwc2_chan_config(dev, 0, 0, 0, UHC_DWC2_SPEED_FULL, port_speed,
+					   UHC_DWC2_XFER_TYPE_CTRL);
 		if (ret) {
 			LOG_ERR("Failed to initialize channels: %d", ret);
 			break;
 		}
+
 		/* Notify the higher logic about the new device */
-		uhc_dwc2_submit_new_device(dev, speed);
+		uhc_dwc2_submit_new_device(dev, port_speed);
 		break;
 	}
 	case UHC_PORT_EVENT_DISCONNECTION:
