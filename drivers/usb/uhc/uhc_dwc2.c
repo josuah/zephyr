@@ -134,13 +134,6 @@ enum uhc_dwc2_ctrl_stage {
 	CTRL_STAGE_SETUP = 3,
 };
 
-struct uhc_dwc2_chan_config {
-	/* Speed of the device */
-	enum uhc_dwc2_speed dev_speed;
-	/* Device address */
-	uint8_t dev_addr;
-};
-
 struct uhc_dwc2_chan {
 	/* XFER queuing related */
 	sys_dlist_t xfer_pending_list;
@@ -173,7 +166,7 @@ struct uhc_dwc2_chan {
 	/* The index of the channel */
 	uint8_t chan_idx;
 	/* Set address request */
-	uint8_t set_addr: 1;
+	uint8_t is_setting_addr: 1;
 	/* Data stage is IN */
 	uint8_t data_stg_in: 1;
 	/* Has no data stage */
@@ -1101,10 +1094,10 @@ static inline void _buffer_fill_ctrl(struct uhc_dwc2_chan *chan, struct uhc_tran
 	chan->cur_stg = 0;
 	chan->data_stg_in = usb_reqtype_is_to_host(setup_pkt);
 	chan->data_stg_skip = (setup_pkt->wLength == 0);
-	chan->set_addr = 0;
+	chan->is_setting_addr = 0;
 
 	if (setup_pkt->bRequest == USB_SREQ_SET_ADDRESS) {
-		chan->set_addr = 1;
+		chan->is_setting_addr = 1;
 		chan->new_addr = setup_pkt->wValue & 0x7F;
 		LOG_DBG("Set address request, new address %d", chan->new_addr);
 	}
@@ -1649,7 +1642,7 @@ static inline void uhc_dwc2_submit_dev_gone(const struct device *dev)
 /*
  * Fills the endpoint characteristics for a chan.
  */
-static void uhc_dwc2_chan_set_ep_char(const struct uhc_dwc2_chan_config *chan_config,
+static void uhc_dwc2_chan_set_ep_char(uint8_t dev_addr, enum uhc_dwc2_speed dev_speed,
 				      enum uhc_dwc2_xfer_type type, bool is_ctrl_chan, int chan_idx,
 				      enum uhc_dwc2_speed port_speed, struct uhc_dwc2_chan *chan)
 {
@@ -1667,8 +1660,8 @@ static void uhc_dwc2_chan_set_ep_char(const struct uhc_dwc2_chan_config *chan_co
 	if (is_ctrl_chan) {
 		chan->bEndpointAddress = 0;
 		/* Set the default chan's MPS to the worst case MPS for the device's speed */
-		chan->mps = (chan_config->dev_speed == UHC_DWC2_SPEED_LOW) ? CTRL_EP_MAX_MPS_LS
-									   : CTRL_EP_MAX_MPS_HSFS;
+		chan->mps = (dev_speed == UHC_DWC2_SPEED_LOW) ? CTRL_EP_MAX_MPS_LS
+							      : CTRL_EP_MAX_MPS_HSFS;
 	} else {
 		/* TODO: Implement for non-control chans */
 		LOG_WRN("Setting up chan characteristics for non-control chan has not implemented "
@@ -1676,7 +1669,7 @@ static void uhc_dwc2_chan_set_ep_char(const struct uhc_dwc2_chan_config *chan_co
 		return;
 	}
 
-	chan->dev_addr = chan_config->dev_addr;
+	chan->dev_addr = dev_addr;
 	chan->ls_via_fs_hub = 0;
 	chan->interval = 0;
 	chan->offset = 0;
@@ -1723,8 +1716,8 @@ static inline bool uhc_dwc2_chan_init(const struct device *dev, struct uhc_dwc2_
 /*
  * Allocate a chan holding the underlying channel object and the DMA buffer for transfer purposes.
  */
-static inline int uhc_dwc2_chan_alloc(const struct device *dev,
-				      const struct uhc_dwc2_chan_config *chan_config)
+static inline int uhc_dwc2_chan_alloc(const struct device *dev, uint8_t dev_addr,
+				      enum uhc_dwc2_speed dev_speed)
 {
 	struct uhc_dwc2_data *priv = uhc_get_private(dev);
 
@@ -1741,7 +1734,8 @@ static inline int uhc_dwc2_chan_alloc(const struct device *dev,
 	bool is_default = true;
 	int chan_idx = 0;
 
-	uhc_dwc2_chan_set_ep_char(chan_config, type, is_default, chan_idx, port_speed, chan);
+	uhc_dwc2_chan_set_ep_char(dev_addr, dev_speed, type, is_default, chan_idx, port_speed,
+				  chan);
 	chan->state = UHC_CHAN_STATE_ACTIVE;
 
 	/* TODO: enter critical section */
@@ -1841,13 +1835,7 @@ static inline void uhc_dwc2_handle_port_events(const struct device *dev)
 			break;
 		}
 
-		/* Allocate the Pipe for the EP0 Control Endpoint */
-		struct uhc_dwc2_chan_config chan_config = {
-			.dev_speed = speed,
-			.dev_addr = 0,
-		};
-
-		ret = uhc_dwc2_chan_alloc(dev, &chan_config);
+		ret = uhc_dwc2_chan_alloc(dev, 0, speed);
 		if (ret) {
 			LOG_ERR("Failed to initialize channels: %d", ret);
 			break;
@@ -1904,13 +1892,13 @@ static inline void uhc_dwc2_handle_chan_events(const struct device *dev)
 		struct uhc_transfer *const xfer = (struct uhc_transfer *)chan->xfer;
 
 		if (xfer->buf != NULL && xfer->buf->len) {
-			LOG_HEXDUMP_WRN(xfer->buf->data, xfer->buf->len, "data");
+			LOG_HEXDUMP_INF(xfer->buf->data, xfer->buf->len, "data");
 		}
 
 		/* TODO: Refactor the address setting logic. */
 		/* To configure the channel, we need to get the dev addr from higher logic */
-		if (chan->set_addr) {
-			chan->set_addr = 0;
+		if (chan->is_setting_addr) {
+			chan->is_setting_addr = 0;
 			chan->dev_addr = chan->new_addr;
 			/* Set the new device address in the channel */
 			sys_set_bits((mem_addr_t)&chan_regs->hcchar,
@@ -1961,7 +1949,7 @@ static inline int uhc_dwc2_submit_ctrl_xfer(const struct device *dev, struct uhc
 {
 	struct uhc_dwc2_data *priv = uhc_get_private(dev);
 
-	LOG_HEXDUMP_WRN(xfer->setup_pkt, 8, "setup");
+	LOG_HEXDUMP_INF(xfer->setup_pkt, 8, "setup");
 
 	LOG_DBG("endpoint=%02Xh, mps=%d, interval=%d, start_frame=%d, stage=%d, no_status=%d",
 		xfer->ep, xfer->mps, xfer->interval, xfer->start_frame, xfer->stage,
