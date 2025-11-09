@@ -836,13 +836,13 @@ static int uhc_dwc2_init_controller(const struct device *dev)
 		}
 	}
 
+
 	return ret;
 }
 
 static enum uhc_port_event uhc_dwc2_decode_hprt(const struct device *dev,
 						enum uhc_dwc2_core_event core_event)
 {
-	const struct uhc_dwc2_config *const config = dev->config;
 	struct uhc_dwc2_data *priv = uhc_get_private(dev);
 
 	enum uhc_port_event port_event = UHC_PORT_EVENT_NONE;
@@ -1688,7 +1688,7 @@ static inline bool uhc_dwc2_chan_init(const struct device *dev, struct uhc_dwc2_
 	const struct uhc_dwc2_config *const config = dev->config;
 	struct uhc_dwc2_data *priv = uhc_get_private(dev);
 	struct usb_dwc2_reg *const dwc2 = config->base;
-	const struct usb_dwc2_host_chan *chan_regs = UHC_DWC2_CHAN_REG(dwc2, chan->chan_idx);
+	const struct usb_dwc2_host_chan *chan_regs;
 
 	__ASSERT(priv->channels, "uhc_dwc2_chan_alloc: Channel handles list not allocated");
 
@@ -1698,23 +1698,14 @@ static inline bool uhc_dwc2_chan_init(const struct device *dev, struct uhc_dwc2_
 		return false;
 	}
 
-	uint8_t chan_idx = 0xff;
-	for (uint8_t i = 0; i < priv->dwc2_numchannels; i++) {
-		if (priv->channels[i] == NULL) {
-			priv->channels[i] = chan;
-			chan_idx = i;
-			priv->num_channels++;
-			break;
-		}
-	}
+	chan->chan_idx = priv->num_channels;
+	priv->num_channels++;
 
-	__ASSERT(chan_idx != 0xff, "No free channels available, num_channels=%d, numchannels=%d",
-		 priv->num_channels, priv->dwc2_numchannels);
+	chan_regs = UHC_DWC2_CHAN_REG(dwc2, chan->chan_idx);
 
-	/* Initialize channel object */
-	LOG_DBG("Allocating channel %d", chan_idx);
+	priv->channels[chan->chan_idx] = chan;
 
-	chan->chan_idx = chan_idx;
+	LOG_DBG("Allocating channel %d", chan->chan_idx);
 
 	/* Init underlying channel registers */
 
@@ -1723,7 +1714,7 @@ static inline bool uhc_dwc2_chan_init(const struct device *dev, struct uhc_dwc2_
 	sys_write32(hcint, (mem_addr_t)&chan_regs->hcint);
 
 	/* Enable channel interrupts in the core */
-	sys_set_bits((mem_addr_t)&dwc2->haintmsk, (1 << chan_idx));
+	sys_set_bits((mem_addr_t)&dwc2->haintmsk, (1 << chan->chan_idx));
 
 	/* Enable transfer complete and channel halted interrupts */
 	sys_set_bits((mem_addr_t)&chan_regs->hcintmsk,
