@@ -220,13 +220,6 @@ struct uhc_dwc2_chan {
 	/* TODO: Add channel error? */
 };
 
-struct uhc_dwc2_fifo_config {
-	uint16_t top;
-	uint16_t nptxfsiz;
-	uint16_t rxfsiz;
-	uint16_t ptxfsiz;
-};
-
 struct uhc_dwc2_data {
 	struct k_sem irq_sem;
 	/* TODO: spinlock? */
@@ -236,7 +229,10 @@ struct uhc_dwc2_data {
 	/* Main events the driver thread waits for */
 	struct k_event drv_evt;
 	/* FIFO */
-	struct uhc_dwc2_fifo_config fifo;
+	uint16_t fifo_top;
+	uint16_t fifo_nptxfsiz;
+	uint16_t fifo_rxfsiz;
+	uint16_t fifo_ptxfsiz;
 	/* Data, that doesn't changed after initialization */
 	struct uhc_dwc2_constant_config const_cfg;
 	struct uhc_dwc2_chan chan;
@@ -295,27 +291,29 @@ enum {
 	EPSIZE_ISO_HS_MAX = 1024,
 };
 
-static inline void uhc_dwc2_config_fifo_fixed_dma(const struct uhc_dwc2_constant_config *const_cfg,
-						  struct uhc_dwc2_fifo_config *fifo)
+static inline void uhc_dwc2_config_fifo_fixed_dma(const struct device *dev,
+						  const struct uhc_dwc2_constant_config *const_cfg)
 {
+	struct uhc_dwc2_data *priv = uhc_get_private(dev);
+
 	LOG_DBG("Configuring FIFO sizes");
-	fifo->top = const_cfg->fifodepth;
-	fifo->top -= const_cfg->numchannels;
+	priv->fifo_top = const_cfg->fifodepth;
+	priv->fifo_top -= const_cfg->numchannels;
 
 	/* TODO: support HS */
 
 	uint32_t nptx_largest = EPSIZE_BULK_FS / 4;
 	uint32_t ptx_largest = 256 / 4;
 
-	fifo->nptxfsiz = 2 * nptx_largest;
-	fifo->rxfsiz = 2 * (ptx_largest + 2) + const_cfg->numchannels;
-	fifo->ptxfsiz = fifo->top - (fifo->nptxfsiz + fifo->rxfsiz);
+	priv->fifo_nptxfsiz = 2 * nptx_largest;
+	priv->fifo_rxfsiz = 2 * (ptx_largest + 2) + const_cfg->numchannels;
+	priv->fifo_ptxfsiz = priv->fifo_top - (priv->fifo_nptxfsiz + priv->fifo_rxfsiz);
 
 	/* TODO: verify ptxfsiz is overflowed */
 
 	LOG_DBG("FIFO sizes calculated");
-	LOG_DBG("\ttop=%u, nptx=%u, rx=%u, ptx=%u", fifo->top * 4, fifo->nptxfsiz * 4,
-		fifo->rxfsiz * 4, fifo->ptxfsiz * 4);
+	LOG_DBG("\ttop=%u, nptx=%u, rx=%u, ptx=%u", priv->fifo_top * 4, priv->fifo_nptxfsiz * 4,
+		priv->fifo_rxfsiz * 4, priv->fifo_ptxfsiz * 4);
 }
 
 /*
@@ -557,35 +555,38 @@ static void dwc2_hal_channel_configure(const struct device *dev, struct uhc_dwc2
 	}
 }
 
-static inline void dwc2_hal_apply_fifo_config(struct usb_dwc2_reg *const dwc2,
-					      struct uhc_dwc2_fifo_config *const fifo)
+static inline void dwc2_hal_apply_fifo_config(const struct device *dev)
 {
+	const struct uhc_dwc2_config *const config = dev->config;
+	struct usb_dwc2_reg *const dwc2 = config->base;
+	struct uhc_dwc2_data *priv = uhc_get_private(dev);
+
 	/* Get FIFO top from config */
-	uint16_t fifo_available = fifo->top;
+	uint16_t fifo_available = priv->fifo_top;
 
 	sys_write32(fifo_available << USB_DWC2_GDFIFOCFG_EPINFOBASEADDR_POS | fifo_available,
 		    (mem_addr_t)&dwc2->gdfifocfg);
 
-	fifo_available -= fifo->rxfsiz;
+	fifo_available -= priv->fifo_rxfsiz;
 
-	sys_write32(fifo->rxfsiz << USB_DWC2_GRXFSIZ_RXFDEP_POS, (mem_addr_t)&dwc2->grxfsiz);
+	sys_write32(priv->fifo_rxfsiz << USB_DWC2_GRXFSIZ_RXFDEP_POS, (mem_addr_t)&dwc2->grxfsiz);
 
-	fifo_available -= fifo->nptxfsiz;
+	fifo_available -= priv->fifo_nptxfsiz;
 
-	sys_write32(fifo->nptxfsiz << USB_DWC2_GNPTXFSIZ_NPTXFDEP_POS | fifo_available,
+	sys_write32(priv->fifo_nptxfsiz << USB_DWC2_GNPTXFSIZ_NPTXFDEP_POS | fifo_available,
 		    (mem_addr_t)&dwc2->gnptxfsiz);
 
-	fifo_available -= fifo->ptxfsiz;
+	fifo_available -= priv->fifo_ptxfsiz;
 
-	sys_write32(fifo->ptxfsiz << USB_DWC2_HPTXFSIZ_PTXFSIZE_POS | fifo_available,
+	sys_write32(priv->fifo_ptxfsiz << USB_DWC2_HPTXFSIZ_PTXFSIZE_POS | fifo_available,
 		    (mem_addr_t)&dwc2->hptxfsiz);
 
 	dwc2_hal_flush_tx_fifo(dwc2, 0x10UL);
 	dwc2_hal_flush_rx_fifo(dwc2);
 
 	LOG_DBG("FIFO configuration applied");
-	LOG_DBG("\tnptx=%u, rx=%u, ptx=%u", fifo->nptxfsiz * 4, fifo->rxfsiz * 4,
-		fifo->ptxfsiz * 4);
+	LOG_DBG("\tnptx=%u, rx=%u, ptx=%u", priv->fifo_nptxfsiz * 4, priv->fifo_rxfsiz * 4,
+		priv->fifo_ptxfsiz * 4);
 }
 
 static inline enum uhc_dwc2_speed dwc2_hal_get_port_speed(struct usb_dwc2_reg *const dwc2)
@@ -856,7 +857,7 @@ static int uhc_dwc2_init_controller(const struct device *dev)
 	}
 
 	/* Pre-calculate FIFO settings */
-	uhc_dwc2_config_fifo_fixed_dma(&priv->const_cfg, &priv->fifo);
+	uhc_dwc2_config_fifo_fixed_dma(dev, &priv->const_cfg);
 
 	/* Config PHY */
 	ret = uhc_dwc2_config_phy(dev);
@@ -1580,7 +1581,7 @@ static inline int uhc_dwc2_port_reset(const struct device *dev)
 		goto bailout;
 	}
 
-	dwc2_hal_apply_fifo_config(dwc2, &priv->fifo);
+	dwc2_hal_apply_fifo_config(dev);
 	dwc2_hal_set_frame_list(dwc2, NULL /* priv->frame_list , FRAME_LIST_LEN */);
 	dwc2_hal_periodic_enable(dwc2);
 	ret = 0;
