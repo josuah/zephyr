@@ -208,7 +208,6 @@ struct uhc_dwc2_data {
 	/* Main events the driver thread waits for */
 	struct k_event drv_evt;
 	struct uhc_dwc2_chan chan[UHC_DWC2_MAX_CHAN];
-	struct uhc_dwc2_chan *ctrl_chan;
 	/* Number of channels currently allocated */
 	size_t num_channels;
 	/* Bit mask of channels with pending interrupts */
@@ -1710,8 +1709,7 @@ static inline bool uhc_dwc2_chan_init(const struct device *dev, struct uhc_dwc2_
  * Allocate a chan holding the underlying channel object and the DMA buffer for transfer purposes.
  */
 static inline int uhc_dwc2_chan_alloc(const struct device *dev,
-				      const struct uhc_dwc2_chan_config *chan_config,
-				      struct uhc_dwc2_chan **chan_ptr)
+				      const struct uhc_dwc2_chan_config *chan_config)
 {
 	struct uhc_dwc2_data *priv = uhc_get_private(dev);
 
@@ -1757,7 +1755,6 @@ static inline int uhc_dwc2_chan_alloc(const struct device *dev,
 
 	/* TODO: exit critical section */
 
-	*chan_ptr = chan;
 	return 0;
 err:
 	return ret;
@@ -1766,7 +1763,7 @@ err:
 /*
  * Free the chan and its resources.
  */
-static inline int uhc_dwc2_chan_free(const struct device *dev, struct uhc_dwc2_chan *chan)
+static inline int uhc_dwc2_chan_deinit(const struct device *dev, struct uhc_dwc2_chan *chan)
 {
 	const struct uhc_dwc2_config *const config = dev->config;
 	struct usb_dwc2_reg *const dwc2 = config->base;
@@ -1832,19 +1829,16 @@ static inline void uhc_dwc2_handle_port_events(const struct device *dev)
 		}
 
 		/* Allocate the Pipe for the EP0 Control Endpoint */
-		struct uhc_dwc2_chan *ctrl_chan;
 		struct uhc_dwc2_chan_config chan_config = {
 			.dev_speed = speed,
 			.dev_addr = 0,
 		};
 
-		ret = uhc_dwc2_chan_alloc(dev, &chan_config, &ctrl_chan);
+		ret = uhc_dwc2_chan_alloc(dev, &chan_config);
 		if (ret) {
 			LOG_ERR("Failed to initialize channels: %d", ret);
 			break;
 		}
-		/* Save the control chan handle in the private data */
-		priv->ctrl_chan = ctrl_chan;
 		/* Notify the higher logic about the new device */
 		uhc_dwc2_submit_new_device(dev, speed);
 		break;
@@ -1869,8 +1863,7 @@ static inline void uhc_dwc2_handle_port_events(const struct device *dev)
 		/* TODO: exit critical section */
 
 		if (port_has_device) {
-			uhc_dwc2_chan_free(dev, priv->ctrl_chan);
-			priv->ctrl_chan = NULL;
+			uhc_dwc2_chan_deinit(dev, &priv->chan[0]);
 			uhc_dwc2_submit_dev_gone(dev);
 		}
 		/* Recover the port */
@@ -2051,7 +2044,7 @@ static int uhc_dwc2_enqueue(const struct device *dev, struct uhc_transfer *const
 
 	int ret;
 	if (USB_EP_GET_IDX(xfer->ep) == 0) {
-		ret = uhc_dwc2_submit_ctrl_xfer(dev, priv->ctrl_chan, xfer);
+		ret = uhc_dwc2_submit_ctrl_xfer(dev, &priv->chan[0], xfer);
 		if (ret) {
 			LOG_ERR("Failed to submit xfer: %d", ret);
 			return ret;
@@ -2078,7 +2071,6 @@ static int uhc_dwc2_preinit(const struct device *dev)
 
 	/* Initialize the private data structure */
 	memset(priv, 0, sizeof(struct uhc_dwc2_data));
-	priv->ctrl_chan = NULL;
 	k_mutex_init(&data->mutex);
 	k_mutex_init(&priv->mutex);
 	k_event_init(&priv->drv_evt);
