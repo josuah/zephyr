@@ -33,6 +33,7 @@ LOG_MODULE_REGISTER(uhc_dwc2, CONFIG_UHC_DRIVER_LOG_LEVEL);
 
 #define CTRL_EP_MAX_MPS_LS   8U
 #define CTRL_EP_MAX_MPS_HSFS 64U
+#define UHC_DWC2_MAX_CHAN 16
 
 enum uhc_dwc2_event {
 	/* Root port event */
@@ -206,10 +207,8 @@ struct uhc_dwc2_data {
 	struct k_mutex mutex;
 	/* Main events the driver thread waits for */
 	struct k_event drv_evt;
-	struct uhc_dwc2_chan chan;
+	struct uhc_dwc2_chan chan[UHC_DWC2_MAX_CHAN];
 	struct uhc_dwc2_chan *ctrl_chan;
-	/* Handles of each channel */
-	struct uhc_dwc2_chan **channels;
 	/* Number of channels currently allocated */
 	size_t num_channels;
 	/* Bit mask of channels with pending interrupts */
@@ -830,12 +829,6 @@ static int uhc_dwc2_init_controller(const struct device *dev)
 	/* TODO: Clear all the flags and channels */
 	priv->num_channels = 0;
 	priv->pending_channel_intrs_msk = 0;
-	if (priv->channels) {
-		for (int i = 0; i < priv->dwc2_numchannels; i++) {
-			priv->channels[i] = NULL;
-		}
-	}
-
 
 	return ret;
 }
@@ -1049,16 +1042,11 @@ struct uhc_dwc2_chan *uhc_dwc2_get_chan_pending_intr(const struct device *dev)
 {
 	struct uhc_dwc2_data *priv = uhc_get_private(dev);
 
-	if (priv->channels == NULL) {
-		LOG_WRN("uhc_dwc2_get_chan_pending_intr: No channels allocated");
-		return NULL;
-	}
-
 	int chan_num = __builtin_ffs(priv->pending_channel_intrs_msk);
 	if (chan_num) {
 		/* Clear the pending bit for that channel */
 		priv->pending_channel_intrs_msk &= ~(1 << (chan_num - 1));
-		return priv->channels[chan_num - 1];
+		return &priv->chan[chan_num - 1];
 	} else {
 		return NULL;
 	}
@@ -1690,8 +1678,6 @@ static inline bool uhc_dwc2_chan_init(const struct device *dev, struct uhc_dwc2_
 	struct usb_dwc2_reg *const dwc2 = config->base;
 	const struct usb_dwc2_host_chan *chan_regs;
 
-	__ASSERT(priv->channels, "uhc_dwc2_chan_alloc: Channel handles list not allocated");
-
 	/* TODO: FIFO sizes should be set before attempting to allocate a channel */
 
 	if (priv->num_channels == priv->dwc2_numchannels) {
@@ -1702,8 +1688,6 @@ static inline bool uhc_dwc2_chan_init(const struct device *dev, struct uhc_dwc2_
 	priv->num_channels++;
 
 	chan_regs = UHC_DWC2_CHAN_REG(dwc2, chan->chan_idx);
-
-	priv->channels[chan->chan_idx] = chan;
 
 	LOG_DBG("Allocating channel %d", chan->chan_idx);
 
@@ -1734,7 +1718,7 @@ static inline int uhc_dwc2_chan_alloc(const struct device *dev,
 	int ret;
 
 	/* TODO: Allocate the chan and it's resources */
-	struct uhc_dwc2_chan *chan = &priv->chan;
+	struct uhc_dwc2_chan *chan = &priv->chan[0];
 
 	/* TODO: Double buffering scheme? */
 
@@ -1793,8 +1777,6 @@ static inline int uhc_dwc2_chan_free(const struct device *dev, struct uhc_dwc2_c
 		return -EBUSY;
 	}
 
-	__ASSERT(priv->channels, "uhc_dwc2_chan_alloc: Channel handles list not allocated");
-
 	if (chan->type == UHC_DWC2_XFER_TYPE_INTR || chan->type == UHC_DWC2_XFER_TYPE_ISOCHRONOUS) {
 		/* TODO: Unschedule this channel */
 		LOG_WRN("uhc_dwc2_chan_free: Cannot free interrupt or isochronous channels yet");
@@ -1805,7 +1787,6 @@ static inline int uhc_dwc2_chan_free(const struct device *dev, struct uhc_dwc2_c
 
 	sys_clear_bits((mem_addr_t)&dwc2->haintmsk, (1 << chan->chan_idx));
 
-	priv->channels[chan->chan_idx] = NULL;
 	priv->num_channels--;
 
 	LOG_DBG("Freeing channel %d, num_channels=%d", chan->chan_idx, priv->num_channels);
@@ -1907,7 +1888,7 @@ static inline void uhc_dwc2_handle_chan_events(const struct device *dev)
 	const struct uhc_dwc2_config *const config = dev->config;
 	struct usb_dwc2_reg *const dwc2 = config->base;
 	/* TODO: support more than CTRL chan */
-	struct uhc_dwc2_chan *chan = &priv->chan;
+	struct uhc_dwc2_chan *chan = &priv->chan[0];
 	const struct usb_dwc2_host_chan *chan_regs = UHC_DWC2_CHAN_REG(dwc2, chan->chan_idx);
 
 	LOG_DBG("Pipe event: %d", chan->last_event);
@@ -2112,8 +2093,6 @@ static int uhc_dwc2_preinit(const struct device *dev)
 
 static int uhc_dwc2_init(const struct device *dev)
 {
-	struct uhc_dwc2_data *priv = uhc_get_private(dev);
-
 	int ret;
 
 	ret = uhc_dwc2_quirk_init(dev);
@@ -2125,17 +2104,6 @@ static int uhc_dwc2_init(const struct device *dev)
 	ret = uhc_dwc2_init_controller(dev);
 	if (ret) {
 		return ret;
-	}
-
-	/* Allocate memory for the channel objects */
-	priv->channels = k_malloc(priv->dwc2_numchannels * sizeof(struct uhc_dwc2_chan *));
-	if (priv->channels == NULL) {
-		LOG_ERR("Failed to allocate channel handles");
-		return -ENOMEM;
-	}
-
-	for (uint8_t i = 0; i < priv->dwc2_numchannels; i++) {
-		priv->channels[i] = NULL;
 	}
 
 	return 0;
@@ -2188,7 +2156,6 @@ static int uhc_dwc2_shutdown(const struct device *dev)
 	LOG_WRN("uhc_dwc2_shutdown has not been fully implemented yet");
 
 	/* TODO: Release memory for channel handles */
-	/* Hint : k_free(priv->channels); */
 
 	ret = uhc_dwc2_quirk_shutdown(dev);
 	if (ret) {
