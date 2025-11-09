@@ -140,8 +140,12 @@ struct uhc_dwc2_chan_config {
 	uint8_t dev_addr;
 };
 
-/* Object representing a buffer of a chan's sindle or multi buffer implementation */
-struct uhc_dwc2_dma_buffer {
+struct uhc_dwc2_chan {
+	/* XFER queuing related */
+	sys_dlist_t xfer_pending_list;
+	/* TODO: Lists of pending and done? */
+	int num_xfer_pending;
+	int num_xfer_done;
 	/* Pointer to the transfer associated with the buffer */
 	struct uhc_transfer *xfer;
 	/* The chan event type */
@@ -160,16 +164,6 @@ struct uhc_dwc2_dma_buffer {
 	uint8_t executing: 1;
 	/* THis DMA buffer was canceled before completion  */
 	uint8_t was_canceled: 1;
-};
-
-struct uhc_dwc2_chan {
-	/* XFER queuing related */
-	sys_dlist_t xfer_pending_list;
-	/* TODO: Lists of pending and done? */
-	int num_xfer_pending;
-	int num_xfer_done;
-	/* Single-buffer control */
-	struct uhc_dwc2_dma_buffer buffer;
 	/* Maximum Packet Size */
 	uint16_t mps;
 	/* Endpoint address */
@@ -1124,36 +1118,34 @@ static inline uint16_t calc_packet_count(const uint16_t size, const uint8_t mps)
 
 static inline bool _buffer_check_done(struct uhc_dwc2_chan *chan)
 {
-	struct uhc_dwc2_dma_buffer *buffer = &chan->buffer;
 	/* Only control transfers need to be continued */
 	if (chan->type != UHC_DWC2_XFER_TYPE_CTRL) {
 		return true;
 	}
 
-	return (buffer->cur_stg == 2);
+	return (chan->cur_stg == 2);
 }
 
-static inline void _buffer_fill_ctrl(struct uhc_dwc2_dma_buffer *buffer, struct uhc_transfer *const xfer)
+static inline void _buffer_fill_ctrl(struct uhc_dwc2_chan *chan, struct uhc_transfer *const xfer)
 {
 	/* Get information about the control transfer by analyzing the setup packet */
 	const struct usb_setup_packet *setup_pkt = (const struct usb_setup_packet *)xfer->setup_pkt;
 
-	buffer->cur_stg = 0;
-	buffer->data_stg_in = usb_reqtype_is_to_host(setup_pkt);
-	buffer->data_stg_skip = (setup_pkt->wLength == 0);
-	buffer->set_addr = 0;
+	chan->cur_stg = 0;
+	chan->data_stg_in = usb_reqtype_is_to_host(setup_pkt);
+	chan->data_stg_skip = (setup_pkt->wLength == 0);
+	chan->set_addr = 0;
 
 	if (setup_pkt->bRequest == USB_SREQ_SET_ADDRESS) {
-		buffer->set_addr = 1;
-		buffer->new_addr = setup_pkt->wValue & 0x7F;
-		LOG_DBG("Set address request, new address %d", buffer->new_addr);
+		chan->set_addr = 1;
+		chan->new_addr = setup_pkt->wValue & 0x7F;
+		LOG_DBG("Set address request, new address %d", chan->new_addr);
 	}
 
-	LOG_DBG("data_in: %s, data_skip: %s", buffer->data_stg_in ? "true" : "false",
-		buffer->data_stg_skip ? "true" : "false");
+	LOG_DBG("data_stg_in: %d, data_stg_skip: %d", chan->data_stg_in, chan->data_stg_skip);
 
 	/* Save the xfer pointer in the buffer */
-	buffer->xfer = xfer;
+	chan->xfer = xfer;
 
 	/* TODO Sync data from cache to memory. For OUT and CTRL transfers */
 }
@@ -1167,7 +1159,7 @@ static void IRAM_ATTR _buffer_fill(struct uhc_dwc2_chan *chan)
 
 	switch (chan->type) {
 	case UHC_DWC2_XFER_TYPE_CTRL: {
-		_buffer_fill_ctrl(&chan->buffer, xfer);
+		_buffer_fill_ctrl(chan, xfer);
 		break;
 	}
 	default: {
@@ -1192,32 +1184,30 @@ static void IRAM_ATTR _buffer_exec_proceed(const struct device *dev, struct uhc_
 {
 	const struct uhc_dwc2_config *const config = dev->config;
 	struct usb_dwc2_reg *const dwc2 = config->base;
-	struct uhc_dwc2_dma_buffer *buffer_exec = &chan->buffer;
-	struct uhc_transfer *const xfer = chan->buffer.xfer;
+	struct uhc_transfer *const xfer = chan->xfer;
 	const struct usb_dwc2_host_chan *chan_regs = UHC_DWC2_CHAN_REG(dwc2, chan->chan_idx);
 
-	__ASSERT(buffer_exec != NULL, "_buffer_exec_proceed: No buffer assigned to chan");
 	__ASSERT(xfer != NULL, "_buffer_exec_proceed: No transfer assigned to buffer");
-	__ASSERT(buffer_exec->cur_stg != 2, "_buffer_exec: Invalid control stage: %d",
-		 buffer_exec->cur_stg);
+	__ASSERT(chan->cur_stg != 2, "_buffer_exec: Invalid control stage: %d",
+		 chan->cur_stg);
 
 	bool next_dir_is_in;
 	enum uhc_dwc2_ctrl_stage next_pid;
 	uint16_t size = 0;
 	uint8_t *dma_addr = NULL;
 
-	if (buffer_exec->cur_stg == 0) { /* Just finished control stage */
-		if (buffer_exec->data_stg_skip) {
+	if (chan->cur_stg == 0) { /* Just finished control stage */
+		if (chan->data_stg_skip) {
 			/* No data stage. Go straight to status stage */
 			next_dir_is_in = true; /* With no data stage, status stage must be IN */
 			next_pid = CTRL_STAGE_DATA1; /* Status stage always has a PID of DATA1 */
-			buffer_exec->cur_stg = 2; /* Skip over */
+			chan->cur_stg = 2; /* Skip over */
 		} else {
 			/* Go to data stage */
-			next_dir_is_in = buffer_exec->data_stg_in;
+			next_dir_is_in = chan->data_stg_in;
 			next_pid =
 				CTRL_STAGE_DATA1; /* Data stage always starts with a PID of DATA1 */
-			buffer_exec->cur_stg = 1;
+			chan->cur_stg = 1;
 
 			/* NOTE:
 			 * For OUT - number of bytes host sends to device
@@ -1242,9 +1232,9 @@ static void IRAM_ATTR _buffer_exec_proceed(const struct device *dev, struct uhc_
 		}
 	} else { /* cur_stg == 1. Just finished data stage. Go to status stage */
 		/* Status stage is always the opposite direction of data stage */
-		next_dir_is_in = !buffer_exec->data_stg_in;
+		next_dir_is_in = !chan->data_stg_in;
 		next_pid = CTRL_STAGE_DATA1; /* Status stage always has a PID of DATA1 */
-		buffer_exec->cur_stg = 2;
+		chan->cur_stg = 2;
 	}
 
 	/* Calculate new packet count */
@@ -1274,10 +1264,9 @@ static void IRAM_ATTR _buffer_exec_proceed(const struct device *dev, struct uhc_
 static inline void _buffer_done(const struct device *dev, struct uhc_dwc2_chan *chan,
 				enum uhc_dwc2_chan_event chan_event, bool canceled)
 {
-	struct uhc_dwc2_dma_buffer *buffer_done = &chan->buffer;
-	buffer_done->executing = 0;
-	buffer_done->was_canceled = canceled;
-	buffer_done->chan_event = chan_event;
+	chan->executing = 0;
+	chan->was_canceled = canceled;
+	chan->chan_event = chan_event;
 }
 
 static inline bool _buffer_can_fill(struct uhc_dwc2_chan *chan)
@@ -1360,8 +1349,7 @@ static IRAM_ATTR void _buffer_exec(const struct device *dev, struct uhc_dwc2_cha
 {
 	const struct uhc_dwc2_config *const config = dev->config;
 	struct usb_dwc2_reg *const dwc2 = config->base;
-	struct uhc_dwc2_dma_buffer *buffer_exec = &chan->buffer;
-	struct uhc_transfer *const xfer = (struct uhc_transfer *)buffer_exec->xfer;
+	struct uhc_transfer *const xfer = (struct uhc_transfer *)chan->xfer;
 	const struct usb_dwc2_host_chan *chan_regs = UHC_DWC2_CHAN_REG(dwc2, chan->chan_idx);
 
 	LOG_DBG("ep=%02X, mps=%d", xfer->ep, chan->mps);
@@ -1398,7 +1386,7 @@ static IRAM_ATTR void _buffer_exec(const struct device *dev, struct uhc_dwc2_cha
 	hcchar &= ~USB_DWC2_HCCHAR0_CHDIS;
 	sys_write32(hcchar, (mem_addr_t)&chan_regs->hcchar);
 
-	buffer_exec->executing = 1;
+	chan->executing = 1;
 }
 
 static void uhc_dwc2_isr_handler(const struct device *dev)
@@ -1945,7 +1933,7 @@ static inline void uhc_dwc2_handle_chan_events(const struct device *dev)
 
 	if (chan->last_event == DWC2_CHAN_EVENT_CPLT) {
 		/* XFER transfer is done, process the transfer and release the chan buffer */
-		struct uhc_transfer *const xfer = (struct uhc_transfer *)chan->buffer.xfer;
+		struct uhc_transfer *const xfer = (struct uhc_transfer *)chan->xfer;
 
 		if (xfer->buf != NULL && xfer->buf->len) {
 			LOG_HEXDUMP_WRN(xfer->buf->data, xfer->buf->len, "data");
@@ -1953,9 +1941,9 @@ static inline void uhc_dwc2_handle_chan_events(const struct device *dev)
 
 		/* TODO: Refactor the address setting logic. */
 		/* To configure the channel, we need to get the dev addr from higher logic */
-		if (chan->buffer.set_addr) {
-			chan->buffer.set_addr = 0;
-			chan->dev_addr = chan->buffer.new_addr;
+		if (chan->set_addr) {
+			chan->set_addr = 0;
+			chan->dev_addr = chan->new_addr;
 			/* Set the new device address in the channel */
 			sys_set_bits((mem_addr_t)&chan_regs->hcchar,
 				     (chan->dev_addr << USB_DWC2_HCCHAR0_DEVADDR_POS));
