@@ -1321,8 +1321,8 @@ static inline bool _buffer_can_exec(struct uhc_dwc2_pipe *pipe)
  * Decode a channel interrupt and take appropriate action
  * Interrupt context.
  */
-static enum uhc_dwc2_chan_event uhc_dwc2_decode_chan(struct uhc_dwc2_pipe *pipe,struct uhc_dwc2_channel
-*chan)
+static enum uhc_dwc2_chan_event uhc_dwc2_decode_chan(struct uhc_dwc2_pipe *pipe,
+						     struct uhc_dwc2_channel *chan)
 {
 	enum uhc_dwc2_chan_event chan_event = uhc_dwc2_hal_chan_decode_intr(chan);
 	enum uhc_dwc2_chan_event pipe_event = DWC2_CHAN_EVENT_NONE;
@@ -1430,7 +1430,8 @@ static void uhc_dwc2_isr_handler(const struct device *dev)
 	enum uhc_dwc2_core_event core_event = uhc_dwc2_decode_intr(dev);
 	if (core_event == UHC_DWC2_CORE_EVENT_CHAN) {
 		/* Channel event. Cycle through each pending channel */
-struct uhc_dwc2_channel *chan = uhc_dwc2_get_chan_pending_intr(dev);
+		struct uhc_dwc2_channel *chan = uhc_dwc2_get_chan_pending_intr(dev);
+
 		while (chan != NULL) {
 			struct uhc_dwc2_pipe *pipe = (struct uhc_dwc2_pipe *)uhc_dwc2_chan_get_context(chan);
 			enum uhc_dwc2_chan_event pipe_event = uhc_dwc2_decode_chan(pipe, chan);
@@ -1721,7 +1722,7 @@ static void uhc_dwc2_pipe_set_ep_char(const struct uhc_dwc2_pipe_config *pipe_co
 /*
  * Adds the channel object to the channel list and initializes it.
  */
-static inline bool uhc_dwc2_chan_alloc(const struct device *dev,struct uhc_dwc2_channel *chan,
+static inline bool uhc_dwc2_chan_alloc(const struct device *dev, struct uhc_dwc2_channel *chan,
 				       void *context)
 {
 	const struct uhc_dwc2_config *const config = dev->config;
@@ -1773,7 +1774,7 @@ static inline bool uhc_dwc2_chan_alloc(const struct device *dev,struct uhc_dwc2_
 	return true;
 }
 
-static inline void uhc_dwc2_chan_free(const struct device *dev,struct uhc_dwc2_channel *chan)
+static inline void uhc_dwc2_chan_free(const struct device *dev, struct uhc_dwc2_channel *chan)
 {
 	const struct uhc_dwc2_config *const config = dev->config;
 	struct uhc_dwc2_data *priv = uhc_get_private(dev);
