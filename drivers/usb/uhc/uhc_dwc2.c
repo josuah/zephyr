@@ -228,7 +228,7 @@ struct uhc_dwc2_pipe {
 	/* Single-buffer control */
 	struct uhc_dwc2_dma_buffer buffer;
 	/* HAL related */
-	struct uhc_dwc2_channel *chan_obj;
+	struct uhc_dwc2_channel chan;
 	struct uhc_dwc2_ep_char ep_char;
 	/* Pipe status/state/events related */
 	enum uhc_dwc2_pipe_state state;
@@ -539,12 +539,12 @@ static inline int dwc2_hal_get_config(struct usb_dwc2_reg *const dwc2,
 	return 0;
 }
 
-static void dwc2_hal_channel_configure(struct uhc_dwc2_channel *chan_obj, struct uhc_dwc2_ep_char *ep_char)
+static void dwc2_hal_channel_configure(struct uhc_dwc2_channel *chan, struct uhc_dwc2_ep_char *ep_char)
 {
-	__ASSERT(!chan_obj->active && !chan_obj->halt_requested,
+	__ASSERT(!chan->active && !chan->halt_requested,
 		 "Cannot change endpoint characteristics while channel is active or halted");
 
-	mem_addr_t hcchar_reg = (mem_addr_t)&chan_obj->regs->hcchar;
+	mem_addr_t hcchar_reg = (mem_addr_t)&chan->regs->hcchar;
 
 	uint32_t hcchar = ((uint32_t)ep_char->mps << USB_DWC2_HCCHAR0_MPS_POS) |
 			  ((uint32_t)USB_EP_GET_IDX(ep_char->bEndpointAddress)
@@ -568,7 +568,7 @@ static void dwc2_hal_channel_configure(struct uhc_dwc2_channel *chan_obj, struct
 
 	sys_write32(hcchar, hcchar_reg);
 
-	chan_obj->type = ep_char->type;
+	chan->type = ep_char->type;
 
 	if (ep_char->type == UHC_DWC2_XFER_TYPE_ISOCHRONOUS ||
 	    ep_char->type == UHC_DWC2_XFER_TYPE_INTR) {
@@ -1069,18 +1069,14 @@ struct uhc_dwc2_channel *uhc_dwc2_get_chan_pending_intr(const struct device *dev
 	}
 }
 
-static inline void *uhc_dwc2_chan_get_context(struct uhc_dwc2_channel *chan_obj)
+static inline void *uhc_dwc2_chan_get_context(struct uhc_dwc2_channel *chan)
 {
-	if (chan_obj == NULL) {
-		LOG_ERR("uhc_dwc2_chan_get_context: Channel object is NULL");
-		return NULL;
-	}
-	return chan_obj->chan_ctx;
+	return chan->chan_ctx;
 }
 
-enum uhc_dwc2_chan_event uhc_dwc2_hal_chan_decode_intr(struct uhc_dwc2_channel *chan_obj)
+enum uhc_dwc2_chan_event uhc_dwc2_hal_chan_decode_intr(struct uhc_dwc2_channel *chan)
 {
-	mem_addr_t hcint_reg = (mem_addr_t)&chan_obj->regs->hcint;
+	mem_addr_t hcint_reg = (mem_addr_t)&chan->regs->hcint;
 
 	uint32_t hcint = sys_read32(hcint_reg);
 	/* Clear the interrupt bits by writing them back */
@@ -1090,7 +1086,7 @@ enum uhc_dwc2_chan_event uhc_dwc2_hal_chan_decode_intr(struct uhc_dwc2_channel *
 
 	/*
 	 * Note:
-	 * We don't assert on (chan_obj->active) here as it could have been already cleared
+	 * We don't assert on (chan->active) here as it could have been already cleared
 	 * by usb_dwc_hal_chan_request_halt()
 	 */
 
@@ -1103,24 +1099,24 @@ enum uhc_dwc2_chan_event uhc_dwc2_hal_chan_decode_intr(struct uhc_dwc2_channel *
 		__ASSERT(hcint & USB_DWC2_HCINT_CHHLTD, "uhc_dwc2_hal_chan_decode_intr: Channel "
 							"error without channel halted interrupt");
 
-		LOG_ERR("Channel %d error: 0x%08x", chan_obj->chan_idx, hcint);
+		LOG_ERR("Channel %d error: 0x%08x", chan->chan_idx, hcint);
 		/* TODO: Store the error in hal context */
 		chan_event = DWC2_CHAN_EVENT_ERROR;
 	} else if (hcint & USB_DWC2_HCINT_CHHLTD) {
-		if (chan_obj->halt_requested) {
-			chan_obj->halt_requested = 0;
+		if (chan->halt_requested) {
+			chan->halt_requested = 0;
 			chan_event = DWC2_CHAN_EVENT_HALT_REQ;
 		} else {
 			chan_event = DWC2_CHAN_EVENT_CPLT;
 		}
-		chan_obj->active = 0;
+		chan->active = 0;
 	} else if (hcint & USB_DWC2_HCINT_XFERCOMPL) {
 		/* Note:
 		 * The channel isn't halted yet, so we need to halt it manually to stop the
 		 * execution of the next packet. Relevant only for Scatter-Gather DMA and never
 		 * occurs oin Buffer DMA.
 		 */
-		sys_set_bits((mem_addr_t)&chan_obj->regs->hcchar, USB_DWC2_HCCHAR0_CHDIS);
+		sys_set_bits((mem_addr_t)&chan->regs->hcchar, USB_DWC2_HCCHAR0_CHDIS);
 
 		/*
 		 * After setting the halt bit, this will generate another channel halted interrupt.
@@ -1221,7 +1217,7 @@ static void IRAM_ATTR _buffer_exec_proceed(struct uhc_dwc2_pipe *pipe)
 {
 	struct uhc_dwc2_dma_buffer *buffer_exec = &pipe->buffer;
 	struct uhc_transfer *const xfer = pipe->buffer.xfer;
-	const struct usb_dwc2_host_chan *const chan_regs = pipe->chan_obj->regs;
+	const struct usb_dwc2_host_chan *const chan_regs = pipe->chan.regs;
 
 	__ASSERT(buffer_exec != NULL, "_buffer_exec_proceed: No buffer assigned to pipe");
 	__ASSERT(xfer != NULL, "_buffer_exec_proceed: No transfer assigned to buffer");
@@ -1325,9 +1321,10 @@ static inline bool _buffer_can_exec(struct uhc_dwc2_pipe *pipe)
  * Decode a channel interrupt and take appropriate action
  * Interrupt context.
  */
-static enum uhc_dwc2_chan_event uhc_dwc2_decode_chan(struct uhc_dwc2_pipe *pipe,struct uhc_dwc2_channel *chan_obj)
+static enum uhc_dwc2_chan_event uhc_dwc2_decode_chan(struct uhc_dwc2_pipe *pipe,struct uhc_dwc2_channel
+*chan)
 {
-	enum uhc_dwc2_chan_event chan_event = uhc_dwc2_hal_chan_decode_intr(chan_obj);
+	enum uhc_dwc2_chan_event chan_event = uhc_dwc2_hal_chan_decode_intr(chan);
 	enum uhc_dwc2_chan_event pipe_event = DWC2_CHAN_EVENT_NONE;
 
 	LOG_DBG("Channel event: %d", chan_event);
@@ -1385,7 +1382,7 @@ static IRAM_ATTR void _buffer_exec(struct uhc_dwc2_pipe *pipe)
 {
 	struct uhc_dwc2_dma_buffer *buffer_exec = &pipe->buffer;
 	struct uhc_transfer *const xfer = (struct uhc_transfer *)buffer_exec->xfer;
-	const struct usb_dwc2_host_chan *const chan_regs = pipe->chan_obj->regs;
+	const struct usb_dwc2_host_chan *const chan_regs = pipe->chan.regs;
 
 	LOG_DBG("ep=%02X, mps=%d", xfer->ep, pipe->ep_char.mps);
 
@@ -1433,10 +1430,10 @@ static void uhc_dwc2_isr_handler(const struct device *dev)
 	enum uhc_dwc2_core_event core_event = uhc_dwc2_decode_intr(dev);
 	if (core_event == UHC_DWC2_CORE_EVENT_CHAN) {
 		/* Channel event. Cycle through each pending channel */
-struct uhc_dwc2_channel *chan_obj = uhc_dwc2_get_chan_pending_intr(dev);
-		while (chan_obj != NULL) {
-			struct uhc_dwc2_pipe *pipe = (struct uhc_dwc2_pipe *)uhc_dwc2_chan_get_context(chan_obj);
-			enum uhc_dwc2_chan_event pipe_event = uhc_dwc2_decode_chan(pipe, chan_obj);
+struct uhc_dwc2_channel *chan = uhc_dwc2_get_chan_pending_intr(dev);
+		while (chan != NULL) {
+			struct uhc_dwc2_pipe *pipe = (struct uhc_dwc2_pipe *)uhc_dwc2_chan_get_context(chan);
+			enum uhc_dwc2_chan_event pipe_event = uhc_dwc2_decode_chan(pipe, chan);
 			if (pipe_event != DWC2_CHAN_EVENT_NONE) {
 				pipe->last_event = pipe_event;
 				pipe->event_pending = 1;
@@ -1444,7 +1441,7 @@ struct uhc_dwc2_channel *chan_obj = uhc_dwc2_get_chan_pending_intr(dev);
 			}
 			/* Check for more channels with pending interrupts. Returns NULL if there
 			 * are no more */
-			chan_obj = uhc_dwc2_get_chan_pending_intr(dev);
+			chan = uhc_dwc2_get_chan_pending_intr(dev);
 		}
 	} else {
 		if (core_event != UHC_DWC2_CORE_EVENT_NONE) {
@@ -1724,7 +1721,7 @@ static void uhc_dwc2_pipe_set_ep_char(const struct uhc_dwc2_pipe_config *pipe_co
 /*
  * Adds the channel object to the channel list and initializes it.
  */
-static inline bool uhc_dwc2_chan_alloc(const struct device *dev,struct uhc_dwc2_channel *chan_obj,
+static inline bool uhc_dwc2_chan_alloc(const struct device *dev,struct uhc_dwc2_channel *chan,
 				       void *context)
 {
 	const struct uhc_dwc2_config *const config = dev->config;
@@ -1742,7 +1739,7 @@ static inline bool uhc_dwc2_chan_alloc(const struct device *dev,struct uhc_dwc2_
 	uint8_t chan_idx = 0xff;
 	for (uint8_t i = 0; i < priv->const_cfg.numchannels; i++) {
 		if (priv->channels[i] == NULL) {
-			priv->channels[i] = chan_obj;
+			priv->channels[i] = chan;
 			chan_idx = i;
 			priv->num_channels++;
 			break;
@@ -1755,28 +1752,28 @@ static inline bool uhc_dwc2_chan_alloc(const struct device *dev,struct uhc_dwc2_
 	/* Initialize channel object */
 	LOG_DBG("Allocating channel %d", chan_idx);
 
-	memset(chan_obj, 0, sizeof(struct uhc_dwc2_channel));
+	memset(chan, 0, sizeof(struct uhc_dwc2_channel));
 
-	chan_obj->chan_idx = chan_idx;
-	chan_obj->regs = UHC_DWC2_CHAN_REG(dwc2, chan_idx);
-	chan_obj->chan_ctx = context;
+	chan->chan_idx = chan_idx;
+	chan->regs = UHC_DWC2_CHAN_REG(dwc2, chan_idx);
+	chan->chan_ctx = context;
 
 	/* Init underlying channel registers */
 
 	/* Clear the interrupt bits by writing them back */
-	uint32_t hcint = sys_read32((mem_addr_t)&chan_obj->regs->hcint);
-	sys_write32(hcint, (mem_addr_t)&chan_obj->regs->hcint);
+	uint32_t hcint = sys_read32((mem_addr_t)&chan->regs->hcint);
+	sys_write32(hcint, (mem_addr_t)&chan->regs->hcint);
 
 	/* Enable channel interrupts in the core */
 	sys_set_bits((mem_addr_t)&dwc2->haintmsk, (1 << chan_idx));
 
 	/* Enable transfer complete and channel halted interrupts */
-	sys_set_bits((mem_addr_t)&chan_obj->regs->hcintmsk,
+	sys_set_bits((mem_addr_t)&chan->regs->hcintmsk,
 		     USB_DWC2_HCINT_XFERCOMPL | USB_DWC2_HCINT_CHHLTD);
 	return true;
 }
 
-static inline void uhc_dwc2_chan_free(const struct device *dev,struct uhc_dwc2_channel *chan_obj)
+static inline void uhc_dwc2_chan_free(const struct device *dev,struct uhc_dwc2_channel *chan)
 {
 	const struct uhc_dwc2_config *const config = dev->config;
 	struct uhc_dwc2_data *priv = uhc_get_private(dev);
@@ -1784,28 +1781,27 @@ static inline void uhc_dwc2_chan_free(const struct device *dev,struct uhc_dwc2_c
 
 	__ASSERT(priv->channels, "uhc_dwc2_chan_alloc: Channel handles list not allocated");
 
-	if (chan_obj->type == UHC_DWC2_XFER_TYPE_INTR ||
-	    chan_obj->type == UHC_DWC2_XFER_TYPE_ISOCHRONOUS) {
+	if (chan->type == UHC_DWC2_XFER_TYPE_INTR ||
+	    chan->type == UHC_DWC2_XFER_TYPE_ISOCHRONOUS) {
 		/* TODO: Unschedule this channel */
 		LOG_WRN("uhc_dwc2_chan_free: Cannot free interrupt or isochronous channels yet");
 	}
 
-	__ASSERT(!chan_obj->active,
+	__ASSERT(!chan->active,
 		 "uhc_dwc2_chan_free: Cannot free channel %d, it is still active",
-		 chan_obj->chan_idx);
+		 chan->chan_idx);
 
-	sys_clear_bits((mem_addr_t)&dwc2->haintmsk, (1 << chan_obj->chan_idx));
+	sys_clear_bits((mem_addr_t)&dwc2->haintmsk, (1 << chan->chan_idx));
 
-	priv->channels[chan_obj->chan_idx] = NULL;
+	priv->channels[chan->chan_idx] = NULL;
 	priv->num_channels--;
 
-	LOG_DBG("Freeing channel %d, num_channels=%d", chan_obj->chan_idx,
+	LOG_DBG("Freeing channel %d, num_channels=%d", chan->chan_idx,
 		priv->num_channels);
 
 	__ASSERT(priv->num_channels >= 0,
 		 "uhc_dwc2_chan_free: Number of allocated channels is negative: %d",
 		 priv->num_channels);
-	k_free(chan_obj);
 }
 
 /*
@@ -1820,17 +1816,6 @@ static inline int uhc_dwc2_pipe_alloc(const struct device *dev,
 
 	/* TODO: Allocate the pipe and it's resources */
 	struct uhc_dwc2_pipe *pipe = &priv->pipe;
-
-	struct uhc_dwc2_channel *chan_obj = k_malloc(sizeof(struct uhc_dwc2_channel));
-	if (pipe == NULL || chan_obj == NULL) {
-		LOG_ERR("Failed to allocate pipe or channel object");
-		ret = -ENOMEM;
-		goto err;
-	}
-	memset(chan_obj, 0, sizeof(struct uhc_dwc2_channel));
-
-	/* Save channel object in the pipe object */
-	pipe->chan_obj = chan_obj;
 
 	/* TODO: Double buffering scheme? */
 
@@ -1855,7 +1840,7 @@ static inline int uhc_dwc2_pipe_alloc(const struct device *dev,
 		goto err;
 	}
 
-	bool chan_allocated = uhc_dwc2_chan_alloc(dev, pipe->chan_obj, (void *)pipe);
+	bool chan_allocated = uhc_dwc2_chan_alloc(dev, &pipe->chan, (void *)pipe);
 	if (!chan_allocated) {
 		/* TODO: exit critical section */
 		LOG_ERR("No more free channels available");
@@ -1863,7 +1848,7 @@ static inline int uhc_dwc2_pipe_alloc(const struct device *dev,
 		goto err;
 	}
 
-	dwc2_hal_channel_configure(pipe->chan_obj, &pipe->ep_char);
+	dwc2_hal_channel_configure(&pipe->chan, &pipe->ep_char);
 
 	/* TODO: sync CACHE */
 
@@ -1876,9 +1861,6 @@ static inline int uhc_dwc2_pipe_alloc(const struct device *dev,
 	*pipe_ptr = pipe;
 	return 0;
 err:
-	if (chan_obj) {
-		k_free(chan_obj);
-	}
 	return ret;
 }
 
@@ -1894,7 +1876,7 @@ static inline int uhc_dwc2_pipe_free(const struct device *dev, struct uhc_dwc2_p
 		return -EBUSY;
 	}
 
-	uhc_dwc2_chan_free(dev, pipe->chan_obj);
+	uhc_dwc2_chan_free(dev, &pipe->chan);
 
 	/* TODO: Remove the pipe from the list of idle pipes in the port object */
 	priv->num_pipes_idle--;
@@ -2006,7 +1988,7 @@ static inline void uhc_dwc2_handle_pipe_events(const struct device *dev)
 			pipe->buffer.set_addr = 0;
 			pipe->ep_char.dev_addr = pipe->buffer.new_addr;
 			/* Set the new device address in the channel */
-			sys_set_bits((mem_addr_t)&pipe->chan_obj->regs->hcchar,
+			sys_set_bits((mem_addr_t)&pipe->chan.regs->hcchar,
 				     (pipe->ep_char.dev_addr << USB_DWC2_HCCHAR0_DEVADDR_POS));
 			k_msleep(SET_ADDR_DELAY_MS);
 		}
