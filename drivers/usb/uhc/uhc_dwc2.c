@@ -498,8 +498,8 @@ static inline int dwc2_get_config(const struct device *dev)
 	priv->dwc2_phydatawidth = usb_dwc2_get_ghwcfg4_phydatawidth(ghwcfg4);
 	priv->dwc2_numchannels = usb_dwc2_get_ghwcfg2_numhstchnl(ghwcfg2) + 1U;
 
-	LOG_DBG("PHY interface type: FSPHYTYPE %u, HSPHYTYPE %u, DATAWIDTH %u", priv->dwc2_fsphytype,
-		priv->dwc2_hsphytype, priv->dwc2_phydatawidth);
+	LOG_DBG("PHY interface type: FSPHYTYPE %u, HSPHYTYPE %u, DATAWIDTH %u",
+		priv->dwc2_fsphytype, priv->dwc2_hsphytype, priv->dwc2_phydatawidth);
 
 	LOG_DBG("Number of host channels (NUMHSTCHNL + 1) %u", priv->dwc2_numchannels);
 
@@ -517,12 +517,12 @@ static void dwc2_channel_configure(const struct device *dev, struct uhc_dwc2_cha
 
 	mem_addr_t hcchar_reg = (mem_addr_t)&chan_regs->hcchar;
 
-	uint32_t hcchar = ((uint32_t)chan->mps << USB_DWC2_HCCHAR0_MPS_POS) |
-			  ((uint32_t)USB_EP_GET_IDX(chan->bEndpointAddress)
-			   << USB_DWC2_HCCHAR0_EPNUM_POS) |
-			  ((uint32_t)chan->type << USB_DWC2_HCCHAR0_EPTYPE_POS) |
-			  ((uint32_t)1UL /* TODO: chan->mult */ << USB_DWC2_HCCHAR0_EC_POS) |
-			  ((uint32_t)chan->dev_addr << USB_DWC2_HCCHAR0_DEVADDR_POS);
+	uint32_t hcchar =
+		((uint32_t)chan->mps << USB_DWC2_HCCHAR0_MPS_POS) |
+		((uint32_t)USB_EP_GET_IDX(chan->bEndpointAddress) << USB_DWC2_HCCHAR0_EPNUM_POS) |
+		((uint32_t)chan->type << USB_DWC2_HCCHAR0_EPTYPE_POS) |
+		((uint32_t)1UL /* TODO: chan->mult */ << USB_DWC2_HCCHAR0_EC_POS) |
+		((uint32_t)chan->dev_addr << USB_DWC2_HCCHAR0_DEVADDR_POS);
 
 	if (USB_EP_DIR_IS_IN(chan->bEndpointAddress)) {
 		hcchar |= USB_DWC2_HCCHAR0_EPDIR;
@@ -539,8 +539,7 @@ static void dwc2_channel_configure(const struct device *dev, struct uhc_dwc2_cha
 
 	sys_write32(hcchar, hcchar_reg);
 
-	if (chan->type == UHC_DWC2_XFER_TYPE_ISOCHRONOUS ||
-	    chan->type == UHC_DWC2_XFER_TYPE_INTR) {
+	if (chan->type == UHC_DWC2_XFER_TYPE_ISOCHRONOUS || chan->type == UHC_DWC2_XFER_TYPE_INTR) {
 		LOG_WRN("ISOC and INTR channels are note supported yet");
 	}
 }
@@ -962,8 +961,7 @@ static inline enum uhc_dwc2_core_event uhc_dwc2_decode_intr(const struct device 
 					/* Host port has been disabled */
 					core_event = UHC_DWC2_CORE_EVENT_DISABLED;
 				}
-			} else if (port_intrs & USB_DWC2_HPRT_PRTCONNDET &&
-				   !priv->lock_enabled) {
+			} else if (port_intrs & USB_DWC2_HPRT_PRTCONNDET && !priv->lock_enabled) {
 				core_event = UHC_DWC2_CORE_EVENT_CONN;
 				/* Debounce lock */
 				uhc_dwc2_lock_enable(dev);
@@ -1154,8 +1152,7 @@ static void IRAM_ATTR _buffer_exec_proceed(const struct device *dev, struct uhc_
 	const struct usb_dwc2_host_chan *chan_regs = UHC_DWC2_CHAN_REG(dwc2, chan->chan_idx);
 
 	__ASSERT(xfer != NULL, "_buffer_exec_proceed: No transfer assigned to buffer");
-	__ASSERT(chan->cur_stg != 2, "_buffer_exec: Invalid control stage: %d",
-		 chan->cur_stg);
+	__ASSERT(chan->cur_stg != 2, "_buffer_exec: Invalid control stage: %d", chan->cur_stg);
 
 	bool next_dir_is_in;
 	enum uhc_dwc2_ctrl_stage next_pid;
@@ -1167,7 +1164,7 @@ static void IRAM_ATTR _buffer_exec_proceed(const struct device *dev, struct uhc_
 			/* No data stage. Go straight to status stage */
 			next_dir_is_in = true; /* With no data stage, status stage must be IN */
 			next_pid = CTRL_STAGE_DATA1; /* Status stage always has a PID of DATA1 */
-			chan->cur_stg = 2; /* Skip over */
+			chan->cur_stg = 2;           /* Skip over */
 		} else {
 			/* Go to data stage */
 			next_dir_is_in = chan->data_stg_in;
@@ -1329,8 +1326,7 @@ static IRAM_ATTR void _buffer_exec(const struct device *dev, struct uhc_dwc2_cha
 		LOG_ERR("Periodic transfer is not supported");
 	}
 
-	const uint16_t pkt_cnt =
-		calc_packet_count(sizeof(struct usb_setup_packet), chan->mps);
+	const uint16_t pkt_cnt = calc_packet_count(sizeof(struct usb_setup_packet), chan->mps);
 	int next_pid = CTRL_STAGE_SETUP;
 	uint16_t size = sizeof(struct usb_setup_packet);
 
@@ -1555,8 +1551,7 @@ static inline int uhc_dwc2_port_reset(const struct device *dev)
 	k_msleep(RESET_RECOVERY_MS);
 
 	/* TODO: enter critical section */
-	if (priv->port_state != UHC_PORT_STATE_RESETTING ||
-	    !priv->conn_dev_ena) {
+	if (priv->port_state != UHC_PORT_STATE_RESETTING || !priv->conn_dev_ena) {
 		/* The port state has unexpectedly changed */
 		LOG_ERR("Port state changed during reset");
 		ret = -EIO;
@@ -1618,7 +1613,7 @@ static inline int uhc_dwc2_port_recovery(const struct device *dev)
  */
 static inline void uhc_dwc2_submit_new_device(const struct device *dev, enum uhc_dwc2_speed speed)
 {
-	const char *uhc_dwc2_speed_str[] = { "High", "Full", "Low" };
+	const char *uhc_dwc2_speed_str[] = {"High", "Full", "Low"};
 	enum uhc_event_type type;
 
 	LOG_WRN("New dev, %s Speed", uhc_dwc2_speed_str[speed]);
@@ -1670,9 +1665,8 @@ static void uhc_dwc2_chan_set_ep_char(const struct uhc_dwc2_chan_config *chan_co
 	if (is_ctrl_chan) {
 		chan->bEndpointAddress = 0;
 		/* Set the default chan's MPS to the worst case MPS for the device's speed */
-		chan->mps = (chan_config->dev_speed == UHC_DWC2_SPEED_LOW)
-				       ? CTRL_EP_MAX_MPS_LS
-				       : CTRL_EP_MAX_MPS_HSFS;
+		chan->mps = (chan_config->dev_speed == UHC_DWC2_SPEED_LOW) ? CTRL_EP_MAX_MPS_LS
+									   : CTRL_EP_MAX_MPS_HSFS;
 	} else {
 		/* TODO: Implement for non-control chans */
 		LOG_WRN("Setting up chan characteristics for non-control chan has not implemented "
@@ -1808,17 +1802,14 @@ static inline int uhc_dwc2_chan_free(const struct device *dev, struct uhc_dwc2_c
 		return -EBUSY;
 	}
 
-
 	__ASSERT(priv->channels, "uhc_dwc2_chan_alloc: Channel handles list not allocated");
 
-	if (chan->type == UHC_DWC2_XFER_TYPE_INTR ||
-	    chan->type == UHC_DWC2_XFER_TYPE_ISOCHRONOUS) {
+	if (chan->type == UHC_DWC2_XFER_TYPE_INTR || chan->type == UHC_DWC2_XFER_TYPE_ISOCHRONOUS) {
 		/* TODO: Unschedule this channel */
 		LOG_WRN("uhc_dwc2_chan_free: Cannot free interrupt or isochronous channels yet");
 	}
 
-	__ASSERT(!chan->active,
-		 "uhc_dwc2_chan_free: Cannot free channel %d, it is still active",
+	__ASSERT(!chan->active, "uhc_dwc2_chan_free: Cannot free channel %d, it is still active",
 		 chan->chan_idx);
 
 	sys_clear_bits((mem_addr_t)&dwc2->haintmsk, (1 << chan->chan_idx));
@@ -1826,8 +1817,7 @@ static inline int uhc_dwc2_chan_free(const struct device *dev, struct uhc_dwc2_c
 	priv->channels[chan->chan_idx] = NULL;
 	priv->num_channels--;
 
-	LOG_DBG("Freeing channel %d, num_channels=%d", chan->chan_idx,
-		priv->num_channels);
+	LOG_DBG("Freeing channel %d, num_channels=%d", chan->chan_idx, priv->num_channels);
 
 	__ASSERT(priv->num_channels >= 0,
 		 "uhc_dwc2_chan_free: Number of allocated channels is negative: %d",
@@ -2112,7 +2102,7 @@ static int uhc_dwc2_preinit(const struct device *dev)
 {
 	const struct uhc_dwc2_config *const config = dev->config;
 	struct uhc_dwc2_data *priv = uhc_get_private(dev);
-	struct uhc_data *data= dev->data;
+	struct uhc_data *data = dev->data;
 
 	/* Initialize the private data structure */
 	memset(priv, 0, sizeof(struct uhc_dwc2_data));
