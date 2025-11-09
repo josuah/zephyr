@@ -108,13 +108,6 @@ enum uhc_dwc2_core_event {
 	UHC_DWC2_CORE_EVENT_OVRCUR_CLR,
 };
 
-enum uhc_dwc2_pipe_event {
-	PIPE_EVENT_NONE = 0,
-	PIPE_EVENT_XFER_DONE,
-	PIPE_EVENT_ERROR,
-	PIPE_EVENT_HALTED,
-};
-
 enum uhc_dwc2_chan_event {
 	/* The channel has completed execution of a transfer. Channel is now halted */
 	DWC2_CHAN_EVENT_CPLT,
@@ -209,7 +202,7 @@ struct uhc_dwc2_dma_buffer {
 	/* Pointer to the transfer associated with the buffer */
 	struct uhc_transfer *xfer;
 	/* The pipe event type */
-	enum uhc_dwc2_pipe_event pipe_event;
+	enum uhc_dwc2_chan_event pipe_event;
 	/* Stage index */
 	uint8_t cur_stg;
 	/* New address */
@@ -239,7 +232,7 @@ struct uhc_dwc2_pipe {
 	struct uhc_dwc2_ep_char ep_char;
 	/* Pipe status/state/events related */
 	enum uhc_dwc2_pipe_state state;
-	enum uhc_dwc2_pipe_event last_event;
+	enum uhc_dwc2_chan_event last_event;
 	uint8_t waiting_halt: 1;
 	uint8_t pipe_cmd_processing: 1;
 	/* XFER: pending, in-flight or done */
@@ -1305,7 +1298,7 @@ static void IRAM_ATTR _buffer_exec_proceed(struct uhc_dwc2_pipe *pipe)
 	sys_write32(hcchar, (mem_addr_t)&chan_regs->hcchar);
 }
 
-static inline void _buffer_done(struct uhc_dwc2_pipe *pipe, enum uhc_dwc2_pipe_event pipe_event, bool canceled)
+static inline void _buffer_done(struct uhc_dwc2_pipe *pipe, enum uhc_dwc2_chan_event pipe_event, bool canceled)
 {
 	struct uhc_dwc2_dma_buffer *buffer_done = pipe->buffer;
 	buffer_done->executing = 0;
@@ -1332,10 +1325,10 @@ static inline bool _buffer_can_exec(struct uhc_dwc2_pipe *pipe)
  * Decode a channel interrupt and take appropriate action
  * Interrupt context.
  */
-static enum uhc_dwc2_pipe_event uhc_dwc2_decode_chan(struct uhc_dwc2_pipe *pipe,struct uhc_dwc2_channel *chan_obj)
+static enum uhc_dwc2_chan_event uhc_dwc2_decode_chan(struct uhc_dwc2_pipe *pipe,struct uhc_dwc2_channel *chan_obj)
 {
 	enum uhc_dwc2_chan_event chan_event = uhc_dwc2_hal_chan_decode_intr(chan_obj);
-	enum uhc_dwc2_pipe_event pipe_event = PIPE_EVENT_NONE;
+	enum uhc_dwc2_chan_event pipe_event = DWC2_CHAN_EVENT_NONE;
 
 	LOG_DBG("Channel event: %d", chan_event);
 
@@ -1349,7 +1342,7 @@ static enum uhc_dwc2_pipe_event uhc_dwc2_decode_chan(struct uhc_dwc2_pipe *pipe,
 			_buffer_exec_proceed(pipe);
 			break;
 		}
-		pipe->last_event = PIPE_EVENT_XFER_DONE;
+		pipe->last_event = DWC2_CHAN_EVENT_CPLT;
 		pipe_event = pipe->last_event;
 		_buffer_done(pipe, pipe->last_event, false);
 		break;
@@ -1369,7 +1362,7 @@ static enum uhc_dwc2_pipe_event uhc_dwc2_decode_chan(struct uhc_dwc2_pipe *pipe,
 
 		/* Hint:
 		 * We've halted a transfer, so we need to trigger the pipe callback
-		 * pipe->last_event = PIPE_EVENT_XFER_DONE;
+		 * pipe->last_event = DWC2_CHAN_EVENT_CPLT;
 		 * pipe_event = pipe->last_event;
 		 * Halt request event is triggered when packet is successful completed.
 		 * But just treat all halted transfers as errors
@@ -1443,8 +1436,8 @@ static void uhc_dwc2_isr_handler(const struct device *dev)
 struct uhc_dwc2_channel *chan_obj = uhc_dwc2_get_chan_pending_intr(dev);
 		while (chan_obj != NULL) {
 			struct uhc_dwc2_pipe *pipe = (struct uhc_dwc2_pipe *)uhc_dwc2_chan_get_context(chan_obj);
-			enum uhc_dwc2_pipe_event pipe_event = uhc_dwc2_decode_chan(pipe, chan_obj);
-			if (pipe_event != PIPE_EVENT_NONE) {
+			enum uhc_dwc2_chan_event pipe_event = uhc_dwc2_decode_chan(pipe, chan_obj);
+			if (pipe_event != DWC2_CHAN_EVENT_NONE) {
 				pipe->last_event = pipe_event;
 				pipe->event_pending = 1;
 				k_event_post(&priv->drv_evt, BIT(UHC_DWC2_EVENT_PIPE));
@@ -2029,7 +2022,7 @@ static inline void uhc_dwc2_handle_pipe_events(const struct device *dev)
 
 	LOG_DBG("Pipe event: %d", pipe->last_event);
 
-	if (pipe->last_event == PIPE_EVENT_XFER_DONE) {
+	if (pipe->last_event == DWC2_CHAN_EVENT_CPLT) {
 		/* XFER transfer is done, process the transfer and release the pipe buffer */
 		struct uhc_transfer *const xfer = (struct uhc_transfer *)pipe->buffer->xfer;
 
