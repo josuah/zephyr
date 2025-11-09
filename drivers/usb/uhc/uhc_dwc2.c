@@ -242,7 +242,7 @@ struct uhc_dwc2_data {
 #define UHC_DWC2_CHAN_REG(base, chan_idx)                                                          \
 	((struct usb_dwc2_host_chan *)(((mem_addr_t)(base)) + 0x500UL + ((chan_idx) * 0x20UL)))
 
-#define UHC_DWC2_FIFODEPTH(config)                                                                  \
+#define UHC_DWC2_FIFODEPTH(config)                                                                 \
 	((uint32_t)(((config)->ghwcfg3 & USB_DWC2_GHWCFG3_DFIFODEPTH_MASK) >>                      \
 		    USB_DWC2_GHWCFG3_DFIFODEPTH_POS))
 
@@ -911,7 +911,7 @@ static enum uhc_port_event uhc_dwc2_decode_hprt(const struct device *dev,
 		break;
 	}
 	default: {
-		__ASSERT(false, "uhc_dwc2_decode_hprt: Unexpected core event %d", core_event);
+		__ASSERT(false, "Unexpected core event %d", core_event);
 		break;
 	}
 	}
@@ -978,9 +978,7 @@ static inline enum uhc_dwc2_core_event uhc_dwc2_decode_intr(const struct device 
 			} else {
 				/* Should never happened, as port event masked with
 				 * PORT_EVENTS_INTRS_MSK */
-				__ASSERT(false,
-					 "uhc_dwc2_decode_intr: Unknown port interrupt, HPRT=%08Xh",
-					 port_intrs);
+				__ASSERT(false, "Unknown port interrupt, HPRT=%08Xh", port_intrs);
 			}
 		}
 	}
@@ -1020,8 +1018,8 @@ enum uhc_dwc2_chan_event uhc_dwc2_hal_chan_decode_intr(const struct device *dev,
 	 * Errors > Channel Halt Request > Transfer completed
 	 */
 	if (hcint & (USB_DWC2_HCINT_STALL | USB_DWC2_HCINT_BBLERR | USB_DWC2_HCINT_XACTERR)) {
-		__ASSERT(hcint & USB_DWC2_HCINT_CHHLTD, "uhc_dwc2_hal_chan_decode_intr: Channel "
-							"error without channel halted interrupt");
+		__ASSERT(hcint & USB_DWC2_HCINT_CHHLTD,
+			 "Channel error without channel halted interrupt");
 
 		LOG_ERR("Channel %d error: 0x%08x", chan->chan_idx, hcint);
 		/* TODO: Store the error in hal context */
@@ -1156,8 +1154,8 @@ static void IRAM_ATTR _buffer_exec_proceed(const struct device *dev, struct uhc_
 	struct uhc_transfer *const xfer = chan->xfer;
 	const struct usb_dwc2_host_chan *chan_regs = UHC_DWC2_CHAN_REG(dwc2, chan->chan_idx);
 
-	__ASSERT(xfer != NULL, "_buffer_exec_proceed: No transfer assigned to buffer");
-	__ASSERT(chan->cur_stg != 2, "_buffer_exec: Invalid control stage: %d", chan->cur_stg);
+	__ASSERT(xfer != NULL, "No transfer assigned to buffer");
+	__ASSERT(chan->cur_stg != 2, "Invalid control stage: %d", chan->cur_stg);
 
 	bool next_dir_is_in;
 	enum uhc_dwc2_ctrl_stage next_pid;
@@ -1287,8 +1285,7 @@ static enum uhc_dwc2_chan_event uhc_dwc2_decode_chan(const struct device *dev,
 	case DWC2_CHAN_EVENT_HALT_REQ: {
 		LOG_ERR("Channel halt request handling not implemented yet");
 
-		__ASSERT(chan->waiting_halt,
-			 "uhc_dwc2_decode_chan: Pipe is not watiting to be halted");
+		__ASSERT(chan->waiting_halt, "Pipe is not watiting to be halted");
 
 		/* TODO: Implement halting the ongoing transfer */
 
@@ -1389,7 +1386,7 @@ static void uhc_dwc2_isr_handler(const struct device *dev)
 			}
 		} else {
 			/* No core event, nothing to do. Should never occur */
-			__ASSERT(false, "uhc_dwc2_isr_handler: No core event detected");
+			__ASSERT(false, "No core event detected");
 		}
 	}
 
@@ -1794,11 +1791,10 @@ static inline int uhc_dwc2_chan_deinit(const struct device *dev, struct uhc_dwc2
 
 	if (chan->type == UHC_DWC2_XFER_TYPE_INTR || chan->type == UHC_DWC2_XFER_TYPE_ISOCHRONOUS) {
 		/* TODO: Unschedule this channel */
-		LOG_WRN("uhc_dwc2_chan_free: Cannot free interrupt or isochronous channels yet");
+		LOG_WRN("Cannot free interrupt or isochronous channels yet");
 	}
 
-	__ASSERT(!chan->active, "uhc_dwc2_chan_free: Cannot free channel %d, it is still active",
-		 chan->chan_idx);
+	__ASSERT(!chan->active, "Cannot free channel %d, it is still active", chan->chan_idx);
 
 	sys_clear_bits((mem_addr_t)&dwc2->haintmsk, (1 << chan->chan_idx));
 
@@ -1806,8 +1802,7 @@ static inline int uhc_dwc2_chan_deinit(const struct device *dev, struct uhc_dwc2
 
 	LOG_DBG("Freeing channel %d, num_channels=%d", chan->chan_idx, priv->num_channels);
 
-	__ASSERT(priv->num_channels >= 0,
-		 "uhc_dwc2_chan_free: Number of allocated channels is negative: %d",
+	__ASSERT(priv->num_channels >= 0, "Number of allocated channels is negative: %d",
 		 priv->num_channels);
 
 	/* TODO: Remove the chan from the list of idle chans in the port object */
