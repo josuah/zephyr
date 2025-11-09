@@ -119,22 +119,6 @@ enum uhc_dwc2_chan_event {
 	DWC2_CHAN_EVENT_NONE,
 };
 
-struct uhc_dwc2_constant_config {
-	/* Number of available channels */
-	size_t numchannels;
-	/* High-speed PHY type */
-	uint8_t hsphytype;
-	/* Full-speed PHY type */
-	uint8_t fsphytype;
-	/* PHY data width */
-	uint8_t phydatawidth;
-	/* Buffer DMA mode flag */
-	bool bufferdma;
-	/* FIFO depth in WORDs */
-	uint16_t fifodepth;
-	/* TODO: Port context and callback? */
-};
-
 enum uhc_dwc2_chan_state {
 	/* Pipe is active */
 	UHC_CHAN_STATE_ACTIVE,
@@ -233,8 +217,6 @@ struct uhc_dwc2_data {
 	uint16_t fifo_nptxfsiz;
 	uint16_t fifo_rxfsiz;
 	uint16_t fifo_ptxfsiz;
-	/* Data, that doesn't changed after initialization */
-	struct uhc_dwc2_constant_config const_cfg;
 	struct uhc_dwc2_chan chan;
 	struct uhc_dwc2_chan *ctrl_chan;
 	/* Handles of each channel */
@@ -258,6 +240,20 @@ struct uhc_dwc2_data {
 	uint8_t conn_dev_ena: 1;
 	/* Waiting to be disabled */
 	uint8_t waiting_disable: 1;
+	/* Data, that doesn't changed after initialization */
+	/* Number of available channels */
+	size_t dwc2_numchannels;
+	/* High-speed PHY type */
+	uint8_t dwc2_hsphytype;
+	/* Full-speed PHY type */
+	uint8_t dwc2_fsphytype;
+	/* PHY data width */
+	uint8_t dwc2_phydatawidth;
+	/* Buffer DMA mode flag */
+	bool dwc2_bufferdma;
+	/* FIFO depth in WORDs */
+	uint16_t dwc2_fifodepth;
+	/* TODO: Port context and callback? */
 	/* TODO: Dynamic chan allocation on enqueue? */
 	/* TODO: FRAME LIST? */
 	/* TODO: Pipes/channels LIST? */
@@ -291,14 +287,13 @@ enum {
 	EPSIZE_ISO_HS_MAX = 1024,
 };
 
-static inline void uhc_dwc2_config_fifo_fixed_dma(const struct device *dev,
-						  const struct uhc_dwc2_constant_config *const_cfg)
+static inline void uhc_dwc2_config_fifo_fixed_dma(const struct device *dev)
 {
 	struct uhc_dwc2_data *priv = uhc_get_private(dev);
 
 	LOG_DBG("Configuring FIFO sizes");
-	priv->fifo_top = const_cfg->fifodepth;
-	priv->fifo_top -= const_cfg->numchannels;
+	priv->fifo_top = priv->dwc2_fifodepth;
+	priv->fifo_top -= priv->dwc2_numchannels;
 
 	/* TODO: support HS */
 
@@ -306,7 +301,7 @@ static inline void uhc_dwc2_config_fifo_fixed_dma(const struct device *dev,
 	uint32_t ptx_largest = 256 / 4;
 
 	priv->fifo_nptxfsiz = 2 * nptx_largest;
-	priv->fifo_rxfsiz = 2 * (ptx_largest + 2) + const_cfg->numchannels;
+	priv->fifo_rxfsiz = 2 * (ptx_largest + 2) + priv->dwc2_numchannels;
 	priv->fifo_ptxfsiz = priv->fifo_top - (priv->fifo_nptxfsiz + priv->fifo_rxfsiz);
 
 	/* TODO: verify ptxfsiz is overflowed */
@@ -434,9 +429,11 @@ static inline void dwc2_hal_toggle_power(struct usb_dwc2_reg *const dwc2, bool p
 	sys_write32(hprt & (~USB_DWC2_HPRT_W1C_MSK), (mem_addr_t)&dwc2->hprt);
 }
 
-static inline int dwc2_hal_get_config(struct usb_dwc2_reg *const dwc2,
-				      struct uhc_dwc2_constant_config *const cfg)
+static inline int dwc2_hal_get_config(const struct device *dev)
 {
+	const struct uhc_dwc2_config *const config = dev->config;
+	struct usb_dwc2_reg *const dwc2 = config->base;
+	struct uhc_dwc2_data *priv = uhc_get_private(dev);
 	uint32_t gsnpsid = sys_read32((mem_addr_t)&dwc2->gsnpsid);
 	uint32_t ghwcfg2 = sys_read32((mem_addr_t)&dwc2->ghwcfg2);
 	uint32_t ghwcfg3 = sys_read32((mem_addr_t)&dwc2->ghwcfg3);
@@ -462,15 +459,15 @@ static inline int dwc2_hal_get_config(struct usb_dwc2_reg *const dwc2,
 	/* Buffer DMA is always supported in Internal DMA mode.
 	 * TODO: check and support descriptor DMA if available
 	 */
-	cfg->bufferdma =
+	priv->dwc2_bufferdma =
 		(usb_dwc2_get_ghwcfg2_otgarch(ghwcfg2) == USB_DWC2_GHWCFG2_OTGARCH_INTERNALDMA);
 
 	if (IS_ENABLED(CONFIG_UHC_DWC2_DMA)) {
-		if (cfg->bufferdma) {
+		if (priv->dwc2_bufferdma) {
 			LOG_DBG("Buffer DMA enabled");
 		}
 	} else {
-		cfg->bufferdma = 0;
+		priv->dwc2_bufferdma = 0;
 	}
 
 	if (ghwcfg2 & USB_DWC2_GHWCFG2_DYNFIFOSIZING) {
@@ -483,8 +480,8 @@ static inline int dwc2_hal_get_config(struct usb_dwc2_reg *const dwc2,
 	LOG_DBG("OTG architecture (OTGARCH) %u, mode (OTGMODE) %u",
 		usb_dwc2_get_ghwcfg2_otgarch(ghwcfg2), usb_dwc2_get_ghwcfg2_otgmode(ghwcfg2));
 
-	cfg->fifodepth = usb_dwc2_get_ghwcfg3_dfifodepth(ghwcfg3);
-	LOG_DBG("DFIFO depth (DFIFODEPTH) %u bytes", cfg->fifodepth * 4);
+	priv->dwc2_fifodepth = usb_dwc2_get_ghwcfg3_dfifodepth(ghwcfg3);
+	LOG_DBG("DFIFO depth (DFIFODEPTH) %u bytes", priv->dwc2_fifodepth * 4);
 
 	/* TODO: Support vendor control interface */
 	LOG_DBG("Vendor Control interface support enabled: %s",
@@ -503,15 +500,15 @@ static inline int dwc2_hal_get_config(struct usb_dwc2_reg *const dwc2,
 
 	/* TODO: Support dedicated FIFO mode */
 
-	cfg->hsphytype = usb_dwc2_get_ghwcfg2_hsphytype(ghwcfg2);
-	cfg->fsphytype = usb_dwc2_get_ghwcfg2_fsphytype(ghwcfg2);
-	cfg->phydatawidth = usb_dwc2_get_ghwcfg4_phydatawidth(ghwcfg4);
-	cfg->numchannels = usb_dwc2_get_ghwcfg2_numhstchnl(ghwcfg2) + 1U;
+	priv->dwc2_hsphytype = usb_dwc2_get_ghwcfg2_hsphytype(ghwcfg2);
+	priv->dwc2_fsphytype = usb_dwc2_get_ghwcfg2_fsphytype(ghwcfg2);
+	priv->dwc2_phydatawidth = usb_dwc2_get_ghwcfg4_phydatawidth(ghwcfg4);
+	priv->dwc2_numchannels = usb_dwc2_get_ghwcfg2_numhstchnl(ghwcfg2) + 1U;
 
-	LOG_DBG("PHY interface type: FSPHYTYPE %u, HSPHYTYPE %u, DATAWIDTH %u", cfg->fsphytype,
-		cfg->hsphytype, cfg->phydatawidth);
+	LOG_DBG("PHY interface type: FSPHYTYPE %u, HSPHYTYPE %u, DATAWIDTH %u", priv->dwc2_fsphytype,
+		priv->dwc2_hsphytype, priv->dwc2_phydatawidth);
 
-	LOG_DBG("Number of host channels (NUMHSTCHNL + 1) %u", cfg->numchannels);
+	LOG_DBG("Number of host channels (NUMHSTCHNL + 1) %u", priv->dwc2_numchannels);
 
 	return 0;
 }
@@ -624,7 +621,7 @@ static inline void dwc2_hal_port_enable(const struct device *dev, struct usb_dwc
 	/* Disable periodic scheduling, will enable later */
 	hcfg &= ~USB_DWC2_HCFG_PERSCHEDENA;
 
-	if (priv->const_cfg.hsphytype == 0) {
+	if (priv->dwc2_hsphytype == 0) {
 		/*
 		Indicate to the OTG core what speed the PHY clock is at
 		Note: FSLS PHY has an implicit 8 divider applied when in LS mode,
@@ -722,13 +719,13 @@ static inline int uhc_dwc2_config_phy(const struct device *dev)
 	/* Init PHY based on the speed */
 	int ret;
 
-	if (priv->const_cfg.hsphytype != 0) {
+	if (priv->dwc2_hsphytype != 0) {
 		uint32_t gusbcfg = sys_read32((mem_addr_t)&dwc2->gusbcfg);
 
 		/* De-select FS PHY */
 		gusbcfg &= ~USB_DWC2_GUSBCFG_PHYSEL_USB11;
 
-		if (priv->const_cfg.hsphytype == USB_DWC2_GHWCFG2_HSPHYTYPE_ULPI) {
+		if (priv->dwc2_hsphytype == USB_DWC2_GHWCFG2_HSPHYTYPE_ULPI) {
 			LOG_WRN("Highspeed ULPI PHY init");
 			/* Select ULPI PHY (external) */
 			gusbcfg |= USB_DWC2_GUSBCFG_ULPI_UTMI_SEL_ULPI;
@@ -745,7 +742,7 @@ static inline int uhc_dwc2_config_phy(const struct device *dev)
 			/* Select UTMI+ PHY (internal) */
 			gusbcfg &= ~USB_DWC2_GUSBCFG_ULPI_UTMI_SEL_ULPI;
 			/* Set 16-bit interface if supported */
-			if (priv->const_cfg.phydatawidth) {
+			if (priv->dwc2_phydatawidth) {
 				gusbcfg |= USB_DWC2_GUSBCFG_PHYIF_16_BIT;
 			} else {
 				gusbcfg &= ~USB_DWC2_GUSBCFG_PHYIF_16_BIT;
@@ -833,7 +830,7 @@ static inline void uhc_dwc2_set_defaults(const struct device *dev)
 	gahbcfg |= (USB_DWC2_GAHBCFG_HBSTLEN_INCR16 << USB_DWC2_GAHBCFG_HBSTLEN_POS);
 	sys_write32(gahbcfg, (mem_addr_t)&dwc2->gahbcfg);
 
-	if (priv->const_cfg.bufferdma) {
+	if (priv->dwc2_bufferdma) {
 		sys_set_bits((mem_addr_t)&dwc2->gahbcfg, USB_DWC2_GAHBCFG_DMAEN);
 	}
 
@@ -843,21 +840,18 @@ static inline void uhc_dwc2_set_defaults(const struct device *dev)
 
 static int uhc_dwc2_init_controller(const struct device *dev)
 {
-	const struct uhc_dwc2_config *const config = dev->config;
 	struct uhc_dwc2_data *priv = uhc_get_private(dev);
-	struct usb_dwc2_reg *const dwc2 = config->base;
-
 	int ret;
 
 	/* Get hardware configuration */
-	ret = dwc2_hal_get_config(dwc2, &priv->const_cfg);
+	ret = dwc2_hal_get_config(dev);
 	if (ret) {
 		LOG_ERR("Failed to get DWC2 core parameters: %d", ret);
 		return ret;
 	}
 
 	/* Pre-calculate FIFO settings */
-	uhc_dwc2_config_fifo_fixed_dma(dev, &priv->const_cfg);
+	uhc_dwc2_config_fifo_fixed_dma(dev);
 
 	/* Config PHY */
 	ret = uhc_dwc2_config_phy(dev);
@@ -877,7 +871,7 @@ static int uhc_dwc2_init_controller(const struct device *dev)
 	priv->num_channels = 0;
 	priv->pending_channel_intrs_msk = 0;
 	if (priv->channels) {
-		for (int i = 0; i < priv->const_cfg.numchannels; i++) {
+		for (int i = 0; i < priv->dwc2_numchannels; i++) {
 			priv->channels[i] = NULL;
 		}
 	}
@@ -1718,12 +1712,12 @@ static inline bool uhc_dwc2_chan_init(const struct device *dev, struct uhc_dwc2_
 
 	/* TODO: FIFO sizes should be set before attempting to allocate a channel */
 
-	if (priv->num_channels == priv->const_cfg.numchannels) {
+	if (priv->num_channels == priv->dwc2_numchannels) {
 		return false;
 	}
 
 	uint8_t chan_idx = 0xff;
-	for (uint8_t i = 0; i < priv->const_cfg.numchannels; i++) {
+	for (uint8_t i = 0; i < priv->dwc2_numchannels; i++) {
 		if (priv->channels[i] == NULL) {
 			priv->channels[i] = chan;
 			chan_idx = i;
@@ -1733,7 +1727,7 @@ static inline bool uhc_dwc2_chan_init(const struct device *dev, struct uhc_dwc2_
 	}
 
 	__ASSERT(chan_idx != 0xff, "No free channels available, num_channels=%d, numchannels=%d",
-		 priv->num_channels, priv->const_cfg.numchannels);
+		 priv->num_channels, priv->dwc2_numchannels);
 
 	/* Initialize channel object */
 	LOG_DBG("Allocating channel %d", chan_idx);
@@ -2169,13 +2163,13 @@ static int uhc_dwc2_init(const struct device *dev)
 	}
 
 	/* Allocate memory for the channel objects */
-	priv->channels = k_malloc(priv->const_cfg.numchannels * sizeof(struct uhc_dwc2_chan *));
+	priv->channels = k_malloc(priv->dwc2_numchannels * sizeof(struct uhc_dwc2_chan *));
 	if (priv->channels == NULL) {
 		LOG_ERR("Failed to allocate channel handles");
 		return -ENOMEM;
 	}
 
-	for (uint8_t i = 0; i < priv->const_cfg.numchannels; i++) {
+	for (uint8_t i = 0; i < priv->dwc2_numchannels; i++) {
 		priv->channels[i] = NULL;
 	}
 
