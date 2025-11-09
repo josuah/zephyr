@@ -41,17 +41,17 @@ enum uhc_dwc2_event {
 	UHC_DWC2_EVENT_PIPE,
 };
 
+enum uhc_dwc2_speed {
+	UHC_DWC2_SPEED_HIGH = 0,
+	UHC_DWC2_SPEED_FULL = 1,
+	UHC_DWC2_SPEED_LOW = 2,
+};
+
 enum uhc_dwc2_xfer_type {
 	UHC_DWC2_XFER_TYPE_CTRL = 0,
 	UHC_DWC2_XFER_TYPE_ISOCHRONOUS = 1,
 	UHC_DWC2_XFER_TYPE_BULK = 2,
 	UHC_DWC2_XFER_TYPE_INTR = 3,
-};
-
-enum uhc_dwc2_speed {
-	UHC_DWC2_SPEED_HIGH = 0,
-	UHC_DWC2_SPEED_FULL = 1,
-	UHC_DWC2_SPEED_LOW = 2,
 };
 
 enum uhc_port_event {
@@ -188,13 +188,6 @@ struct uhc_dwc2_pipe_config {
 	enum uhc_dwc2_speed dev_speed;
 	/* Device address */
 	uint8_t dev_addr;
-};
-
-enum usb_transfer_type {
-	USB_TRANSFER_TYPE_CTRL = 0,
-	USB_TRANSFER_TYPE_ISOCHRONOUS,
-	USB_TRANSFER_TYPE_BULK,
-	USB_TRANSFER_TYPE_INTR,
 };
 
 /* Object representing a buffer of a pipe's sindle or multi buffer implementation */
@@ -1686,12 +1679,12 @@ static inline void uhc_dwc2_submit_dev_gone(const struct device *dev)
  * Fills the endpoint characteristics for a pipe.
  */
 static void uhc_dwc2_pipe_set_ep_char(const struct uhc_dwc2_pipe_config *pipe_config,
-				      enum usb_transfer_type type, bool is_ctrl_pipe, int pipe_idx,
+				      enum uhc_dwc2_xfer_type type, bool is_ctrl_pipe, int pipe_idx,
 				      enum uhc_dwc2_speed port_speed, struct uhc_dwc2_ep_char *ep_char)
 {
 	enum uhc_dwc2_xfer_type dw2_ll_xfer_type;
 
-	if (type == USB_TRANSFER_TYPE_CTRL) {
+	if (type == UHC_DWC2_XFER_TYPE_CTRL) {
 		dw2_ll_xfer_type = UHC_DWC2_XFER_TYPE_CTRL;
 	} else {
 		LOG_ERR("Unsupported transfer type %d", type);
@@ -1823,7 +1816,7 @@ static inline int uhc_dwc2_pipe_alloc(const struct device *dev,
 	/* TODO: Support all types of transfers */
 	struct uhc_dwc2_ep_char ep_char;
 
-	enum usb_transfer_type type = USB_TRANSFER_TYPE_CTRL;
+	enum uhc_dwc2_xfer_type type = UHC_DWC2_XFER_TYPE_CTRL;
 	/* TODO: Refactor to get port speed, static for now */
 	enum uhc_dwc2_speed port_speed = UHC_DWC2_SPEED_FULL;
 	bool is_default = true;
