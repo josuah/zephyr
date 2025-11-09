@@ -153,18 +153,18 @@ struct uhc_dwc2_chan {
 	/* Pipe status/state/events related */
 	enum uhc_dwc2_chan_state state;
 	enum uhc_dwc2_chan_event last_event;
+	/* The index of the channel */
+	uint8_t chan_idx;
 	/* Maximum Packet Size */
-	uint16_t mps;
+	uint16_t ep_mps;
 	/* Endpoint address */
-	uint8_t bEndpointAddress;
+	uint8_t ep_addr;
 	/* Device Address */
 	uint8_t dev_addr;
 	/* Stage index */
 	uint8_t cur_stg;
 	/* New address */
 	uint8_t new_addr;
-	/* The index of the channel */
-	uint8_t chan_idx;
 	/* Set address request */
 	uint8_t is_setting_addr: 1;
 	/* Data stage is IN */
@@ -316,22 +316,19 @@ static inline void uhc_dwc2_config_fifo_fixed_dma(const struct device *dev)
 
 void dwc2_hal_flush_rx_fifo(struct usb_dwc2_reg *const dwc2)
 {
-	mem_addr_t grstctl_reg = (mem_addr_t)&dwc2->grstctl;
-
-	sys_write32(USB_DWC2_GRSTCTL_RXFFLSH, grstctl_reg);
-	while (sys_read32(grstctl_reg) & USB_DWC2_GRSTCTL_RXFFLSH) {
+	sys_write32(USB_DWC2_GRSTCTL_RXFFLSH, (mem_addr_t)&dwc2->grstctl);
+	while (sys_read32((mem_addr_t)&dwc2->grstctl) & USB_DWC2_GRSTCTL_RXFFLSH) {
 	}
 }
 
 void dwc2_hal_flush_tx_fifo(struct usb_dwc2_reg *const dwc2, const uint8_t fnum)
 {
-	mem_addr_t grstctl_reg = (mem_addr_t)&dwc2->grstctl;
 	uint32_t grstctl;
 
 	grstctl = usb_dwc2_set_grstctl_txfnum(fnum) | USB_DWC2_GRSTCTL_TXFFLSH;
 
-	sys_write32(grstctl, grstctl_reg);
-	while (sys_read32(grstctl_reg) & USB_DWC2_GRSTCTL_TXFFLSH) {
+	sys_write32(grstctl, (mem_addr_t)&dwc2->grstctl);
+	while (sys_read32((mem_addr_t)&dwc2->grstctl) & USB_DWC2_GRSTCTL_TXFFLSH) {
 	}
 }
 
@@ -386,29 +383,28 @@ int dwc2_core_reset(const struct device *dev)
 	const struct uhc_dwc2_config *const config = dev->config;
 	struct usb_dwc2_reg *const dwc2 = config->base;
 
-	mem_addr_t grstctl_reg = (mem_addr_t)&dwc2->grstctl;
 	const unsigned int csr_timeout_us = 10000UL;
 	uint32_t cnt = 0UL;
 
 	/* Check AHB master idle state */
-	while (!(sys_read32(grstctl_reg) & USB_DWC2_GRSTCTL_AHBIDLE)) {
+	while (!(sys_read32((mem_addr_t)&dwc2->grstctl) & USB_DWC2_GRSTCTL_AHBIDLE)) {
 		k_busy_wait(1);
 
 		if (++cnt > csr_timeout_us) {
 			LOG_ERR("Wait for AHB idle timeout, GRSTCTL 0x%08x",
-				sys_read32(grstctl_reg));
+				sys_read32((mem_addr_t)&dwc2->grstctl));
 			return -EIO;
 		}
 	}
 
 	/* Apply Core Soft Reset */
-	sys_write32(USB_DWC2_GRSTCTL_CSFTRST, grstctl_reg);
+	sys_write32(USB_DWC2_GRSTCTL_CSFTRST, (mem_addr_t)&dwc2->grstctl);
 
 	cnt = 0UL;
 	do {
 		if (++cnt > csr_timeout_us) {
 			LOG_ERR("Wait for CSR done timeout, GRSTCTL 0x%08x",
-				sys_read32(grstctl_reg));
+				sys_read32((mem_addr_t)&dwc2->grstctl));
 			return -EIO;
 		}
 
@@ -417,11 +413,11 @@ int dwc2_core_reset(const struct device *dev)
 			/* Software reset won't finish without PHY clock */
 			return -EIO;
 		}
-	} while (sys_read32(grstctl_reg) & USB_DWC2_GRSTCTL_CSFTRST &&
-		 !(sys_read32(grstctl_reg) & USB_DWC2_GRSTCTL_CSFTRSTDONE));
+	} while (sys_read32((mem_addr_t)&dwc2->grstctl) & USB_DWC2_GRSTCTL_CSFTRST &&
+		 !(sys_read32((mem_addr_t)&dwc2->grstctl) & USB_DWC2_GRSTCTL_CSFTRSTDONE));
 
 	/* CSFTRSTDONE is W1C so the write must have the bit set to clear it */
-	sys_clear_bits(grstctl_reg, USB_DWC2_GRSTCTL_CSFTRST);
+	sys_clear_bits((mem_addr_t)&dwc2->grstctl, USB_DWC2_GRSTCTL_CSFTRST);
 
 	LOG_DBG("DWC2 core reset done");
 
@@ -527,16 +523,14 @@ static void dwc2_channel_configure(const struct device *dev, struct uhc_dwc2_cha
 	__ASSERT(!chan->active && !chan->halt_requested,
 		 "Cannot change endpoint characteristics while channel is active or halted");
 
-	mem_addr_t hcchar_reg = (mem_addr_t)&chan_regs->hcchar;
-
 	uint32_t hcchar =
-		((uint32_t)chan->mps << USB_DWC2_HCCHAR0_MPS_POS) |
-		((uint32_t)USB_EP_GET_IDX(chan->bEndpointAddress) << USB_DWC2_HCCHAR0_EPNUM_POS) |
+		((uint32_t)chan->ep_mps << USB_DWC2_HCCHAR0_MPS_POS) |
+		((uint32_t)USB_EP_GET_IDX(chan->ep_addr) << USB_DWC2_HCCHAR0_EPNUM_POS) |
 		((uint32_t)chan->type << USB_DWC2_HCCHAR0_EPTYPE_POS) |
 		((uint32_t)1UL /* TODO: chan->mult */ << USB_DWC2_HCCHAR0_EC_POS) |
 		((uint32_t)chan->dev_addr << USB_DWC2_HCCHAR0_DEVADDR_POS);
 
-	if (USB_EP_DIR_IS_IN(chan->bEndpointAddress)) {
+	if (USB_EP_DIR_IS_IN(chan->ep_addr)) {
 		hcchar |= USB_DWC2_HCCHAR0_EPDIR;
 	}
 
@@ -549,11 +543,15 @@ static void dwc2_channel_configure(const struct device *dev, struct uhc_dwc2_cha
 		hcchar |= USB_DWC2_HCCHAR0_ODDFRM;
 	}
 
-	sys_write32(hcchar, hcchar_reg);
-
-	if (chan->type == UHC_DWC2_XFER_TYPE_ISOCHRONOUS || chan->type == UHC_DWC2_XFER_TYPE_INTR) {
-		LOG_WRN("ISOC and INTR channels are note supported yet");
+	if (chan->type == UHC_DWC2_XFER_TYPE_ISOCHRONOUS) {
+		LOG_WRN("ISOC channels are note supported yet");
 	}
+
+	if (chan->type == UHC_DWC2_XFER_TYPE_INTR) {
+		LOG_WRN(" INTR channels are note supported yet");
+	}
+
+	sys_write32(hcchar, (mem_addr_t)&chan_regs->hcchar);
 }
 
 static inline enum uhc_dwc2_speed dwc2_hal_get_port_speed(struct usb_dwc2_reg *const dwc2)
@@ -916,7 +914,6 @@ static inline enum uhc_dwc2_core_event uhc_dwc2_decode_intr(const struct device 
 	const struct uhc_dwc2_config *const config = dev->config;
 	struct uhc_dwc2_data *priv = uhc_get_private(dev);
 	struct usb_dwc2_reg *const dwc2 = config->base;
-	mem_addr_t hprt_reg = (mem_addr_t)&dwc2->hprt;
 
 	enum uhc_dwc2_core_event core_event = UHC_DWC2_CORE_EVENT_NONE;
 	/* Read and clear core interrupt status */
@@ -926,9 +923,9 @@ static inline enum uhc_dwc2_core_event uhc_dwc2_decode_intr(const struct device 
 	uint32_t port_intrs = 0;
 
 	if (core_intrs & USB_DWC2_GINTSTS_PRTINT) {
-		port_intrs = sys_read32(hprt_reg);
+		port_intrs = sys_read32((mem_addr_t)&dwc2->hprt);
 		/* Clear the interrupt status by writing 1 to the W1C bits, except the PRTENA bit */
-		sys_write32(port_intrs & (~USB_DWC2_HPRT_PRTENA), hprt_reg);
+		sys_write32(port_intrs & (~USB_DWC2_HPRT_PRTENA), (mem_addr_t)&dwc2->hprt);
 	}
 
 	LOG_DBG("GINTSTS=%08Xh, HPRT=%08Xh", core_intrs, port_intrs);
@@ -991,11 +988,10 @@ enum uhc_dwc2_chan_event uhc_dwc2_hal_chan_decode_intr(const struct device *dev,
 	const struct uhc_dwc2_config *const config = dev->config;
 	struct usb_dwc2_reg *const dwc2 = config->base;
 	const struct usb_dwc2_host_chan *chan_regs = UHC_DWC2_CHAN_REG(dwc2, chan->chan_idx);
-	mem_addr_t hcint_reg = (mem_addr_t)&chan_regs->hcint;
 
-	uint32_t hcint = sys_read32(hcint_reg);
+	uint32_t hcint = sys_read32((mem_addr_t)&chan_regs->hcint);
 	/* Clear the interrupt bits by writing them back */
-	sys_write32(hcint, hcint_reg);
+	sys_write32(hcint, (mem_addr_t)&chan_regs->hcint);
 
 	enum uhc_dwc2_chan_event chan_event;
 
@@ -1197,7 +1193,7 @@ static void IRAM_ATTR _buffer_exec_proceed(const struct device *dev, struct uhc_
 	}
 
 	/* Calculate new packet count */
-	const uint16_t pkt_cnt = calc_packet_count(size, chan->mps);
+	const uint16_t pkt_cnt = calc_packet_count(size, chan->ep_mps);
 
 	if (next_dir_is_in) {
 		sys_set_bits((mem_addr_t)&chan_regs->hcchar, USB_DWC2_HCCHAR0_EPDIR);
@@ -1310,7 +1306,7 @@ static IRAM_ATTR void _buffer_exec(const struct device *dev, struct uhc_dwc2_cha
 	struct uhc_transfer *const xfer = (struct uhc_transfer *)chan->xfer;
 	const struct usb_dwc2_host_chan *chan_regs = UHC_DWC2_CHAN_REG(dwc2, chan->chan_idx);
 
-	LOG_DBG("ep=%02X, mps=%d", xfer->ep, chan->mps);
+	LOG_DBG("ep=%02X, mps=%d", xfer->ep, chan->ep_mps);
 
 	if (USB_EP_GET_IDX(xfer->ep) == 0) {
 		/* Control stage is always OUT */
@@ -1321,7 +1317,7 @@ static IRAM_ATTR void _buffer_exec(const struct device *dev, struct uhc_dwc2_cha
 		LOG_ERR("Periodic transfer is not supported");
 	}
 
-	const uint16_t pkt_cnt = calc_packet_count(sizeof(struct usb_setup_packet), chan->mps);
+	const uint16_t pkt_cnt = calc_packet_count(sizeof(struct usb_setup_packet), chan->ep_mps);
 	int next_pid = CTRL_STAGE_SETUP;
 	uint16_t size = sizeof(struct usb_setup_packet);
 
@@ -1640,42 +1636,6 @@ static inline void uhc_dwc2_submit_dev_gone(const struct device *dev)
 }
 
 /*
- * Fills the endpoint characteristics for a chan.
- */
-static void uhc_dwc2_chan_set_ep_char(uint8_t dev_addr, enum uhc_dwc2_speed dev_speed,
-				      enum uhc_dwc2_xfer_type type, bool is_ctrl_chan, int chan_idx,
-				      enum uhc_dwc2_speed port_speed, struct uhc_dwc2_chan *chan)
-{
-	enum uhc_dwc2_xfer_type dw2_ll_xfer_type;
-
-	if (type == UHC_DWC2_XFER_TYPE_CTRL) {
-		dw2_ll_xfer_type = UHC_DWC2_XFER_TYPE_CTRL;
-	} else {
-		LOG_ERR("Unsupported transfer type %d", type);
-		return;
-	}
-
-	chan->type = dw2_ll_xfer_type;
-
-	if (is_ctrl_chan) {
-		chan->bEndpointAddress = 0;
-		/* Set the default chan's MPS to the worst case MPS for the device's speed */
-		chan->mps = (dev_speed == UHC_DWC2_SPEED_LOW) ? CTRL_EP_MAX_MPS_LS
-							      : CTRL_EP_MAX_MPS_HSFS;
-	} else {
-		/* TODO: Implement for non-control chans */
-		LOG_WRN("Setting up chan characteristics for non-control chan has not implemented "
-			"yet");
-		return;
-	}
-
-	chan->dev_addr = dev_addr;
-	chan->ls_via_fs_hub = 0;
-	chan->interval = 0;
-	chan->offset = 0;
-}
-
-/*
  * Adds the channel object to the channel list and initializes it.
  */
 static inline bool uhc_dwc2_chan_init(const struct device *dev, struct uhc_dwc2_chan *chan)
@@ -1716,43 +1676,37 @@ static inline bool uhc_dwc2_chan_init(const struct device *dev, struct uhc_dwc2_
 /*
  * Allocate a chan holding the underlying channel object and the DMA buffer for transfer purposes.
  */
-static inline int uhc_dwc2_chan_alloc(const struct device *dev, uint8_t dev_addr,
-				      enum uhc_dwc2_speed dev_speed)
+static inline int uhc_dwc2_chan_alloc(const struct device *dev, uint8_t chan_idx, uint8_t ep_addr,
+				      uint8_t dev_addr, enum uhc_dwc2_speed dev_speed,
+				      enum uhc_dwc2_speed port_speed, enum uhc_dwc2_xfer_type type)
 {
 	struct uhc_dwc2_data *priv = uhc_get_private(dev);
-
-	int ret;
-
 	/* TODO: Allocate the chan and it's resources */
 	struct uhc_dwc2_chan *chan = &priv->chan[0];
+	/* TODO: Refactor to get port speed, static for now */
 
 	/* TODO: Double buffering scheme? */
 
-	enum uhc_dwc2_xfer_type type = UHC_DWC2_XFER_TYPE_CTRL;
-	/* TODO: Refactor to get port speed, static for now */
-	enum uhc_dwc2_speed port_speed = UHC_DWC2_SPEED_FULL;
-	bool is_default = true;
-	int chan_idx = 0;
-
-	uhc_dwc2_chan_set_ep_char(dev_addr, dev_speed, type, is_default, chan_idx, port_speed,
-				  chan);
+	/* Set the default chan's MPS to the worst case MPS for the device's speed */
+	chan->ep_mps = (dev_speed == UHC_DWC2_SPEED_LOW) ? CTRL_EP_MAX_MPS_LS
+							 : CTRL_EP_MAX_MPS_HSFS;
+	chan->type = type;
+	chan->ep_addr = ep_addr;
+	chan->chan_idx = chan_idx;
+	chan->dev_addr = dev_addr;
+	chan->ls_via_fs_hub = 0;
+	chan->interval = 0;
+	chan->offset = 0;
 	chan->state = UHC_CHAN_STATE_ACTIVE;
 
 	/* TODO: enter critical section */
 	if (!priv->conn_dev_ena) {
 		/* TODO: exit critical section */
 		LOG_ERR("Port is not enabled, cannot allocate channel");
-		ret = -ENODEV;
-		goto err;
+		return -ENODEV;
 	}
 
-	bool chan_allocated = uhc_dwc2_chan_init(dev, chan);
-	if (!chan_allocated) {
-		/* TODO: exit critical section */
-		LOG_ERR("No more free channels available");
-		ret = -ENOMEM;
-		goto err;
-	}
+	uhc_dwc2_chan_init(dev, chan);
 
 	dwc2_channel_configure(dev, chan);
 
@@ -1763,10 +1717,7 @@ static inline int uhc_dwc2_chan_alloc(const struct device *dev, uint8_t dev_addr
 	priv->num_chans_idle++;
 
 	/* TODO: exit critical section */
-
 	return 0;
-err:
-	return ret;
 }
 
 /*
@@ -1835,7 +1786,8 @@ static inline void uhc_dwc2_handle_port_events(const struct device *dev)
 			break;
 		}
 
-		ret = uhc_dwc2_chan_alloc(dev, 0, speed);
+		ret = uhc_dwc2_chan_alloc(dev, 0, 0, 0, UHC_DWC2_SPEED_FULL, UHC_DWC2_SPEED_FULL,
+					  UHC_DWC2_XFER_TYPE_CTRL);
 		if (ret) {
 			LOG_ERR("Failed to initialize channels: %d", ret);
 			break;
