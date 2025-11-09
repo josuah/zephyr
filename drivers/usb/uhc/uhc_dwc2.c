@@ -422,96 +422,6 @@ int dwc2_core_reset(const struct device *dev)
 	return 0;
 }
 
-static inline int dwc2_get_config(const struct device *dev)
-{
-	const struct uhc_dwc2_config *const config = dev->config;
-	struct usb_dwc2_reg *const dwc2 = config->base;
-	uint32_t reg;
-
-	reg = sys_read32((mem_addr_t)&dwc2->gsnpsid);
-	if (reg != config->gsnpsid) {
-		LOG_ERR("Unexpected GSNPSID 0x%08x instead of 0x%08x", reg, config->gsnpsid);
-		return -ENOTSUP;
-	}
-
-	reg = sys_read32((mem_addr_t)&dwc2->ghwcfg1);
-	if (reg != config->ghwcfg1) {
-		LOG_ERR("Unexpected GHWCFG1 0x%08x instead of 0x%08x", reg, config->ghwcfg1);
-		return -ENOTSUP;
-	}
-
-	reg = sys_read32((mem_addr_t)&dwc2->ghwcfg2);
-	if (reg != config->ghwcfg2) {
-		LOG_ERR("Unexpected GHWCFG2 0x%08x instead of 0x%08x", reg, config->ghwcfg2);
-		return -ENOTSUP;
-	}
-
-	reg = sys_read32((mem_addr_t)&dwc2->ghwcfg3);
-	if (reg != config->ghwcfg3) {
-		LOG_ERR("Unexpected GHWCFG3 0x%08x instead of 0x%08x", reg, config->ghwcfg3);
-		return -ENOTSUP;
-	}
-
-	reg = sys_read32((mem_addr_t)&dwc2->ghwcfg4);
-	if (reg != config->ghwcfg4) {
-		LOG_ERR("Unexpected GHWCFG4 0x%08x instead of 0x%08x", reg, config->ghwcfg4);
-		return -ENOTSUP;
-	}
-
-	if ((config->ghwcfg4 & USB_DWC2_GHWCFG4_DEDFIFOMODE) == 0) {
-		LOG_ERR("Only dedicated TX FIFO mode is supported");
-		return -ENOTSUP;
-	}
-
-	/* Buffer DMA is always supported in Internal DMA mode.
-	 * TODO: check and support descriptor DMA if available
-	 */
-
-	if (UHC_DWC2_OTGARCH(config) == USB_DWC2_GHWCFG2_OTGARCH_INTERNALDMA) {
-		LOG_DBG("Buffer DMA enabled");
-	}
-
-	if (config->ghwcfg2 & USB_DWC2_GHWCFG2_DYNFIFOSIZING) {
-		LOG_DBG("Dynamic FIFO Sizing is enabled");
-		/* TODO: support FIFO dynamic sizing */
-	}
-
-	/* TODO: Support hybernation */
-
-	LOG_DBG("OTG architecture (OTGARCH) %u, mode (OTGMODE) %u",
-		usb_dwc2_get_ghwcfg2_otgarch(config->ghwcfg2),
-		usb_dwc2_get_ghwcfg2_otgmode(config->ghwcfg2));
-
-	LOG_DBG("DFIFO depth (DFIFODEPTH) %u bytes", UHC_DWC2_FIFODEPTH(config) * 4);
-
-	/* TODO: Support vendor control interface */
-	LOG_DBG("Vendor Control interface support enabled: %s",
-		(config->ghwcfg3 & USB_DWC2_GHWCFG3_VNDCTLSUPT) ? "true" : "false");
-
-	LOG_DBG("PHY interface type: FSPHYTYPE %u, HSPHYTYPE %u, DATAWIDTH %u",
-		usb_dwc2_get_ghwcfg2_fsphytype(config->ghwcfg2),
-		usb_dwc2_get_ghwcfg2_hsphytype(config->ghwcfg2),
-		usb_dwc2_get_ghwcfg4_phydatawidth(config->ghwcfg4));
-
-	/* TODO: Support LPM */
-	LOG_DBG("LPM mode is %s",
-		(config->ghwcfg3 & USB_DWC2_GHWCFG3_LPMMODE) ? "enabled" : "disabled");
-
-	if (config->ghwcfg3 & USB_DWC2_GHWCFG3_RSTTYPE) {
-		/* TODO: Support sync reset */
-	}
-
-	/* TODO: Support dedicated FIFO mode */
-
-	LOG_DBG("PHY interface type: FSPHYTYPE %u, HSPHYTYPE %u, DATAWIDTH %u",
-		UHC_DWC2_FSPHYTYPE(config), UHC_DWC2_HSPHYTYPE(config),
-		UHC_DWC2_PHYDATAWIDTH(config));
-
-	LOG_DBG("Number of host channels (NUMHSTCHNL + 1) %u", UHC_DWC2_NUMHSTCHNL(config) + 1);
-
-	return 0;
-}
-
 static void dwc2_channel_configure(const struct device *dev, struct uhc_dwc2_chan *chan)
 {
 	const struct uhc_dwc2_config *const config = dev->config;
@@ -805,15 +715,9 @@ static inline void uhc_dwc2_set_defaults(const struct device *dev)
 
 static int uhc_dwc2_init_controller(const struct device *dev)
 {
+	const struct uhc_dwc2_config *const config = dev->config;
 	struct uhc_dwc2_data *priv = uhc_get_private(dev);
 	int ret;
-
-	/* Get hardware configuration */
-	ret = dwc2_get_config(dev);
-	if (ret) {
-		LOG_ERR("Failed to get DWC2 core parameters: %d", ret);
-		return ret;
-	}
 
 	/* Pre-calculate FIFO settings */
 	uhc_dwc2_config_fifo_fixed_dma(dev);
@@ -1069,7 +973,7 @@ static inline uint16_t calc_packet_count(const uint16_t size, const uint8_t mps)
 	}
 }
 
-static inline bool _buffer_check_done(struct uhc_dwc2_chan *chan)
+static inline bool _buffer_is_done(struct uhc_dwc2_chan *chan)
 {
 	/* Only control transfers need to be continued */
 	if (chan->type != UHC_DWC2_XFER_TYPE_CTRL) {
@@ -1254,7 +1158,7 @@ static enum uhc_dwc2_chan_event uhc_dwc2_decode_chan(const struct device *dev,
 		break;
 	}
 	case DWC2_CHAN_EVENT_CPLT: {
-		if (!_buffer_check_done(chan)) {
+		if (!_buffer_is_done(chan)) {
 			_buffer_exec_proceed(dev, chan);
 			break;
 		}
@@ -2014,6 +1918,9 @@ static int uhc_dwc2_preinit(const struct device *dev)
 
 static int uhc_dwc2_init(const struct device *dev)
 {
+	const struct uhc_dwc2_config *const config = dev->config;
+	struct usb_dwc2_reg *const dwc2 = config->base;
+	uint32_t reg;
 	int ret;
 
 	ret = uhc_dwc2_quirk_init(dev);
@@ -2022,9 +1929,44 @@ static int uhc_dwc2_init(const struct device *dev)
 		return ret;
 	}
 
+	reg = sys_read32((mem_addr_t)&dwc2->gsnpsid);
+	if (reg != config->gsnpsid) {
+		LOG_ERR("Unexpected GSNPSID 0x%08x instead of 0x%08x", reg, config->gsnpsid);
+		return -ENOTSUP;
+	}
+
+	reg = sys_read32((mem_addr_t)&dwc2->ghwcfg1);
+	if (reg != config->ghwcfg1) {
+		LOG_ERR("Unexpected GHWCFG1 0x%08x instead of 0x%08x", reg, config->ghwcfg1);
+		return -ENOTSUP;
+	}
+
+	reg = sys_read32((mem_addr_t)&dwc2->ghwcfg2);
+	if (reg != config->ghwcfg2) {
+		LOG_ERR("Unexpected GHWCFG2 0x%08x instead of 0x%08x", reg, config->ghwcfg2);
+		return -ENOTSUP;
+	}
+
+	reg = sys_read32((mem_addr_t)&dwc2->ghwcfg3);
+	if (reg != config->ghwcfg3) {
+		LOG_ERR("Unexpected GHWCFG3 0x%08x instead of 0x%08x", reg, config->ghwcfg3);
+		return -ENOTSUP;
+	}
+
+	reg = sys_read32((mem_addr_t)&dwc2->ghwcfg4);
+	if (reg != config->ghwcfg4) {
+		LOG_ERR("Unexpected GHWCFG4 0x%08x instead of 0x%08x", reg, config->ghwcfg4);
+		return -ENOTSUP;
+	}
+
+	if ((config->ghwcfg4 & USB_DWC2_GHWCFG4_DEDFIFOMODE) == 0) {
+		LOG_ERR("Only dedicated TX FIFO mode is supported");
+		return -ENOTSUP;
+	}
+
 	ret = uhc_dwc2_init_controller(dev);
 	if (ret) {
-		LOG_ERR("Failed to nitialize the USB controller");
+		LOG_ERR("Failed to initialize the USB controller");
 		return ret;
 	}
 
