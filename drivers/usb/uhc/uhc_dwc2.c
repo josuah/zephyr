@@ -2306,10 +2306,12 @@ static int uhc_dwc2_preinit(const struct device *dev)
 {
 	const struct uhc_dwc2_config *const config = dev->config;
 	struct uhc_dwc2_data *priv = uhc_get_private(dev);
+	struct uhc_data *data= dev->data;
 
 	/* Initialize the private data structure */
 	memset(priv, 0, sizeof(struct uhc_dwc2_data));
 	priv->ctrl_pipe = NULL;
+	k_mutex_init(&data->mutex);
 	k_mutex_init(&priv->mutex);
 	k_event_init(&priv->drv_evt);
 
