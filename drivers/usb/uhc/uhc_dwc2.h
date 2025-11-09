@@ -50,15 +50,18 @@ struct uhc_dwc2_vendor_quirks {
 struct uhc_dwc2_config {
 	/* Pointer to base address of DWC_OTG registers */
 	struct usb_dwc2_reg *const base;
+	/* Pointer to pin control configuration or NULL */
+	struct pinctrl_dev_config *const pcfg;
 	/* Pointer to vendor quirks or NULL */
 	const struct uhc_dwc2_vendor_quirks *const quirks;
-	struct pinctrl_dev_config *const pcfg;
-
 	void (*make_thread)(const struct device *dev);
 	void (*irq_enable_func)(const struct device *dev);
 	void (*irq_disable_func)(const struct device *dev);
-
-	/* TODO: Peripheral driver public parameters? */
+	uint32_t gsnpsid;
+	uint32_t ghwcfg1;
+	uint32_t ghwcfg2;
+	uint32_t ghwcfg3;
+	uint32_t ghwcfg4;
 };
 
 #include "uhc_dwc2_vendor_quirks.h"
