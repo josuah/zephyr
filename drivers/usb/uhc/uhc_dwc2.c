@@ -148,12 +148,29 @@ struct uhc_dwc2_chan {
 	int num_xfer_done;
 	/* Pointer to the transfer associated with the buffer */
 	struct uhc_transfer *xfer;
+	/* Interval in frames (FS) or microframes (HS) */
+	unsigned int interval;
+	/* Offset in the periodic scheduler */
+	uint32_t offset;
 	/* The chan event type */
 	enum uhc_dwc2_chan_event chan_event;
+	/* Type of endpoint */
+	enum uhc_dwc2_xfer_type type;
+	/* Pipe status/state/events related */
+	enum uhc_dwc2_chan_state state;
+	enum uhc_dwc2_chan_event last_event;
+	/* Maximum Packet Size */
+	uint16_t mps;
+	/* Endpoint address */
+	uint8_t bEndpointAddress;
+	/* Device Address */
+	uint8_t dev_addr;
 	/* Stage index */
 	uint8_t cur_stg;
 	/* New address */
 	uint8_t new_addr;
+	/* The index of the channel */
+	uint8_t chan_idx;
 	/* Set address request */
 	uint8_t set_addr: 1;
 	/* Data stage is IN */
@@ -164,33 +181,16 @@ struct uhc_dwc2_chan {
 	uint8_t executing: 1;
 	/* THis DMA buffer was canceled before completion  */
 	uint8_t was_canceled: 1;
-	/* Maximum Packet Size */
-	uint16_t mps;
-	/* Endpoint address */
-	uint8_t bEndpointAddress;
-	/* Device Address */
-	uint8_t dev_addr;
-	/* Type of endpoint */
-	enum uhc_dwc2_xfer_type type;
-	/* Interval in frames (FS) or microframes (HS) */
-	unsigned int interval;
-	/* Offset in the periodic scheduler */
-	uint32_t offset;
 	/* High-speed flag */
-	bool is_hs;
+	uint8_t is_hs: 1;
 	/* Support for Low-Speed is via a Full-Speed HUB */
-	bool ls_via_fs_hub;
-	/* Pipe status/state/events related */
-	enum uhc_dwc2_chan_state state;
-	enum uhc_dwc2_chan_event last_event;
+	uint8_t ls_via_fs_hub: 1;
 	uint8_t waiting_halt: 1;
 	uint8_t chan_cmd_processing: 1;
 	/* XFER: pending, in-flight or done */
 	uint8_t has_xfer: 1;
 	/* Pipe event is pending */
 	uint8_t event_pending: 1;
-	/* The index of the channel */
-	uint8_t chan_idx;
 	/* Is channel enabled */
 	uint8_t active: 1;
 	/* Halt has been requested */
@@ -206,11 +206,6 @@ struct uhc_dwc2_data {
 	struct k_mutex mutex;
 	/* Main events the driver thread waits for */
 	struct k_event drv_evt;
-	/* FIFO */
-	uint16_t fifo_top;
-	uint16_t fifo_nptxfsiz;
-	uint16_t fifo_rxfsiz;
-	uint16_t fifo_ptxfsiz;
 	struct uhc_dwc2_chan chan;
 	struct uhc_dwc2_chan *ctrl_chan;
 	/* Handles of each channel */
@@ -222,6 +217,23 @@ struct uhc_dwc2_data {
 	/* Data, that is used in multiple threads */
 	enum uhc_port_event last_event;
 	enum uhc_port_state port_state;
+	/* Number of available channels */
+	size_t dwc2_numchannels;
+	/* FIFO */
+	uint16_t fifo_top;
+	uint16_t fifo_nptxfsiz;
+	uint16_t fifo_rxfsiz;
+	uint16_t fifo_ptxfsiz;
+	/* FIFO depth in WORDs */
+	uint16_t dwc2_fifodepth;
+	/* High-speed PHY type */
+	uint8_t dwc2_hsphytype;
+	/* Full-speed PHY type */
+	uint8_t dwc2_fsphytype;
+	/* PHY data width */
+	uint8_t dwc2_phydatawidth;
+	/* Buffer DMA mode flag */
+	bool dwc2_bufferdma;
 	/* Number of idle chans */
 	uint8_t num_chans_idle;
 	/* Number of chans queued for processing */
@@ -234,19 +246,6 @@ struct uhc_dwc2_data {
 	uint8_t conn_dev_ena: 1;
 	/* Waiting to be disabled */
 	uint8_t waiting_disable: 1;
-	/* Data, that doesn't changed after initialization */
-	/* Number of available channels */
-	size_t dwc2_numchannels;
-	/* High-speed PHY type */
-	uint8_t dwc2_hsphytype;
-	/* Full-speed PHY type */
-	uint8_t dwc2_fsphytype;
-	/* PHY data width */
-	uint8_t dwc2_phydatawidth;
-	/* Buffer DMA mode flag */
-	bool dwc2_bufferdma;
-	/* FIFO depth in WORDs */
-	uint16_t dwc2_fifodepth;
 	/* TODO: Port context and callback? */
 	/* TODO: Dynamic chan allocation on enqueue? */
 	/* TODO: FRAME LIST? */
@@ -842,7 +841,7 @@ static int uhc_dwc2_init_controller(const struct device *dev)
 }
 
 static enum uhc_port_event uhc_dwc2_decode_hprt(const struct device *dev,
-					     enum uhc_dwc2_core_event core_event)
+						enum uhc_dwc2_core_event core_event)
 {
 	const struct uhc_dwc2_config *const config = dev->config;
 	struct uhc_dwc2_data *priv = uhc_get_private(dev);
