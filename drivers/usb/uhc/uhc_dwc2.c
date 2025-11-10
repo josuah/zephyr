@@ -137,7 +137,6 @@ enum uhc_dwc2_ctrl_stage {
 struct uhc_dwc2_chan {
 	/* XFER queuing related */
 	sys_dlist_t xfer_pending_list;
-	/* TODO: Lists of pending and done? */
 	int num_xfer_pending;
 	int num_xfer_done;
 	/* Pointer to the transfer associated with the buffer */
@@ -189,12 +188,12 @@ struct uhc_dwc2_chan {
 	uint8_t active: 1;
 	/* Halt has been requested */
 	uint8_t halt_requested: 1;
+	/* TODO: Lists of pending and done? */
 	/* TODO: Add channel error? */
 };
 
 struct uhc_dwc2_data {
 	struct k_sem irq_sem;
-	/* TODO: spinlock? */
 	struct k_thread thread_data;
 	/* Mutex for port access */
 	struct k_mutex mutex;
@@ -227,6 +226,7 @@ struct uhc_dwc2_data {
 	/* TODO: Dynamic chan allocation on enqueue? */
 	/* TODO: FRAME LIST? */
 	/* TODO: Pipes/channels LIST? */
+	/* TODO: spinlock? */
 };
 
 /* Host channel registers address */
@@ -262,18 +262,18 @@ struct uhc_dwc2_data {
  */
 
 /* Programming Guide 2.1.2 FIFO RAM allocation
- * RX
+ *
+ * RX:
  * - Largest-EPsize/4 + 2 (status info). recommended x2 if high bandwidth or multiple ISO are used.
  * - 2 for transfer complete and channel halted status
  * - 1 for each Control/Bulk out endpoint to Handle NAK/NYET (i.e max is number of host channel)
  *
- * TX non-periodic (NPTX)
+ * TX non-periodic (NPTX):
  * - At least largest-EPsize/4, recommended x2
  *
- *
-config-> * TX periodic (PTX)
-	 * - At least largest-EPsize*MulCount/4 (MulCount up to 3 for high-bandwidth ISO/interrupt)
-	 */
+ * TX periodic (PTX):
+ * - At least largest-EPsize*MulCount/4 (MulCount up to 3 for high-bandwidth ISO/interrupt)
+ */
 
 enum {
 	EPSIZE_BULK_FS = 64,
@@ -543,22 +543,20 @@ static inline void dwc2_port_enable(const struct device *dev)
 	hcfg &= ~USB_DWC2_HCFG_PERSCHEDENA;
 
 	if (UHC_DWC2_HSPHYTYPE(config) == 0) {
-		/*
-		Indicate to the OTG core what speed the PHY clock is at
-		Note: FSLS PHY has an implicit 8 divider applied when in LS mode,
-		so the values of FSLSPclkSel and FrInt have to be adjusted accordingly.
-		*/
+		/* Indicate to the OTG core what speed the PHY clock is at
+		 * Note: FSLS PHY has an implicit 8 divider applied when in LS mode,
+		 * so the values of FSLSPclkSel and FrInt have to be adjusted accordingly.
+		 */
 		uint8_t fslspclksel = (speed == UHC_DWC2_SPEED_FULL) ? 1 : 2;
 		hcfg &= ~USB_DWC2_HCFG_FSLSPCLKSEL_MASK;
 		hcfg |= (fslspclksel << USB_DWC2_HCFG_FSLSPCLKSEL_POS);
 
 		/* Disable dynamic loading */
 		hfir &= ~USB_DWC2_HFIR_HFIRRLDCTRL;
-		/*
-		Set frame interval to be equal to 1ms
-		Note: FSLS PHY has an implicit 8 divider applied when in LS mode,
-			so the values of FSLSPclkSel and FrInt have to be adjusted accordingly.
-		*/
+		/* Set frame interval to be equal to 1ms
+		 * Note: FSLS PHY has an implicit 8 divider applied when in LS mode,
+		 * so the values of FSLSPclkSel and FrInt have to be adjusted accordingly.
+		 */
 		uint16_t frint = (speed == UHC_DWC2_SPEED_FULL) ? 48000 : 6000;
 		hfir &= ~USB_DWC2_HFIR_FRINT_MASK;
 		hfir |= (frint << USB_DWC2_HFIR_FRINT_POS);
@@ -702,7 +700,8 @@ static enum uhc_port_event uhc_dwc2_decode_hprt(const struct device *dev,
 		if (priv->port_state != UHC_PORT_STATE_RESETTING) {
 			if (priv->waiting_disable) {
 				/* Disabled by request (i.e. by port command). Generate an internal
-				 * event */
+				 * event
+				 */
 				priv->port_state = UHC_PORT_STATE_DISABLED;
 				priv->waiting_disable = 0;
 				/* TODO: Notify the port event from ISR */
@@ -721,8 +720,7 @@ static enum uhc_port_event uhc_dwc2_decode_hprt(const struct device *dev,
 	case UHC_DWC2_CORE_EVENT_OVRCUR_CLR: {
 		/* TODO: Handle overcurrent event */
 
-		/*
-		 * If port state powered, we need to power it off to protect it
+		/* If port state powered, we need to power it off to protect it
 		 * change port state to recovery
 		 * generate port event UHC_PORT_EVENT_OVERCURRENT
 		 * disable the flag conn_dev_ena
@@ -1005,8 +1003,8 @@ static void IRAM_ATTR _buffer_exec_proceed(const struct device *dev, struct uhc_
 			/* TODO: Check if the buffer is large enough for the next transfer? */
 
 			/* TODO: Check that the buffer is DMA and CACHE aligned and compatible with
-			 * the DMA */
-			/* (better to do this on enqueue) */
+			 * the DMA (better to do this on enqueue)
+			 */
 
 			if (xfer->buf != NULL) {
 				/* Get the tail of the buffer to append data */
@@ -1015,8 +1013,10 @@ static void IRAM_ATTR _buffer_exec_proceed(const struct device *dev, struct uhc_
 				net_buf_add(xfer->buf, size);
 			}
 		}
-	} else { /* cur_stg == 1. Just finished data stage. Go to status stage */
-		/* Status stage is always the opposite direction of data stage */
+	} else {
+		/* cur_stg == 1. Just finished data stage. Go to status stage
+		 * Status stage is always the opposite direction of data stage
+		 */
 		next_dir_is_in = !chan->data_stg_in;
 		next_pid = CTRL_STAGE_DATA1; /* Status stage always has a PID of DATA1 */
 		chan->cur_stg = 2;
@@ -1070,7 +1070,7 @@ static inline bool _buffer_can_exec(struct uhc_dwc2_chan *chan)
 }
 
 /*
- * Decode a channel interrupt and take appropriate action
+ * Decode a channel interrupt and take appropriate action.
  * Interrupt context.
  */
 static enum uhc_dwc2_chan_event uhc_dwc2_decode_chan(const struct device *dev,
@@ -1191,7 +1191,8 @@ static void uhc_dwc2_isr_handler(const struct device *dev)
 				k_event_post(&priv->drv_evt, BIT(UHC_DWC2_EVENT_CHAN));
 			}
 			/* Check for more channels with pending interrupts. Returns NULL if there
-			 * are no more */
+			 * are no more
+			 */
 			chan = uhc_dwc2_get_chan_pending_intr(dev);
 		}
 	} else {
@@ -1274,10 +1275,12 @@ static inline enum uhc_port_event uhc_dwc2_get_port_event(const struct device *d
 	return ret;
 }
 
+/*
+ * Flush the channel EP characteristic
+ */
 static inline void uhc_dwc2_flush_chans(const struct device *dev)
 {
 	/* TODO: For each chan, reinitialize the channel with EP characteristics */
-	/* Flush the channel EP characteristics */
 	/* TODO: Sync CACHE */
 }
 
@@ -1323,26 +1326,23 @@ static inline int uhc_dwc2_port_reset(const struct device *dev)
 
 	int ret;
 
-	/* Enter critical section */
 	unsigned int key = irq_lock();
 
 	/* TODO: implement port checks */
 
-	/*
-	 * Hint:
+	/* Hint:
 	 * Port can only a reset when it is in the enabled or disabled (in the case of a new
 	 * connection) states. priv->port_state == UHC_PORT_STATE_ENABLED;
 	 * priv->port_state == UHC_PORT_STATE_DISABLED;
 	 * priv->num_channels_chans_queued == 0
 	 */
 
-	/*
-	Proceed to resetting the bus:
-	- Update the port's state variable
-	- Hold the bus in the reset state for RESET_HOLD_MS.
-	- Return the bus to the idle state for RESET_RECOVERY_MS
-	During this reset the port state should be set to RESETTING and do not change.
-	*/
+	/* Proceed to resetting the bus:
+	 * - Update the port's state variable
+	 * - Hold the bus in the reset state for RESET_HOLD_MS.
+	 * - Return the bus to the idle state for RESET_RECOVERY_MS
+	 * During this reset the port state should be set to RESETTING and do not change.
+	 */
 	priv->port_state = UHC_PORT_STATE_RESETTING;
 	dwc2_hal_toggle_reset(dwc2, true);
 
@@ -1398,8 +1398,10 @@ static inline int uhc_dwc2_port_recovery(const struct device *dev)
 	int ret;
 
 	/* TODO: Implement port checks */
-	/* Port should be in recovery state and no ongoing transfers */
-	/* Port flags should be 0 */
+
+	/* Port should be in recovery state and no ongoing transfers
+	 * Port flags should be 0
+	 */
 
 	/* TODO: enter critical section */
 	ret = uhc_dwc2_quirk_irq_disable_func(dev);
@@ -1528,6 +1530,7 @@ static inline int uhc_dwc2_chan_config(const struct device *dev, uint8_t chan_id
 	/* TODO: sync CACHE */
 
 	/* TODO: Add the chan to the list of idle chans in the port object */
+
 	sys_dlist_init(&chan->xfer_pending_list);
 	priv->num_chans_idle++;
 
@@ -1791,7 +1794,9 @@ static int uhc_dwc2_bus_reset(const struct device *dev)
 {
 	/* TODO: move the reset logic here */
 
-	/* Hint: First reset is done by the uhc dwc2 driver, so we don't need to do anything here */
+	/* Hint:
+	 * First reset is done by the uhc dwc2 driver, so we don't need to do anything here.
+	 */
 	uhc_submit_event(dev, UHC_EVT_RESETED, 0);
 	return 0;
 }
