@@ -587,14 +587,12 @@ static int uhc_dwc2_power_on(const struct device *dev)
 	return -EINVAL;
 }
 
-static inline int uhc_dwc2_config_phy(const struct device *dev)
+static inline void uhc_dwc2_init_gusbcfg(const struct device *dev)
 {
 	const struct uhc_dwc2_config *const config = dev->config;
 	struct usb_dwc2_reg *const dwc2 = config->base;
 
 	/* Init PHY based on the speed */
-	int ret;
-
 	if (UHC_DWC2_HSPHYTYPE(config) != 0) {
 		uint32_t gusbcfg = sys_read32((mem_addr_t)&dwc2->gusbcfg);
 
@@ -625,52 +623,12 @@ static inline int uhc_dwc2_config_phy(const struct device *dev)
 			}
 		}
 		sys_write32(gusbcfg, (mem_addr_t)&dwc2->gusbcfg);
-
-		ret = uhc_dwc2_quirk_phy_pre_select(dev);
-		if (ret) {
-			LOG_ERR("Quirk PHY pre select failed %d", ret);
-			return ret;
-		}
-
-		/* Reset core after selecting PHY */
-		ret = dwc2_core_reset(dev);
-		if (ret) {
-			LOG_ERR("DWC2 core reset failed after PHY init: %d", ret);
-			return ret;
-		}
-
-		ret = uhc_dwc2_quirk_phy_post_select(dev);
-		if (ret) {
-			LOG_ERR("Quirk PHY post select failed %d", ret);
-			return ret;
-		}
 	} else {
 		sys_set_bits((mem_addr_t)&dwc2->gusbcfg, USB_DWC2_GUSBCFG_PHYSEL_USB11);
-
-		ret = uhc_dwc2_quirk_phy_pre_select(dev);
-		if (ret) {
-			LOG_ERR("Quirk PHY pre select failed %d", ret);
-			return ret;
-		}
-
-		/* Reset core after selecting PHY */
-		ret = dwc2_core_reset(dev);
-		if (ret) {
-			LOG_ERR("DWC2 core reset failed after PHY init: %d", ret);
-			return ret;
-		}
-
-		ret = uhc_dwc2_quirk_phy_post_select(dev);
-		if (ret) {
-			LOG_ERR("Quirk PHY post select failed %d", ret);
-			return ret;
-		}
 	}
-
-	return ret;
 }
 
-static inline void uhc_dwc2_set_defaults(const struct device *dev)
+static inline void uhc_dwc2_init_gahbcfg(const struct device *dev)
 {
 	const struct uhc_dwc2_config *const config = dev->config;
 	struct usb_dwc2_reg *const dwc2 = config->base;
@@ -711,35 +669,6 @@ static inline void uhc_dwc2_set_defaults(const struct device *dev)
 
 	/* Enable Global Interrupt */
 	sys_set_bits((mem_addr_t)&dwc2->gahbcfg, USB_DWC2_GAHBCFG_GLBINTRMASK);
-}
-
-static int uhc_dwc2_init_controller(const struct device *dev)
-{
-	const struct uhc_dwc2_config *const config = dev->config;
-	struct uhc_dwc2_data *priv = uhc_get_private(dev);
-	int ret;
-
-	/* Pre-calculate FIFO settings */
-	uhc_dwc2_config_fifo_fixed_dma(dev);
-
-	/* Config PHY */
-	ret = uhc_dwc2_config_phy(dev);
-	if (ret) {
-		LOG_ERR("Failed to configure DWC2 PHY: %d", ret);
-		return ret;
-	}
-
-	/* Set defaults */
-	uhc_dwc2_set_defaults(dev);
-
-	/* Update the port state and flags */
-	priv->port_state = UHC_PORT_STATE_NOT_POWERED;
-	priv->last_event = UHC_PORT_EVENT_NONE;
-
-	/* TODO: Clear all the flags and channels */
-	priv->pending_channel_intrs_msk = 0;
-
-	return 0;
 }
 
 static enum uhc_port_event uhc_dwc2_decode_hprt(const struct device *dev,
@@ -1459,6 +1388,8 @@ bailout:
 	return ret;
 }
 
+static int uhc_dwc2_init(const struct device *dev);
+
 /*
  * Port recovery is necessary when the port is in an error state and needs to be reset.
  */
@@ -1478,7 +1409,7 @@ static inline int uhc_dwc2_port_recovery(const struct device *dev)
 	}
 
 	/* Init controller */
-	ret = uhc_dwc2_init_controller(dev);
+	ret = uhc_dwc2_init(dev);
 	if (ret) {
 		LOG_ERR("Failed to init controller: %d", ret);
 		return ret;
@@ -1919,6 +1850,7 @@ static int uhc_dwc2_preinit(const struct device *dev)
 static int uhc_dwc2_init(const struct device *dev)
 {
 	const struct uhc_dwc2_config *const config = dev->config;
+	struct uhc_dwc2_data *priv = uhc_get_private(dev);
 	struct usb_dwc2_reg *const dwc2 = config->base;
 	uint32_t reg;
 	int ret;
@@ -1928,6 +1860,8 @@ static int uhc_dwc2_init(const struct device *dev)
 		LOG_ERR("Quirk init failed %d", ret);
 		return ret;
 	}
+
+	/* 1. Read hardware configuration registers */
 
 	reg = sys_read32((mem_addr_t)&dwc2->gsnpsid);
 	if (reg != config->gsnpsid) {
@@ -1964,11 +1898,49 @@ static int uhc_dwc2_init(const struct device *dev)
 		return -ENOTSUP;
 	}
 
-	ret = uhc_dwc2_init_controller(dev);
+	ret = uhc_dwc2_quirk_phy_pre_select(dev);
 	if (ret) {
-		LOG_ERR("Failed to initialize the USB controller");
+		LOG_ERR("Quirk PHY pre select failed %d", ret);
 		return ret;
 	}
+
+	/* Reset core after selecting PHY */
+	ret = dwc2_core_reset(dev);
+	if (ret) {
+		LOG_ERR("DWC2 core reset failed after PHY init: %d", ret);
+		return ret;
+	}
+
+	ret = uhc_dwc2_quirk_phy_post_select(dev);
+	if (ret) {
+		LOG_ERR("Quirk PHY post select failed %d", ret);
+		return ret;
+	}
+
+	/* Pre-calculate FIFO settings */
+	uhc_dwc2_config_fifo_fixed_dma(dev);
+
+	/* 2. Program the GAHBCFG register */
+	uhc_dwc2_init_gahbcfg(dev);
+
+	/* 3. Disable RX FIFO level interrupts for the time of the configuration */
+	/* TODO */
+
+	/* 4. Configure the reference clock */
+	/* TODO */
+
+	/* 5. Program the GUSBCFG register */
+	uhc_dwc2_init_gusbcfg(dev);
+
+	/* 6. Disable OTG and mode-mismatch interrupts */
+	/* TODO */
+
+	/* Update the port state and flags */
+	priv->port_state = UHC_PORT_STATE_NOT_POWERED;
+	priv->last_event = UHC_PORT_EVENT_NONE;
+
+	/* TODO: Clear all the flags and channels */
+	priv->pending_channel_intrs_msk = 0;
 
 	return 0;
 }
