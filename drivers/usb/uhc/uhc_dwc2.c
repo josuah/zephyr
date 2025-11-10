@@ -376,43 +376,43 @@ static inline void dwc2_hal_toggle_power(struct usb_dwc2_reg *const dwc2, bool p
 	sys_write32(hprt & (~USB_DWC2_HPRT_W1C_MSK), (mem_addr_t)&dwc2->hprt);
 }
 
-int dwc2_core_reset(const struct device *dev)
+int dwc2_core_reset(const struct device *dev, k_timeout_t timeout)
 {
 	const struct uhc_dwc2_config *const config = dev->config;
+	k_timepoint_t timepoint = sys_timepoint_calc(timeout);
 	struct usb_dwc2_reg *const dwc2 = config->base;
 
-	const unsigned int csr_timeout_us = 10000UL;
-	uint32_t cnt = 0UL;
+	/* Software reset won't finish without PHY clock */
+	if (uhc_dwc2_quirk_is_phy_clk_off(dev)) {
+		LOG_ERR("PHY clock is  turned off, cannot reset");
+		return -EIO;
+	}
 
 	/* Check AHB master idle state */
-	while (!(sys_read32((mem_addr_t)&dwc2->grstctl) & USB_DWC2_GRSTCTL_AHBIDLE)) {
-		k_busy_wait(1);
-
-		if (++cnt > csr_timeout_us) {
+	while ((sys_read32((mem_addr_t)&dwc2->grstctl) & USB_DWC2_GRSTCTL_AHBIDLE) == 0) {
+		if (sys_timepoint_expired(timepoint)) {
 			LOG_ERR("Wait for AHB idle timeout, GRSTCTL 0x%08x",
 				sys_read32((mem_addr_t)&dwc2->grstctl));
 			return -EIO;
 		}
+
+		k_busy_wait(1);
 	}
 
 	/* Apply Core Soft Reset */
 	sys_write32(USB_DWC2_GRSTCTL_CSFTRST, (mem_addr_t)&dwc2->grstctl);
 
-	cnt = 0UL;
-	do {
-		if (++cnt > csr_timeout_us) {
+	/* Wait for reset to complete */
+	while ((sys_read32((mem_addr_t)&dwc2->grstctl) & USB_DWC2_GRSTCTL_CSFTRST) != 0 &&
+	       (sys_read32((mem_addr_t)&dwc2->grstctl) & USB_DWC2_GRSTCTL_CSFTRSTDONE) == 0) {
+		if (sys_timepoint_expired(timepoint)) {
 			LOG_ERR("Wait for CSR done timeout, GRSTCTL 0x%08x",
 				sys_read32((mem_addr_t)&dwc2->grstctl));
 			return -EIO;
 		}
 
 		k_busy_wait(1);
-		if (uhc_dwc2_quirk_is_phy_clk_off(dev)) {
-			/* Software reset won't finish without PHY clock */
-			return -EIO;
-		}
-	} while (sys_read32((mem_addr_t)&dwc2->grstctl) & USB_DWC2_GRSTCTL_CSFTRST &&
-		 !(sys_read32((mem_addr_t)&dwc2->grstctl) & USB_DWC2_GRSTCTL_CSFTRSTDONE));
+	}
 
 	/* CSFTRSTDONE is W1C so the write must have the bit set to clear it */
 	sys_clear_bits((mem_addr_t)&dwc2->grstctl, USB_DWC2_GRSTCTL_CSFTRST);
@@ -1905,7 +1905,7 @@ static int uhc_dwc2_init(const struct device *dev)
 	}
 
 	/* Reset core after selecting PHY */
-	ret = dwc2_core_reset(dev);
+	ret = dwc2_core_reset(dev, K_MSEC(10));
 	if (ret) {
 		LOG_ERR("DWC2 core reset failed after PHY init: %d", ret);
 		return ret;
