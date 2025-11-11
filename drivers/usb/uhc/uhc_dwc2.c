@@ -865,7 +865,7 @@ static inline uint16_t calc_packet_count(const uint16_t size, const uint8_t mps)
 	}
 }
 
-static inline bool _buffer_is_done(struct uhc_dwc2_chan *chan)
+static inline bool uhc_dwc2_buffer_is_done(struct uhc_dwc2_chan *chan)
 {
 	/* Only control transfers need to be continued */
 	if (chan->type != UHC_DWC2_XFER_TYPE_CTRL) {
@@ -875,7 +875,7 @@ static inline bool _buffer_is_done(struct uhc_dwc2_chan *chan)
 	return (chan->cur_stg == 2);
 }
 
-static inline void _buffer_fill_ctrl(struct uhc_dwc2_chan *chan, struct uhc_transfer *const xfer)
+static inline void uhc_dwc2_buffer_fill_ctrl(struct uhc_dwc2_chan *chan, struct uhc_transfer *const xfer)
 {
 	/* Get information about the control transfer by analyzing the setup packet */
 	const struct usb_setup_packet *setup_pkt = (const struct usb_setup_packet *)xfer->setup_pkt;
@@ -909,7 +909,7 @@ static inline enum uhc_dwc2_ctrl_stage cal_next_pid(enum uhc_dwc2_ctrl_stage pid
 	}
 }
 
-static void IRAM_ATTR _buffer_exec_proceed(const struct device *dev, struct uhc_dwc2_chan *chan)
+static void uhc_dwc2_buffer_exec_proceed(const struct device *dev, struct uhc_dwc2_chan *chan)
 {
 	const struct uhc_dwc2_config *const config = dev->config;
 	struct usb_dwc2_reg *const dwc2 = config->base;
@@ -1010,8 +1010,8 @@ static void uhc_dwc2_handle_chan_intr(const struct device *dev, struct uhc_dwc2_
 		/* No event, nothing to do */
 		break;
 	case DWC2_CHAN_EVENT_CPLT:
-		if (!_buffer_is_done(chan)) {
-			_buffer_exec_proceed(dev, chan);
+		if (!uhc_dwc2_buffer_is_done(chan)) {
+			uhc_dwc2_buffer_exec_proceed(dev, chan);
 			break;
 		}
 		chan->last_event = chan_event;
@@ -1039,7 +1039,7 @@ static void uhc_dwc2_handle_chan_intr(const struct device *dev, struct uhc_dwc2_
 	}
 }
 
-static IRAM_ATTR void _buffer_exec(const struct device *dev, struct uhc_dwc2_chan *chan)
+static void uhc_dwc2_buffer_exec(const struct device *dev, struct uhc_dwc2_chan *chan)
 {
 	const struct uhc_dwc2_config *const config = dev->config;
 	struct usb_dwc2_reg *const dwc2 = config->base;
@@ -1584,8 +1584,8 @@ static inline int uhc_dwc2_submit_ctrl_xfer(const struct device *dev, struct uhc
 
 	key = irq_lock();
 
-	_buffer_fill_ctrl(chan, xfer);
-	_buffer_exec(dev, chan);
+	uhc_dwc2_buffer_fill_ctrl(chan, xfer);
+	uhc_dwc2_buffer_exec(dev, chan);
 
 	irq_unlock(key);
 
