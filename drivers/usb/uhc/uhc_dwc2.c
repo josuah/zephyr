@@ -166,8 +166,6 @@ struct uhc_dwc2_data {
 	uint16_t fifo_ptxfsiz;
 	/* Debounce lock */
 	uint8_t lock_enabled: 1;
-	/* Device is connected */
-	uint8_t conn_dev_ena: 1;
 	/* Waiting to be disabled */
 	uint8_t waiting_disable: 1;
 	/* TODO: Port context and callback? */
@@ -694,6 +692,9 @@ static inline enum uhc_dwc2_event uhc_dwc2_decode_intr(const struct device *dev,
 		core_event = UHC_DWC2_EVENT_CHAN0;
 	}
 
+	/* No core event, nothing to do. Should never occur */
+	__ASSERT(core_event != UHC_DWC2_EVENT_NONE, "No core event detected");
+
 	return core_event;
 }
 
@@ -992,18 +993,6 @@ static void uhc_dwc2_isr_handler(const struct device *dev)
 			uhc_dwc2_handle_chan_intr(dev, &priv->chan[i - 1]);
 		}
 	} else {
-		/* No core event, nothing to do. Should never occur */
-		__ASSERT(core_event != UHC_DWC2_EVENT_NONE, "No core event detected");
-
-		switch (core_event) {
-		case UHC_DWC2_EVENT_ENABLED:
-			priv->conn_dev_ena = 1;
-			break;
-		case UHC_DWC2_EVENT_DISABLED:
-			priv->conn_dev_ena = 0;
-			break;
-		}
-
 		k_event_set(&priv->event, BIT(core_event));
 	}
 
@@ -1112,7 +1101,7 @@ static inline int uhc_dwc2_port_reset(const struct device *dev)
 	/* Give the port time to recover */
 	k_msleep(RESET_RECOVERY_MS);
 
-	if (priv->port_state != UHC_PORT_STATE_RESETTING || !priv->conn_dev_ena) {
+	if (priv->port_state != UHC_PORT_STATE_RESETTING) {
 		/* The port state has unexpectedly changed */
 		LOG_ERR("Port state changed during reset");
 		ret = -EIO;
@@ -1351,7 +1340,6 @@ static inline void uhc_dwc2_handle_port_events(const struct device *dev, uint32_
 		/* If port state powered, we need to power it off to protect it
 		 * change port state to recovery
 		 * generate port event UHC_DWC2_EVENT_OVERCURRENT
-		 * disable the flag conn_dev_ena
 		 */
 		LOG_ERR("Overcurrent detected on port, not implemented yet");
 		/* TODO: Handle overcurrent event */
