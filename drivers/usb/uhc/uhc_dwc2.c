@@ -156,8 +156,6 @@ struct uhc_dwc2_data {
 	/* Main events the driver thread waits for */
 	struct k_event event;
 	struct uhc_dwc2_chan chan[UHC_DWC2_MAX_CHAN];
-	/* Bit mask of channels with pending interrupts */
-	uint32_t pending_channel_intrs_msk;
 	/* Data, that is used in multiple threads */
 	enum uhc_dwc2_event last_event;
 	enum uhc_port_state port_state;
@@ -686,7 +684,8 @@ static enum uhc_dwc2_event uhc_dwc2_decode_hprt(const struct device *dev,
 	return port_event;
 }
 
-static inline enum uhc_dwc2_event uhc_dwc2_decode_intr(const struct device *dev)
+static inline enum uhc_dwc2_event uhc_dwc2_decode_intr(const struct device *dev,
+						       uint32_t *channels)
 {
 	const struct uhc_dwc2_config *const config = dev->config;
 	struct uhc_dwc2_data *priv = uhc_get_private(dev);
@@ -753,7 +752,7 @@ static inline enum uhc_dwc2_event uhc_dwc2_decode_intr(const struct device *dev)
 	/* Port events always take precedence over channel events */
 	if (core_event == UHC_DWC2_EVENT_NONE && (core_intrs & USB_DWC2_GINTSTS_HCHINT)) {
 		/* One or more channels have pending interrupts. Store the mask of those channels */
-		priv->pending_channel_intrs_msk = sys_read32((mem_addr_t)&dwc2->haint);
+		*channels = sys_read32((mem_addr_t)&dwc2->haint);
 		core_event = UHC_DWC2_EVENT_CHAN0;
 	}
 
@@ -814,15 +813,16 @@ static enum uhc_dwc2_chan_event uhc_dwc2_hal_chan_decode_intr(const struct devic
 	return chan_event;
 }
 
-static struct uhc_dwc2_chan *uhc_dwc2_get_chan_pending_intr(const struct device *dev)
+static struct uhc_dwc2_chan *uhc_dwc2_get_chan_pending_intr(const struct device *dev,
+							    uint32_t *channels)
 {
 	struct uhc_dwc2_data *priv = uhc_get_private(dev);
 	int chan_num;
 
-	chan_num = __builtin_ffs(priv->pending_channel_intrs_msk);
+	chan_num = __builtin_ffs(*channels);
 	if (chan_num) {
 		/* Clear the pending bit for that channel */
-		priv->pending_channel_intrs_msk &= ~(1 << (chan_num - 1));
+		*channels &= ~(1 << (chan_num - 1));
 		return &priv->chan[chan_num - 1];
 	} else {
 		return NULL;
@@ -988,7 +988,7 @@ static void uhc_dwc2_handle_chan_intr(const struct device *dev, struct uhc_dwc2_
 			break;
 		}
 		chan->last_event = chan_event;
-		k_event_set(&priv->event, BIT(UHC_DWC2_EVENT_CHAN0));
+		k_event_set(&priv->event, BIT(UHC_DWC2_EVENT_CHAN0 + chan->chan_idx));
 		break;
 	case DWC2_CHAN_EVENT_ERROR:
 		LOG_ERR("Channel error handling not implemented yet");
@@ -1064,18 +1064,19 @@ static void uhc_dwc2_isr_handler(const struct device *dev)
 	struct uhc_dwc2_data *priv = uhc_get_private(dev);
 	unsigned int key;
 	enum uhc_dwc2_event core_event;
+	uint32_t channels = 0;
 
 	key = irq_lock();
 
-	core_event = uhc_dwc2_decode_intr(dev);
+	core_event = uhc_dwc2_decode_intr(dev, &channels);
 	if (core_event == UHC_DWC2_EVENT_CHAN0) {
 		/* Channel event. Cycle through each pending channel */
 		struct uhc_dwc2_chan *chan;
 
-		chan = uhc_dwc2_get_chan_pending_intr(dev);
+		chan = uhc_dwc2_get_chan_pending_intr(dev, &channels);
 		while (chan != NULL) {
 			uhc_dwc2_handle_chan_intr(dev, chan);
-			chan = uhc_dwc2_get_chan_pending_intr(dev);
+			chan = uhc_dwc2_get_chan_pending_intr(dev, &channels);
 		}
 	} else {
 		if (core_event != UHC_DWC2_EVENT_NONE) {
@@ -1775,9 +1776,6 @@ static int uhc_dwc2_init(const struct device *dev)
 	/* Update the port state and flags */
 	priv->port_state = UHC_PORT_STATE_NOT_POWERED;
 	priv->last_event = UHC_DWC2_EVENT_NONE;
-
-	/* TODO: Clear all the flags and channels */
-	priv->pending_channel_intrs_msk = 0;
 
 	return 0;
 }
