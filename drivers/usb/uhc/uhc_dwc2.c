@@ -120,13 +120,6 @@ enum uhc_dwc2_chan_event {
 	DWC2_CHAN_EVENT_NONE,
 };
 
-enum uhc_dwc2_chan_state {
-	/* Pipe is active */
-	UHC_CHAN_STATE_ACTIVE,
-	/* Pipe is halted */
-	UHC_CHAN_STATE_HALTED,
-};
-
 enum uhc_dwc2_ctrl_stage {
 	CTRL_STAGE_DATA0 = 0,
 	CTRL_STAGE_DATA2 = 1,
@@ -137,8 +130,6 @@ enum uhc_dwc2_ctrl_stage {
 struct uhc_dwc2_chan {
 	/* XFER queuing related */
 	sys_dlist_t xfer_pending_list;
-	int num_xfer_pending;
-	int num_xfer_done;
 	/* Pointer to the transfer associated with the buffer */
 	struct uhc_transfer *xfer;
 	/* Interval in frames (FS) or microframes (HS) */
@@ -147,8 +138,6 @@ struct uhc_dwc2_chan {
 	uint32_t offset;
 	/* Type of endpoint */
 	enum uhc_dwc2_xfer_type type;
-	/* Pipe status/state/events related */
-	enum uhc_dwc2_chan_state state;
 	enum uhc_dwc2_chan_event last_event;
 	/* The index of the channel */
 	uint8_t chan_idx;
@@ -172,10 +161,7 @@ struct uhc_dwc2_chan {
 	uint8_t is_hs: 1;
 	/* Support for Low-Speed is via a Full-Speed HUB */
 	uint8_t ls_via_fs_hub: 1;
-	uint8_t waiting_halt: 1;
 	uint8_t chan_cmd_processing: 1;
-	/* Is channel enabled */
-	uint8_t active: 1;
 	/* Halt has been requested */
 	uint8_t halt_requested: 1;
 	/* TODO: Lists of pending and done? */
@@ -415,9 +401,6 @@ static void dwc2_channel_configure(const struct device *dev, struct uhc_dwc2_cha
 	const struct uhc_dwc2_config *const config = dev->config;
 	struct usb_dwc2_reg *const dwc2 = config->base;
 	const struct usb_dwc2_host_chan *chan_regs = UHC_DWC2_CHAN_REG(dwc2, chan->chan_idx);
-
-	__ASSERT(!chan->active && !chan->halt_requested,
-		 "Cannot change endpoint characteristics while channel is active or halted");
 
 	uint32_t hcchar =
 		((uint32_t)chan->ep_mps << USB_DWC2_HCCHAR0_MPS_POS) |
@@ -817,12 +800,6 @@ enum uhc_dwc2_chan_event uhc_dwc2_hal_chan_decode_intr(const struct device *dev,
 
 	/*
 	 * Note:
-	 * We don't assert on (chan->active) here as it could have been already cleared
-	 * by usb_dwc_hal_chan_request_halt()
-	 */
-
-	/*
-	 * Note:
 	 * Do not change order of checks as some events take precedence over others.
 	 * Errors > Channel Halt Request > Transfer completed
 	 */
@@ -840,7 +817,6 @@ enum uhc_dwc2_chan_event uhc_dwc2_hal_chan_decode_intr(const struct device *dev,
 		} else {
 			chan_event = DWC2_CHAN_EVENT_CPLT;
 		}
-		chan->active = 0;
 	} else if (hcint & USB_DWC2_HCINT_XFERCOMPL) {
 		/* Note:
 		 * The channel isn't halted yet, so we need to halt it manually to stop the
@@ -933,7 +909,6 @@ static inline void _buffer_fill_ctrl(struct uhc_dwc2_chan *chan, struct uhc_tran
 static void IRAM_ATTR _buffer_fill(struct uhc_dwc2_chan *chan)
 {
 	struct uhc_transfer *xfer = chan_get_next_xfer(chan);
-	chan->num_xfer_pending--;
 
 	/* TODO: Double buffering scheme? */
 
@@ -1043,20 +1018,6 @@ static void IRAM_ATTR _buffer_exec_proceed(const struct device *dev, struct uhc_
 	sys_write32(hcchar, (mem_addr_t)&chan_regs->hcchar);
 }
 
-static inline bool _buffer_can_fill(struct uhc_dwc2_chan *chan)
-{
-	/* TODO: Double buffering scheme? */
-	/* We can only fill if there are pending XFRs and at least one unfilled buffer */
-	return (chan->num_xfer_pending > 0);
-}
-
-static inline bool _buffer_can_exec(struct uhc_dwc2_chan *chan)
-{
-	/* TODO: Double buffering scheme? */
-	/* For one buffer we can execute it always */
-	return true;
-}
-
 /*
  * Decode a channel interrupt and take appropriate action.
  * Interrupt context.
@@ -1087,15 +1048,12 @@ static void uhc_dwc2_handle_chan_intr(const struct device *dev, struct uhc_dwc2_
 	case DWC2_CHAN_EVENT_HALT_REQ:
 		LOG_ERR("Channel halt request handling not implemented yet");
 
-		__ASSERT(chan->waiting_halt, "Pipe is not watiting to be halted");
-
 		/* TODO: Implement halting the ongoing transfer */
 
 		/* Hint:
 		 * We've halted a transfer, so we need to trigger the chan callback
 		 * Halt request event is triggered when packet is successful completed.
 		 * But just treat all halted transfers as errors
-		 * chan->state = UHC_CHAN_STATE_HALTED;
 		 * Notify the task waiting for the chan halt or halt it right away
 		 * _internal_chan_event_notify(chan, true);
 		 */
@@ -1462,8 +1420,6 @@ static inline int uhc_dwc2_chan_config(const struct device *dev, uint8_t chan_id
 	chan->dev_addr = dev_addr;
 	chan->ls_via_fs_hub = 0;
 	chan->interval = 0;
-	chan->offset = 0;
-	chan->state = UHC_CHAN_STATE_ACTIVE;
 
 	/* TODO: enter critical section */
 	if (!priv->conn_dev_ena) {
@@ -1678,16 +1634,14 @@ static inline int uhc_dwc2_submit_ctrl_xfer(const struct device *dev, struct uhc
 	}
 
 	sys_dlist_append(&chan->xfer_pending_list, &xfer->node);
-	chan->num_xfer_pending++;
 
 	key = irq_lock();
 
-	if (_buffer_can_fill(chan)) {
+	if (!sys_dlist_is_empty(&chan->xfer_pending_list)) {
 		_buffer_fill(chan);
 	}
-	if (_buffer_can_exec(chan)) {
-		_buffer_exec(dev, chan);
-	}
+
+	_buffer_exec(dev, chan);
 
 	irq_unlock(key);
 
