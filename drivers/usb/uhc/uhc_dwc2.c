@@ -165,7 +165,7 @@ struct uhc_dwc2_data {
 	uint16_t fifo_rxfsiz;
 	uint16_t fifo_ptxfsiz;
 	/* Debounce lock */
-	uint8_t lock_enabled: 1;
+	uint8_t debouncing: 1;
 	/* TODO: Port context and callback? */
 	/* TODO: Dynamic chan allocation on enqueue? */
 	/* TODO: FRAME LIST? */
@@ -452,7 +452,7 @@ static inline int uhc_dwc2_get_port_speed(const struct device *dev, enum uhc_dwc
 	return 0;
 }
 
-static void uhc_dwc2_lock_enable(const struct device *dev)
+static void uhc_dwc2_debounce_enable(const struct device *dev)
 {
 	const struct uhc_dwc2_config *const config = dev->config;
 	struct usb_dwc2_reg *const dwc2 = config->base;
@@ -461,7 +461,7 @@ static void uhc_dwc2_lock_enable(const struct device *dev)
 	/* Disable Connection and disconnection interrupts to prevent spurious events */
 	sys_clear_bits((mem_addr_t)&dwc2->gintmsk,
 		       USB_DWC2_GINTSTS_PRTINT | USB_DWC2_GINTSTS_DISCONNINT);
-	priv->lock_enabled = 1;
+	priv->debouncing = 1;
 }
 
 static inline void uhc_dwc2_lock_disable(const struct device *dev)
@@ -470,7 +470,7 @@ static inline void uhc_dwc2_lock_disable(const struct device *dev)
 	struct usb_dwc2_reg *const dwc2 = config->base;
 	struct uhc_dwc2_data *const priv = uhc_get_private(dev);
 
-	priv->lock_enabled = 0;
+	priv->debouncing = 0;
 	/* Clear Connection and disconnection interrupt in case it triggered again */
 	sys_set_bits((mem_addr_t)&dwc2->gintsts, USB_DWC2_GINTSTS_DISCONNINT);
 	/* Clear the PRTCONNDET interrupt by writing 1 to the corresponding bit (W1C logic) */
@@ -658,7 +658,7 @@ static inline enum uhc_dwc2_event uhc_dwc2_decode_intr(const struct device *dev,
 			/* Disconnect event */
 			core_event = UHC_DWC2_EVENT_DISCONNECTION;
 			/* Debounce lock */
-			uhc_dwc2_lock_enable(dev);
+			uhc_dwc2_debounce_enable(dev);
 		/* Port still connected, check port event */
 		} else if (port_intrs & USB_DWC2_HPRT_PRTOVRCURRCHNG) {
 			/* Check if this is an overcurrent or an overcurrent cleared */
@@ -676,10 +676,10 @@ static inline enum uhc_dwc2_event uhc_dwc2_decode_intr(const struct device *dev,
 				/* Host port has been disabled */
 				core_event = UHC_DWC2_EVENT_DISABLED;
 			}
-		} else if (port_intrs & USB_DWC2_HPRT_PRTCONNDET && !priv->lock_enabled) {
+		} else if (port_intrs & USB_DWC2_HPRT_PRTCONNDET && !priv->debouncing) {
 			core_event = UHC_DWC2_EVENT_CONNECTION;
 			/* Debounce lock */
-			uhc_dwc2_lock_enable(dev);
+			uhc_dwc2_debounce_enable(dev);
 		}
 	}
 
