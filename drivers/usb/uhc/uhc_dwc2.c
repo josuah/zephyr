@@ -1042,11 +1042,8 @@ static void uhc_dwc2_buffer_exec(const struct device *dev, struct uhc_dwc2_chan 
 static void uhc_dwc2_isr_handler(const struct device *dev)
 {
 	struct uhc_dwc2_data *priv = uhc_get_private(dev);
-	unsigned int key;
 	enum uhc_dwc2_event core_event;
 	uint32_t channels = 0;
-
-	key = irq_lock();
 
 	core_event = uhc_dwc2_decode_intr(dev, &channels);
 	if (core_event == UHC_DWC2_EVENT_CHAN0) {
@@ -1068,12 +1065,9 @@ static void uhc_dwc2_isr_handler(const struct device *dev)
 		}
 	}
 
-	irq_unlock(key);
-
 	(void)uhc_dwc2_quirk_irq_clear(dev);
 }
 
-/* TODO: critical section */
 static inline bool uhc_dwc2_port_debounced(const struct device *dev)
 {
 	const struct uhc_dwc2_config *const config = dev->config;
@@ -1081,9 +1075,7 @@ static inline bool uhc_dwc2_port_debounced(const struct device *dev)
 	struct usb_dwc2_reg *const dwc2 = config->base;
 	bool is_connected;
 
-	/* TODO: exit critical section */
 	k_msleep(DEBOUNCE_DELAY_MS);
-	/* TODO: enter critical section */
 
 	/* Check the post-debounce state (i.e., whether it's actually connected/disconnected) */
 	is_connected = ((sys_read32((mem_addr_t)&dwc2->hprt) & USB_DWC2_HPRT_PRTCONNSTS) != 0);
@@ -1144,9 +1136,6 @@ static inline int uhc_dwc2_port_reset(const struct device *dev)
 	struct uhc_dwc2_data *priv = uhc_get_private(dev);
 	struct usb_dwc2_reg *const dwc2 = config->base;
 	int ret;
-	unsigned int key;
-
-	key = irq_lock();
 
 	/* TODO: implement port checks */
 
@@ -1165,14 +1154,8 @@ static inline int uhc_dwc2_port_reset(const struct device *dev)
 	priv->port_state = UHC_PORT_STATE_RESETTING;
 	dwc2_hal_toggle_reset(dwc2, true);
 
-	/* Exit critical section */
-	irq_unlock(key);
-
 	/* Hold the bus in the reset state */
 	k_msleep(RESET_HOLD_MS);
-
-	/* Enter critical section */
-	key = irq_lock();
 
 	if (priv->port_state != UHC_PORT_STATE_RESETTING) {
 		/* The port state has unexpectedly changed */
@@ -1184,13 +1167,9 @@ static inline int uhc_dwc2_port_reset(const struct device *dev)
 	/* Return the bus to the idle state. Port enabled event should occur */
 	dwc2_hal_toggle_reset(dwc2, false);
 
-	/* Exit critical section */
-	irq_unlock(key);
-
 	/* Give the port time to recover */
 	k_msleep(RESET_RECOVERY_MS);
 
-	/* TODO: enter critical section */
 	if (priv->port_state != UHC_PORT_STATE_RESETTING || !priv->conn_dev_ena) {
 		/* The port state has unexpectedly changed */
 		LOG_ERR("Port state changed during reset");
@@ -1222,7 +1201,6 @@ static inline int uhc_dwc2_port_recovery(const struct device *dev)
 	 * Port flags should be 0
 	 */
 
-	/* TODO: enter critical section */
 	ret = uhc_dwc2_quirk_irq_disable_func(dev);
 	if (ret) {
 		LOG_ERR("Quirk IRQ disable failed %d", ret);
@@ -1241,7 +1219,6 @@ static inline int uhc_dwc2_port_recovery(const struct device *dev)
 		LOG_ERR("Quirk IRQ enable failed %d", ret);
 		return ret;
 	}
-	/* TODO: exit critical section */
 
 	ret = uhc_dwc2_power_on(dev);
 	if (ret) {
@@ -1315,9 +1292,7 @@ static inline int uhc_dwc2_chan_config(const struct device *dev, uint8_t chan_id
 	chan->ls_via_fs_hub = 0;
 	chan->interval = 0;
 
-	/* TODO: enter critical section */
 	if (!priv->conn_dev_ena) {
-		/* TODO: exit critical section */
 		LOG_ERR("Port is not enabled, cannot allocate channel");
 		return -ENODEV;
 	}
@@ -1351,7 +1326,6 @@ static inline int uhc_dwc2_chan_config(const struct device *dev, uint8_t chan_id
 
 	sys_dlist_init(&chan->xfer_pending_list);
 
-	/* TODO: exit critical section */
 	return 0;
 }
 
@@ -1391,9 +1365,7 @@ static inline void uhc_dwc2_handle_port_events(const struct device *dev, uint32_
 	}
 
 	if (events & BIT(UHC_DWC2_EVENT_ENABLED)) {
-		/* TODO: enter critical section */
 		priv->port_state = UHC_PORT_STATE_ENABLED;
-		/* TODO: exit critical section */
 
 		ret = uhc_dwc2_get_port_speed(dev, &port_speed);
 		if (ret) {
@@ -1417,7 +1389,6 @@ static inline void uhc_dwc2_handle_port_events(const struct device *dev, uint32_
 	    (events & BIT(UHC_DWC2_EVENT_OVERCURRENT))) {
 		port_has_device = false;
 
-		/* TODO: enter critical section */
 		switch (priv->port_state) {
 		case UHC_PORT_STATE_DISABLED:
 			break;
@@ -1429,7 +1400,6 @@ static inline void uhc_dwc2_handle_port_events(const struct device *dev, uint32_
 			LOG_ERR("Unexpected port state %d", priv->port_state);
 			break;
 		}
-		/* TODO: exit critical section */
 
 		if (port_has_device) {
 			uhc_dwc2_chan_deinit(dev, &priv->chan[0]);
@@ -1479,8 +1449,6 @@ static inline void uhc_dwc2_handle_chan_events(const struct device *dev, struct 
 static inline int uhc_dwc2_submit_ctrl_xfer(const struct device *dev, struct uhc_dwc2_chan *chan,
 					    struct uhc_transfer *const xfer)
 {
-	unsigned int key;
-
 	LOG_HEXDUMP_INF(xfer->setup_pkt, 8, "setup");
 
 	LOG_DBG("endpoint=%02Xh, mps=%d, interval=%d, start_frame=%d, stage=%d, no_status=%d",
@@ -1502,12 +1470,8 @@ static inline int uhc_dwc2_submit_ctrl_xfer(const struct device *dev, struct uhc
 
 	sys_dlist_append(&chan->xfer_pending_list, &xfer->node);
 
-	key = irq_lock();
-
 	uhc_dwc2_buffer_fill_ctrl(chan, xfer);
 	uhc_dwc2_buffer_exec(dev, chan);
-
-	irq_unlock(key);
 
 	return 0;
 }
@@ -1585,20 +1549,26 @@ static int uhc_dwc2_bus_resume(const struct device *dev)
 static int uhc_dwc2_enqueue(const struct device *dev, struct uhc_transfer *const xfer)
 {
 	struct uhc_dwc2_data *priv = uhc_get_private(dev);
-	int ret;
+	int ret = 0;
+
+	uhc_lock_internal(dev, K_FOREVER);
 
 	if (USB_EP_GET_IDX(xfer->ep) == 0) {
 		ret = uhc_dwc2_submit_ctrl_xfer(dev, &priv->chan[0], xfer);
 		if (ret) {
 			LOG_ERR("Failed to submit xfer: %d", ret);
-			return ret;
+			goto err;
 		}
 	} else {
 		LOG_ERR("Non-control endpoint enqueue not implemented yet");
-		return -ENOSYS;
+		ret = -ENOSYS;
+		goto err;
 	}
 
-	return 0;
+err:
+	uhc_unlock_internal(dev);
+
+	return ret;
 }
 
 static int uhc_dwc2_dequeue(const struct device *dev, struct uhc_transfer *const xfer)
