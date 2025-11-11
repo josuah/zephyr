@@ -202,10 +202,6 @@ struct uhc_dwc2_data {
 	uint16_t fifo_nptxfsiz;
 	uint16_t fifo_rxfsiz;
 	uint16_t fifo_ptxfsiz;
-	/* Number of idle chans */
-	uint8_t num_chans_idle;
-	/* Number of chans queued for processing */
-	uint8_t num_chans_queued;
 	/* Debounce lock */
 	uint8_t lock_enabled: 1;
 	/* Device is connected */
@@ -1308,7 +1304,6 @@ static inline int uhc_dwc2_port_reset(const struct device *dev)
 	 * Port can only a reset when it is in the enabled or disabled (in the case of a new
 	 * connection) states. priv->port_state == UHC_PORT_STATE_ENABLED;
 	 * priv->port_state == UHC_PORT_STATE_DISABLED;
-	 * priv->num_channels_chans_queued == 0
 	 */
 
 	/* Proceed to resetting the bus:
@@ -1507,7 +1502,6 @@ static inline int uhc_dwc2_chan_config(const struct device *dev, uint8_t chan_id
 	/* TODO: Add the chan to the list of idle chans in the port object */
 
 	sys_dlist_init(&chan->xfer_pending_list);
-	priv->num_chans_idle++;
 
 	/* TODO: exit critical section */
 	return 0;
@@ -1539,7 +1533,6 @@ static inline int uhc_dwc2_chan_deinit(const struct device *dev, struct uhc_dwc2
 	LOG_DBG("Freeing channel %d", chan->chan_idx);
 
 	/* TODO: Remove the chan from the list of idle chans in the port object */
-	priv->num_chans_idle--;
 
 	return 0;
 }
@@ -1647,8 +1640,6 @@ static inline void uhc_dwc2_handle_chan_events(const struct device *dev, struct 
 
 		/* TODO: Refactor chan resources release */
 		chan->has_xfer = 0;
-		priv->num_chans_idle++;
-		priv->num_chans_queued--;
 
 		uhc_xfer_return(dev, xfer, 0);
 
@@ -1728,8 +1719,6 @@ static inline int uhc_dwc2_submit_ctrl_xfer(const struct device *dev, struct uhc
 		/* This is the first XFER to be enqueued into the chan. */
 		/* TODO: remove chan from idle chans list */
 		/* TODO: add chan to active chans list */
-		priv->num_chans_idle--;
-		priv->num_chans_queued++;
 		chan->has_xfer = 1;
 	}
 
