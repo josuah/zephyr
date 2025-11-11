@@ -40,32 +40,22 @@ enum uhc_dwc2_event {
 	UHC_DWC2_EVENT_NONE,
 	/* Root port event */
 	UHC_DWC2_EVENT_PORT,
-	/* A channel event has occurred. Call the channel event handler instead */
-	UHC_DWC2_CORE_EVENT_CHAN,
-	/* The host port has detected a connection */
-	UHC_DWC2_CORE_EVENT_CONN,
-	/* The host port has detected a disconnection */
-	UHC_DWC2_CORE_EVENT_DISCONN,
 	/* The host port has been enabled (i.e., connected device has been reset. Send SOFs) */
-	UHC_DWC2_CORE_EVENT_ENABLED,
+	UHC_DWC2_EVENT_ENABLED,
 	/* The host port has been disabled (no more SOFs)  */
-	UHC_DWC2_CORE_EVENT_DISABLED,
-	/* The host port has encountered an overcurrent condition */
-	UHC_DWC2_CORE_EVENT_OVRCUR,
-	/* The host port has been cleared of the overcurrent condition */
-	UHC_DWC2_CORE_EVENT_OVRCUR_CLR,
-	/* Root chan event */
-	UHC_DWC2_EVENT_CHAN0,
-	/* A device has been connected to the port */
-	UHC_PORT_EVENT_CONNECTION,
-	/* Device has completed reset and enabled on the port */
-	UHC_PORT_EVENT_ENABLED,
-	/* A device disconnection has been detected */
-	UHC_PORT_EVENT_DISCONNECTION,
-	/* Port error detected. Port is now UHC_PORT_STATE_RECOVERY */
-	UHC_PORT_EVENT_ERROR,
+	UHC_DWC2_EVENT_DISABLED,
 	/* Overcurrent detected. Port is now UHC_PORT_STATE_RECOVERY */
-	UHC_PORT_EVENT_OVERCURRENT,
+	UHC_DWC2_EVENT_OVERCURRENT,
+	/* The host port has been cleared of the overcurrent condition */
+	UHC_DWC2_EVENT_OVERCURRENT_CLEAR,
+	/* A device has been connected to the port */
+	UHC_DWC2_EVENT_CONNECTION,
+	/* A device disconnection has been detected */
+	UHC_DWC2_EVENT_DISCONNECTION,
+	/* Port error detected. Port is now UHC_PORT_STATE_RECOVERY */
+	UHC_DWC2_EVENT_ERROR,
+	/* Event on a channel 0. Use +N for channel N */
+	UHC_DWC2_EVENT_CHAN0,
 };
 
 enum uhc_dwc2_speed {
@@ -649,21 +639,13 @@ static enum uhc_dwc2_event uhc_dwc2_decode_hprt(const struct device *dev,
 	enum uhc_dwc2_event port_event = UHC_DWC2_EVENT_NONE;
 
 	switch (core_event) {
-	case UHC_DWC2_CORE_EVENT_CONN:
-		port_event = UHC_PORT_EVENT_CONNECTION;
-		break;
-	case UHC_DWC2_CORE_EVENT_DISCONN:
-		/* TODO: priv->port_state = UHC_PORT_STATE_RECOVERY */
-		port_event = UHC_PORT_EVENT_DISCONNECTION;
-		priv->conn_dev_ena = 0;
-		break;
-	case UHC_DWC2_CORE_EVENT_ENABLED:
+	case UHC_DWC2_EVENT_ENABLED:
 		/* Initialize remaining host port registers */
 		dwc2_port_enable(dev);
-		port_event = UHC_PORT_EVENT_ENABLED;
+		port_event = UHC_DWC2_EVENT_ENABLED;
 		priv->conn_dev_ena = 1;
 		break;
-	case UHC_DWC2_CORE_EVENT_DISABLED:
+	case UHC_DWC2_EVENT_DISABLED:
 		priv->conn_dev_ena = 0;
 		/* Could be due to a disable request or reset request, or due to a port error */
 		/* Ignore the disable event if it's due to a reset request */
@@ -681,24 +663,24 @@ static enum uhc_dwc2_event uhc_dwc2_decode_hprt(const struct device *dev,
 				LOG_ERR("Port disabled due to an error, changing state to "
 					"recovery");
 				priv->port_state = UHC_PORT_STATE_RECOVERY;
-				port_event = UHC_PORT_EVENT_ERROR;
+				port_event = UHC_DWC2_EVENT_ERROR;
 			}
 		}
 		break;
-	case UHC_DWC2_CORE_EVENT_OVRCUR:
-	case UHC_DWC2_CORE_EVENT_OVRCUR_CLR:
+	case UHC_DWC2_EVENT_OVERCURRENT:
+	case UHC_DWC2_EVENT_OVERCURRENT_CLEAR:
 		/* TODO: Handle overcurrent event */
 
 		/* If port state powered, we need to power it off to protect it
 		 * change port state to recovery
-		 * generate port event UHC_PORT_EVENT_OVERCURRENT
+		 * generate port event UHC_DWC2_EVENT_OVERCURRENT
 		 * disable the flag conn_dev_ena
 		 */
 
 		LOG_ERR("Overcurrent detected on port, not implemented yet");
 		break;
 	default:
-		__ASSERT(false, "Unexpected core event %d", core_event);
+		port_event = core_event;
 		break;
 	}
 	return port_event;
@@ -735,7 +717,7 @@ static inline enum uhc_dwc2_event uhc_dwc2_decode_intr(const struct device *dev)
 	if ((core_intrs & CORE_EVENTS_INTRS_MSK) || (port_intrs & PORT_EVENTS_INTRS_MSK)) {
 		if (core_intrs & USB_DWC2_GINTSTS_DISCONNINT) {
 			/* Disconnect event */
-			core_event = UHC_DWC2_CORE_EVENT_DISCONN;
+			core_event = UHC_DWC2_EVENT_DISCONNECTION;
 			/* Debounce lock */
 			uhc_dwc2_lock_enable(dev);
 		} else {
@@ -744,20 +726,20 @@ static inline enum uhc_dwc2_event uhc_dwc2_decode_intr(const struct device *dev)
 				/* Check if this is an overcurrent or an overcurrent cleared */
 				if (port_intrs & USB_DWC2_HPRT_PRTOVRCURRACT) {
 					/* TODO: Verify handling logic during overcurrent */
-					core_event = UHC_DWC2_CORE_EVENT_OVRCUR;
+					core_event = UHC_DWC2_EVENT_OVERCURRENT;
 				} else {
-					core_event = UHC_DWC2_CORE_EVENT_OVRCUR_CLR;
+					core_event = UHC_DWC2_EVENT_OVERCURRENT_CLEAR;
 				}
 			} else if (port_intrs & USB_DWC2_HPRT_PRTENCHNG) {
 				if (port_intrs & USB_DWC2_HPRT_PRTENA) {
 					/* Host port was enabled */
-					core_event = UHC_DWC2_CORE_EVENT_ENABLED;
+					core_event = UHC_DWC2_EVENT_ENABLED;
 				} else {
 					/* Host port has been disabled */
-					core_event = UHC_DWC2_CORE_EVENT_DISABLED;
+					core_event = UHC_DWC2_EVENT_DISABLED;
 				}
 			} else if (port_intrs & USB_DWC2_HPRT_PRTCONNDET && !priv->lock_enabled) {
-				core_event = UHC_DWC2_CORE_EVENT_CONN;
+				core_event = UHC_DWC2_EVENT_CONNECTION;
 				/* Debounce lock */
 				uhc_dwc2_lock_enable(dev);
 			} else {
@@ -767,11 +749,12 @@ static inline enum uhc_dwc2_event uhc_dwc2_decode_intr(const struct device *dev)
 			}
 		}
 	}
+
 	/* Port events always take precedence over channel events */
 	if (core_event == UHC_DWC2_EVENT_NONE && (core_intrs & USB_DWC2_GINTSTS_HCHINT)) {
 		/* One or more channels have pending interrupts. Store the mask of those channels */
 		priv->pending_channel_intrs_msk = sys_read32((mem_addr_t)&dwc2->haint);
-		core_event = UHC_DWC2_CORE_EVENT_CHAN;
+		core_event = UHC_DWC2_EVENT_CHAN0;
 	}
 
 	return core_event;
@@ -1085,7 +1068,7 @@ static void uhc_dwc2_isr_handler(const struct device *dev)
 	key = irq_lock();
 
 	core_event = uhc_dwc2_decode_intr(dev);
-	if (core_event == UHC_DWC2_CORE_EVENT_CHAN) {
+	if (core_event == UHC_DWC2_EVENT_CHAN0) {
 		/* Channel event. Cycle through each pending channel */
 		struct uhc_dwc2_chan *chan;
 
@@ -1147,19 +1130,19 @@ static inline enum uhc_dwc2_event uhc_dwc2_get_port_event(const struct device *d
 	port_event = priv->last_event;
 
 	switch (port_event) {
-	case UHC_PORT_EVENT_CONNECTION:
+	case UHC_DWC2_EVENT_CONNECTION:
 		/* Don't update state immediately, we still need to debounce. */
 		if (uhc_dwc2_port_debounce(dev)) {
-			port_event = UHC_PORT_EVENT_CONNECTION;
+			port_event = UHC_DWC2_EVENT_CONNECTION;
 		} else {
 			LOG_ERR("Port is not connected after debounce");
 			/* TODO: Simulate and/or verify */
 			LOG_WRN("Port debounce error handling is not implemented yet");
 		}
 		break;
-	case UHC_PORT_EVENT_DISCONNECTION:
-	case UHC_PORT_EVENT_ERROR:
-	case UHC_PORT_EVENT_OVERCURRENT:
+	case UHC_DWC2_EVENT_DISCONNECTION:
+	case UHC_DWC2_EVENT_ERROR:
+	case UHC_DWC2_EVENT_OVERCURRENT:
 		break;
 	default:
 		break;
@@ -1453,11 +1436,11 @@ static inline void uhc_dwc2_handle_port_events(const struct device *dev)
 		/* No event, nothing to do */
 		break;
 
-	case UHC_PORT_EVENT_CONNECTION:
+	case UHC_DWC2_EVENT_CONNECTION:
 		uhc_dwc2_port_reset(dev);
 		break;
 
-	case UHC_PORT_EVENT_ENABLED:
+	case UHC_DWC2_EVENT_ENABLED:
 		/* TODO: enter critical section */
 		priv->port_state = UHC_PORT_STATE_ENABLED;
 		/* TODO: exit critical section */
@@ -1479,9 +1462,9 @@ static inline void uhc_dwc2_handle_port_events(const struct device *dev)
 		uhc_dwc2_submit_new_device(dev, port_speed);
 		break;
 
-	case UHC_PORT_EVENT_DISCONNECTION:
-	case UHC_PORT_EVENT_ERROR:
-	case UHC_PORT_EVENT_OVERCURRENT:
+	case UHC_DWC2_EVENT_DISCONNECTION:
+	case UHC_DWC2_EVENT_ERROR:
+	case UHC_DWC2_EVENT_OVERCURRENT:
 		port_has_device = false;
 
 		/* TODO: enter critical section */
