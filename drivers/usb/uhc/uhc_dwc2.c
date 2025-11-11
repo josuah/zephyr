@@ -1060,8 +1060,7 @@ static void uhc_dwc2_isr_handler(const struct device *dev)
 
 			port_event = uhc_dwc2_decode_hprt(dev, core_event);
 			if (port_event != UHC_DWC2_EVENT_NONE) {
-				priv->last_event = port_event;
-				k_event_set(&priv->event, BIT(UHC_DWC2_EVENT_PORT));
+				k_event_set(&priv->event, BIT(port_event));
 			}
 		} else {
 			/* No core event, nothing to do. Should never occur */
@@ -1367,11 +1366,10 @@ static void uhc_dwc2_chan_deinit(const struct device *dev, struct uhc_dwc2_chan 
 	sys_clear_bits((mem_addr_t)&dwc2->haintmsk, (1 << chan->chan_idx));
 }
 
-static inline void uhc_dwc2_handle_port_events(const struct device *dev)
+static inline void uhc_dwc2_handle_port_events(const struct device *dev, uint32_t events)
 {
 	struct uhc_dwc2_data *priv = uhc_get_private(dev);
 	enum uhc_dwc2_speed port_speed;
-	uint32_t events = BIT(priv->last_event);
 	bool port_has_device;
 	int ret;
 
@@ -1525,9 +1523,7 @@ static void uhc_dwc2_thread(void *arg1, void *arg2, void *arg3)
 
 		uhc_lock_internal(dev, K_FOREVER);
 
-		if (events & BIT(UHC_DWC2_EVENT_PORT)) {
-			uhc_dwc2_handle_port_events(dev);
-		}
+		uhc_dwc2_handle_port_events(dev, events);
 
 		for (uint32_t i = 0; i < 1; i++) {
 			if (events & BIT(UHC_DWC2_EVENT_CHAN0 + i)) {
