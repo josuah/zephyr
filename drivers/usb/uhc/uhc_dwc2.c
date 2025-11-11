@@ -145,8 +145,6 @@ struct uhc_dwc2_chan {
 	unsigned int interval;
 	/* Offset in the periodic scheduler */
 	uint32_t offset;
-	/* The chan event type */
-	enum uhc_dwc2_chan_event chan_event;
 	/* Type of endpoint */
 	enum uhc_dwc2_xfer_type type;
 	/* Pipe status/state/events related */
@@ -170,10 +168,6 @@ struct uhc_dwc2_chan {
 	uint8_t data_stg_in: 1;
 	/* Has no data stage */
 	uint8_t data_stg_skip: 1;
-	/* This DMA buffer is currently being executed */
-	uint8_t executing: 1;
-	/* THis DMA buffer was canceled before completion  */
-	uint8_t was_canceled: 1;
 	/* High-speed flag */
 	uint8_t is_hs: 1;
 	/* Support for Low-Speed is via a Full-Speed HUB */
@@ -875,6 +869,7 @@ enum uhc_dwc2_chan_event uhc_dwc2_hal_chan_decode_intr(const struct device *dev,
 		__ASSERT(false, "Unknown channel interrupt, HCINT=%08Xh", hcint);
 		chan_event = DWC2_CHAN_EVENT_NONE;
 	}
+
 	return chan_event;
 }
 
@@ -1058,14 +1053,6 @@ static void IRAM_ATTR _buffer_exec_proceed(const struct device *dev, struct uhc_
 	sys_write32(hcchar, (mem_addr_t)&chan_regs->hcchar);
 }
 
-static inline void _buffer_done(const struct device *dev, struct uhc_dwc2_chan *chan,
-				enum uhc_dwc2_chan_event chan_event, bool canceled)
-{
-	chan->executing = 0;
-	chan->was_canceled = canceled;
-	chan->chan_event = chan_event;
-}
-
 static inline bool _buffer_can_fill(struct uhc_dwc2_chan *chan)
 {
 	/* TODO: Double buffering scheme? */
@@ -1084,11 +1071,10 @@ static inline bool _buffer_can_exec(struct uhc_dwc2_chan *chan)
  * Decode a channel interrupt and take appropriate action.
  * Interrupt context.
  */
-static enum uhc_dwc2_chan_event uhc_dwc2_decode_chan(const struct device *dev,
-						     struct uhc_dwc2_chan *chan)
+static void uhc_dwc2_handle_chan_intr(const struct device *dev, struct uhc_dwc2_chan *chan)
 {
+	struct uhc_dwc2_data *priv = uhc_get_private(dev);
 	enum uhc_dwc2_chan_event chan_event = uhc_dwc2_hal_chan_decode_intr(dev, chan);
-	enum uhc_dwc2_chan_event ret = DWC2_CHAN_EVENT_NONE;
 
 	LOG_DBG("Channel event: %d", chan_event);
 
@@ -1101,9 +1087,9 @@ static enum uhc_dwc2_chan_event uhc_dwc2_decode_chan(const struct device *dev,
 			_buffer_exec_proceed(dev, chan);
 			break;
 		}
-		chan->last_event = DWC2_CHAN_EVENT_CPLT;
-		ret = chan->last_event;
-		_buffer_done(dev, chan, chan->last_event, false);
+		chan->last_event = chan_event;
+		chan->event_pending = 1;
+		k_event_post(&priv->drv_evt, BIT(UHC_DWC2_EVENT_CHAN));
 		break;
 	case DWC2_CHAN_EVENT_ERROR:
 		LOG_ERR("Channel error handling not implemented yet");
@@ -1132,8 +1118,6 @@ static enum uhc_dwc2_chan_event uhc_dwc2_decode_chan(const struct device *dev,
 		LOG_WRN("Unknown channel event %d", chan_event);
 		break;
 	}
-
-	return ret;
 }
 
 static IRAM_ATTR void _buffer_exec(const struct device *dev, struct uhc_dwc2_chan *chan)
@@ -1181,8 +1165,6 @@ static IRAM_ATTR void _buffer_exec(const struct device *dev, struct uhc_dwc2_cha
 	hcchar |= USB_DWC2_HCCHAR0_CHENA;
 	hcchar &= ~USB_DWC2_HCCHAR0_CHDIS;
 	sys_write32(hcchar, (mem_addr_t)&chan_regs->hcchar);
-
-	chan->executing = 1;
 }
 
 static void uhc_dwc2_isr_handler(const struct device *dev)
@@ -1200,15 +1182,7 @@ static void uhc_dwc2_isr_handler(const struct device *dev)
 
 		chan = uhc_dwc2_get_chan_pending_intr(dev);
 		while (chan != NULL) {
-			enum uhc_dwc2_chan_event chan_event = uhc_dwc2_decode_chan(dev, chan);
-			if (chan_event != DWC2_CHAN_EVENT_NONE) {
-				chan->last_event = chan_event;
-				chan->event_pending = 1;
-				k_event_post(&priv->drv_evt, BIT(UHC_DWC2_EVENT_CHAN));
-			}
-			/* Check for more channels with pending interrupts. Returns NULL if there
-			 * are no more
-			 */
+			uhc_dwc2_handle_chan_intr(dev, chan);
 			chan = uhc_dwc2_get_chan_pending_intr(dev);
 		}
 	} else {
