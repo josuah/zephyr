@@ -39,7 +39,7 @@ enum uhc_dwc2_event {
 	/* Root port event */
 	UHC_DWC2_EVENT_PORT,
 	/* Root chan event */
-	UHC_DWC2_EVENT_CHAN,
+	UHC_DWC2_EVENT_CHAN0,
 };
 
 enum uhc_dwc2_speed {
@@ -1089,7 +1089,7 @@ static void uhc_dwc2_handle_chan_intr(const struct device *dev, struct uhc_dwc2_
 		}
 		chan->last_event = chan_event;
 		chan->event_pending = 1;
-		k_event_post(&priv->drv_evt, BIT(UHC_DWC2_EVENT_CHAN));
+		k_event_post(&priv->drv_evt, BIT(UHC_DWC2_EVENT_CHAN0));
 		break;
 	case DWC2_CHAN_EVENT_ERROR:
 		LOG_ERR("Channel error handling not implemented yet");
@@ -1104,8 +1104,6 @@ static void uhc_dwc2_handle_chan_intr(const struct device *dev, struct uhc_dwc2_
 
 		/* Hint:
 		 * We've halted a transfer, so we need to trigger the chan callback
-		 * chan->last_event = DWC2_CHAN_EVENT_CPLT;
-		 * ret = chan->last_event;
 		 * Halt request event is triggered when packet is successful completed.
 		 * But just treat all halted transfers as errors
 		 * chan->state = UHC_CHAN_STATE_HALTED;
@@ -1114,9 +1112,7 @@ static void uhc_dwc2_handle_chan_intr(const struct device *dev, struct uhc_dwc2_
 		 */
 		break;
 	default:
-		/* Should never happen */
-		LOG_WRN("Unknown channel event %d", chan_event);
-		break;
+		CODE_UNREACHABLE;
 	}
 }
 
@@ -1633,13 +1629,11 @@ static inline void uhc_dwc2_handle_port_events(const struct device *dev)
 	}
 }
 
-static inline void uhc_dwc2_handle_chan_events(const struct device *dev)
+static inline void uhc_dwc2_handle_chan_events(const struct device *dev, struct uhc_dwc2_chan *chan)
 {
 	struct uhc_dwc2_data *priv = uhc_get_private(dev);
 	const struct uhc_dwc2_config *const config = dev->config;
 	struct usb_dwc2_reg *const dwc2 = config->base;
-	/* TODO: support more than CTRL chan */
-	struct uhc_dwc2_chan *chan = &priv->chan[0];
 	const struct usb_dwc2_host_chan *chan_regs = UHC_DWC2_CHAN_REG(dwc2, chan->chan_idx);
 
 	LOG_DBG("Pipe event: %d", chan->last_event);
@@ -1694,9 +1688,12 @@ static inline void uhc_dwc2_thread_handler(void *const arg)
 		uhc_dwc2_handle_port_events(dev);
 	}
 
-	if (evt & BIT(UHC_DWC2_EVENT_CHAN)) {
-		k_event_clear(&priv->drv_evt, BIT(UHC_DWC2_EVENT_CHAN));
-		uhc_dwc2_handle_chan_events(dev);
+	/* TODO: loop over each of UHC_DWC2_MAX_CHAN */
+	for (uint32_t i = 0; i < 1; i++) {
+		if (evt & BIT(UHC_DWC2_EVENT_CHAN0 + i)) {
+			k_event_clear(&priv->drv_evt, BIT(UHC_DWC2_EVENT_CHAN0 + i));
+			uhc_dwc2_handle_chan_events(dev, &priv->chan[i]);
+		}
 	}
 
 	uhc_unlock_internal(dev);
