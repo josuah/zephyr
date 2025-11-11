@@ -1013,7 +1013,7 @@ static void uhc_dwc2_handle_chan_intr(const struct device *dev, struct uhc_dwc2_
 			break;
 		}
 		chan->last_event = chan_event;
-		k_event_post(&priv->event, BIT(UHC_DWC2_EVENT_CHAN0));
+		k_event_set(&priv->event, BIT(UHC_DWC2_EVENT_CHAN0));
 		break;
 	case DWC2_CHAN_EVENT_ERROR:
 		LOG_ERR("Channel error handling not implemented yet");
@@ -1110,7 +1110,7 @@ static void uhc_dwc2_isr_handler(const struct device *dev)
 			port_event = uhc_dwc2_decode_hprt(dev, core_event);
 			if (port_event != UHC_PORT_EVENT_NONE) {
 				priv->last_event = port_event;
-				k_event_post(&priv->event, BIT(UHC_DWC2_EVENT_PORT));
+				k_event_set(&priv->event, BIT(UHC_DWC2_EVENT_PORT));
 			}
 		} else {
 			/* No core event, nothing to do. Should never occur */
@@ -1594,21 +1594,19 @@ static void uhc_dwc2_thread(void *arg1, void *arg2, void *arg3)
 {
 	const struct device *dev = (const struct device *)arg1;
 	struct uhc_dwc2_data *const priv = uhc_get_private(dev);
-	uint32_t evt;
+	uint32_t events;
 
 	while (true) {
-		evt = k_event_wait(&priv->event, UINT32_MAX, false, K_FOREVER);
+		events = k_event_wait_safe(&priv->event, UINT32_MAX, false, K_FOREVER);
 
 		uhc_lock_internal(dev, K_FOREVER);
 
-		if (evt & BIT(UHC_DWC2_EVENT_PORT)) {
-			k_event_clear(&priv->event, BIT(UHC_DWC2_EVENT_PORT));
+		if (events & BIT(UHC_DWC2_EVENT_PORT)) {
 			uhc_dwc2_handle_port_events(dev);
 		}
 
 		for (uint32_t i = 0; i < 1; i++) {
-			if (evt & BIT(UHC_DWC2_EVENT_CHAN0 + i)) {
-				k_event_clear(&priv->event, BIT(UHC_DWC2_EVENT_CHAN0 + i));
+			if (events & BIT(UHC_DWC2_EVENT_CHAN0 + i)) {
 				uhc_dwc2_handle_chan_events(dev, &priv->chan[i]);
 			}
 		}
