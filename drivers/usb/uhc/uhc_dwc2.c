@@ -1273,11 +1273,6 @@ static inline int uhc_dwc2_chan_config(const struct device *dev, uint8_t chan_id
 	chan->ls_via_fs_hub = 0;
 	chan->interval = 0;
 
-	if (!priv->conn_dev_ena) {
-		LOG_ERR("Port is not enabled, cannot allocate channel");
-		return -ENODEV;
-	}
-
 	/* TODO: FIFO sizes should be set before attempting to allocate a channel */
 
 	chan->chan_idx = chan_idx;
@@ -1330,21 +1325,6 @@ static inline void uhc_dwc2_handle_port_events(const struct device *dev, uint32_
 
 	LOG_DBG("Port events: 0x08%x", events);
 
-	if (events & BIT(UHC_DWC2_EVENT_CONNECTION)) {
-		/* Don't update state immediately, we still need to debounce. */
-		if (uhc_dwc2_port_debounced(dev)) {
-			uhc_dwc2_port_reset(dev);
-		} else {
-			LOG_ERR("Port is not connected after debounce");
-			/* TODO: Simulate and/or verify */
-			LOG_WRN("Port debounce error handling is not implemented yet");
-		}
-	}
-
-	if (events & BIT(UHC_DWC2_EVENT_NONE)) {
-		/* No event, nothing to do */
-	}
-
 	if (events & BIT(UHC_DWC2_EVENT_ENABLED)) {
 		/* Initialize remaining host port registers */
 		dwc2_port_enable(dev);
@@ -1366,6 +1346,21 @@ static inline void uhc_dwc2_handle_port_events(const struct device *dev, uint32_
 
 		/* Notify the higher logic about the new device */
 		uhc_dwc2_submit_new_device(dev, port_speed);
+	}
+
+	if (events & BIT(UHC_DWC2_EVENT_CONNECTION)) {
+		/* Don't update state immediately, we still need to debounce. */
+		if (uhc_dwc2_port_debounced(dev)) {
+			uhc_dwc2_port_reset(dev);
+		} else {
+			LOG_ERR("Port is not connected after debounce");
+			/* TODO: Simulate and/or verify */
+			LOG_WRN("Port debounce error handling is not implemented yet");
+		}
+	}
+
+	if (events & BIT(UHC_DWC2_EVENT_NONE)) {
+		/* No event, nothing to do */
 	}
 
 	if ((events & BIT(UHC_DWC2_EVENT_OVERCURRENT)) ||
