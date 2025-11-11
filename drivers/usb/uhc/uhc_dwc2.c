@@ -638,8 +638,6 @@ static enum uhc_dwc2_event uhc_dwc2_decode_hprt(const struct device *dev,
 
 	switch (core_event) {
 	case UHC_DWC2_EVENT_ENABLED:
-		/* Initialize remaining host port registers */
-		dwc2_port_enable(dev);
 		priv->conn_dev_ena = 1;
 		break;
 	case UHC_DWC2_EVENT_DISABLED:
@@ -1348,6 +1346,9 @@ static inline void uhc_dwc2_handle_port_events(const struct device *dev, uint32_
 	}
 
 	if (events & BIT(UHC_DWC2_EVENT_ENABLED)) {
+		/* Initialize remaining host port registers */
+		dwc2_port_enable(dev);
+
 		priv->port_state = UHC_PORT_STATE_ENABLED;
 
 		ret = uhc_dwc2_get_port_speed(dev, &port_speed);
