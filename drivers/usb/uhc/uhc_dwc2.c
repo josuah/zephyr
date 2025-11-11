@@ -635,13 +635,11 @@ static enum uhc_dwc2_event uhc_dwc2_decode_hprt(const struct device *dev,
 						enum uhc_dwc2_event core_event)
 {
 	struct uhc_dwc2_data *priv = uhc_get_private(dev);
-	enum uhc_dwc2_event port_event = UHC_DWC2_EVENT_NONE;
 
 	switch (core_event) {
 	case UHC_DWC2_EVENT_ENABLED:
 		/* Initialize remaining host port registers */
 		dwc2_port_enable(dev);
-		port_event = UHC_DWC2_EVENT_ENABLED;
 		priv->conn_dev_ena = 1;
 		break;
 	case UHC_DWC2_EVENT_DISABLED:
@@ -662,27 +660,12 @@ static enum uhc_dwc2_event uhc_dwc2_decode_hprt(const struct device *dev,
 				LOG_ERR("Port disabled due to an error, changing state to "
 					"recovery");
 				priv->port_state = UHC_PORT_STATE_RECOVERY;
-				port_event = UHC_DWC2_EVENT_ERROR;
+				core_event = UHC_DWC2_EVENT_ERROR;
 			}
 		}
 		break;
-	case UHC_DWC2_EVENT_OVERCURRENT:
-	case UHC_DWC2_EVENT_OVERCURRENT_CLEAR:
-		/* TODO: Handle overcurrent event */
-
-		/* If port state powered, we need to power it off to protect it
-		 * change port state to recovery
-		 * generate port event UHC_DWC2_EVENT_OVERCURRENT
-		 * disable the flag conn_dev_ena
-		 */
-
-		LOG_ERR("Overcurrent detected on port, not implemented yet");
-		break;
-	default:
-		port_event = core_event;
-		break;
 	}
-	return port_event;
+	return core_event;
 }
 
 static inline enum uhc_dwc2_event uhc_dwc2_decode_intr(const struct device *dev,
@@ -1382,6 +1365,17 @@ static inline void uhc_dwc2_handle_port_events(const struct device *dev, uint32_
 
 		/* Notify the higher logic about the new device */
 		uhc_dwc2_submit_new_device(dev, port_speed);
+	}
+
+	if ((events & BIT(UHC_DWC2_EVENT_OVERCURRENT)) ||
+	    (events & BIT(UHC_DWC2_EVENT_OVERCURRENT_CLEAR))) {
+		/* If port state powered, we need to power it off to protect it
+		 * change port state to recovery
+		 * generate port event UHC_DWC2_EVENT_OVERCURRENT
+		 * disable the flag conn_dev_ena
+		 */
+		LOG_ERR("Overcurrent detected on port, not implemented yet");
+		/* TODO: Handle overcurrent event */
 	}
 
 	if ((events & BIT(UHC_DWC2_EVENT_DISCONNECTION)) ||
