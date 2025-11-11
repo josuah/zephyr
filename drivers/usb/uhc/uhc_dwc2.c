@@ -36,10 +36,36 @@ LOG_MODULE_REGISTER(uhc_dwc2, CONFIG_UHC_DRIVER_LOG_LEVEL);
 #define UHC_DWC2_MAX_CHAN    16
 
 enum uhc_dwc2_event {
+	/* No event occurred, or could not decode interrupt */
+	UHC_DWC2_EVENT_NONE,
 	/* Root port event */
 	UHC_DWC2_EVENT_PORT,
+	/* A channel event has occurred. Call the channel event handler instead */
+	UHC_DWC2_CORE_EVENT_CHAN,
+	/* The host port has detected a connection */
+	UHC_DWC2_CORE_EVENT_CONN,
+	/* The host port has detected a disconnection */
+	UHC_DWC2_CORE_EVENT_DISCONN,
+	/* The host port has been enabled (i.e., connected device has been reset. Send SOFs) */
+	UHC_DWC2_CORE_EVENT_ENABLED,
+	/* The host port has been disabled (no more SOFs)  */
+	UHC_DWC2_CORE_EVENT_DISABLED,
+	/* The host port has encountered an overcurrent condition */
+	UHC_DWC2_CORE_EVENT_OVRCUR,
+	/* The host port has been cleared of the overcurrent condition */
+	UHC_DWC2_CORE_EVENT_OVRCUR_CLR,
 	/* Root chan event */
 	UHC_DWC2_EVENT_CHAN0,
+	/* A device has been connected to the port */
+	UHC_PORT_EVENT_CONNECTION,
+	/* Device has completed reset and enabled on the port */
+	UHC_PORT_EVENT_ENABLED,
+	/* A device disconnection has been detected */
+	UHC_PORT_EVENT_DISCONNECTION,
+	/* Port error detected. Port is now UHC_PORT_STATE_RECOVERY */
+	UHC_PORT_EVENT_ERROR,
+	/* Overcurrent detected. Port is now UHC_PORT_STATE_RECOVERY */
+	UHC_PORT_EVENT_OVERCURRENT,
 };
 
 enum uhc_dwc2_speed {
@@ -53,21 +79,6 @@ enum uhc_dwc2_xfer_type {
 	UHC_DWC2_XFER_TYPE_ISOCHRONOUS = 1,
 	UHC_DWC2_XFER_TYPE_BULK = 2,
 	UHC_DWC2_XFER_TYPE_INTR = 3,
-};
-
-enum uhc_port_event {
-	/* No event has occurred or the event is no longer valid */
-	UHC_PORT_EVENT_NONE,
-	/* A device has been connected to the port */
-	UHC_PORT_EVENT_CONNECTION,
-	/* Device has completed reset and enabled on the port */
-	UHC_PORT_EVENT_ENABLED,
-	/* A device disconnection has been detected */
-	UHC_PORT_EVENT_DISCONNECTION,
-	/* Port error detected. Port is now UHC_PORT_STATE_RECOVERY */
-	UHC_PORT_EVENT_ERROR,
-	/* Overcurrent detected. Port is now UHC_PORT_STATE_RECOVERY */
-	UHC_PORT_EVENT_OVERCURRENT,
 };
 
 enum uhc_port_state {
@@ -88,25 +99,6 @@ enum uhc_port_state {
 	UHC_PORT_STATE_ENABLED,
 	/* Port needs to be recovered from a fatal error (error, overcurrent, or disconnection) */
 	UHC_PORT_STATE_RECOVERY,
-};
-
-enum uhc_dwc2_core_event {
-	/* No event occurred, or could not decode interrupt */
-	UHC_DWC2_CORE_EVENT_NONE,
-	/* A channel event has occurred. Call the channel event handler instead */
-	UHC_DWC2_CORE_EVENT_CHAN,
-	/* The host port has detected a connection */
-	UHC_DWC2_CORE_EVENT_CONN,
-	/* The host port has detected a disconnection */
-	UHC_DWC2_CORE_EVENT_DISCONN,
-	/* The host port has been enabled (i.e., connected device has been reset. Send SOFs) */
-	UHC_DWC2_CORE_EVENT_ENABLED,
-	/* The host port has been disabled (no more SOFs)  */
-	UHC_DWC2_CORE_EVENT_DISABLED,
-	/* The host port has encountered an overcurrent condition */
-	UHC_DWC2_CORE_EVENT_OVRCUR,
-	/* The host port has been cleared of the overcurrent condition */
-	UHC_DWC2_CORE_EVENT_OVRCUR_CLR,
 };
 
 enum uhc_dwc2_chan_event {
@@ -177,7 +169,7 @@ struct uhc_dwc2_data {
 	/* Bit mask of channels with pending interrupts */
 	uint32_t pending_channel_intrs_msk;
 	/* Data, that is used in multiple threads */
-	enum uhc_port_event last_event;
+	enum uhc_dwc2_event last_event;
 	enum uhc_port_state port_state;
 	/* FIFO */
 	uint16_t fifo_top;
@@ -650,11 +642,11 @@ static inline void uhc_dwc2_init_gahbcfg(const struct device *dev)
 	sys_set_bits((mem_addr_t)&dwc2->gahbcfg, USB_DWC2_GAHBCFG_GLBINTRMASK);
 }
 
-static enum uhc_port_event uhc_dwc2_decode_hprt(const struct device *dev,
-						enum uhc_dwc2_core_event core_event)
+static enum uhc_dwc2_event uhc_dwc2_decode_hprt(const struct device *dev,
+						enum uhc_dwc2_event core_event)
 {
 	struct uhc_dwc2_data *priv = uhc_get_private(dev);
-	enum uhc_port_event port_event = UHC_PORT_EVENT_NONE;
+	enum uhc_dwc2_event port_event = UHC_DWC2_EVENT_NONE;
 
 	switch (core_event) {
 	case UHC_DWC2_CORE_EVENT_CONN:
@@ -712,12 +704,12 @@ static enum uhc_port_event uhc_dwc2_decode_hprt(const struct device *dev,
 	return port_event;
 }
 
-static inline enum uhc_dwc2_core_event uhc_dwc2_decode_intr(const struct device *dev)
+static inline enum uhc_dwc2_event uhc_dwc2_decode_intr(const struct device *dev)
 {
 	const struct uhc_dwc2_config *const config = dev->config;
 	struct uhc_dwc2_data *priv = uhc_get_private(dev);
 	struct usb_dwc2_reg *const dwc2 = config->base;
-	enum uhc_dwc2_core_event core_event = UHC_DWC2_CORE_EVENT_NONE;
+	enum uhc_dwc2_event core_event = UHC_DWC2_EVENT_NONE;
 	uint32_t core_intrs;
 	uint32_t port_intrs = 0;
 
@@ -776,7 +768,7 @@ static inline enum uhc_dwc2_core_event uhc_dwc2_decode_intr(const struct device 
 		}
 	}
 	/* Port events always take precedence over channel events */
-	if (core_event == UHC_DWC2_CORE_EVENT_NONE && (core_intrs & USB_DWC2_GINTSTS_HCHINT)) {
+	if (core_event == UHC_DWC2_EVENT_NONE && (core_intrs & USB_DWC2_GINTSTS_HCHINT)) {
 		/* One or more channels have pending interrupts. Store the mask of those channels */
 		priv->pending_channel_intrs_msk = sys_read32((mem_addr_t)&dwc2->haint);
 		core_event = UHC_DWC2_CORE_EVENT_CHAN;
@@ -1088,7 +1080,7 @@ static void uhc_dwc2_isr_handler(const struct device *dev)
 {
 	struct uhc_dwc2_data *priv = uhc_get_private(dev);
 	unsigned int key;
-	enum uhc_dwc2_core_event core_event;
+	enum uhc_dwc2_event core_event;
 
 	key = irq_lock();
 
@@ -1103,12 +1095,12 @@ static void uhc_dwc2_isr_handler(const struct device *dev)
 			chan = uhc_dwc2_get_chan_pending_intr(dev);
 		}
 	} else {
-		if (core_event != UHC_DWC2_CORE_EVENT_NONE) {
+		if (core_event != UHC_DWC2_EVENT_NONE) {
 			/* Port event */
-			enum uhc_port_event port_event;
+			enum uhc_dwc2_event port_event;
 
 			port_event = uhc_dwc2_decode_hprt(dev, core_event);
-			if (port_event != UHC_PORT_EVENT_NONE) {
+			if (port_event != UHC_DWC2_EVENT_NONE) {
 				priv->last_event = port_event;
 				k_event_set(&priv->event, BIT(UHC_DWC2_EVENT_PORT));
 			}
@@ -1147,10 +1139,10 @@ static inline bool uhc_dwc2_port_debounce(const struct device *dev)
 	return is_connected;
 }
 
-static inline enum uhc_port_event uhc_dwc2_get_port_event(const struct device *dev)
+static inline enum uhc_dwc2_event uhc_dwc2_get_port_event(const struct device *dev)
 {
 	struct uhc_dwc2_data *priv = uhc_get_private(dev);
-	enum uhc_port_event port_event = UHC_PORT_EVENT_NONE;
+	enum uhc_dwc2_event port_event = UHC_DWC2_EVENT_NONE;
 
 	port_event = priv->last_event;
 
@@ -1449,7 +1441,7 @@ static void uhc_dwc2_chan_deinit(const struct device *dev, struct uhc_dwc2_chan 
 static inline void uhc_dwc2_handle_port_events(const struct device *dev)
 {
 	struct uhc_dwc2_data *priv = uhc_get_private(dev);
-	enum uhc_port_event port_event = uhc_dwc2_get_port_event(dev);
+	enum uhc_dwc2_event port_event = uhc_dwc2_get_port_event(dev);
 	enum uhc_dwc2_speed port_speed;
 	bool port_has_device;
 	int ret;
@@ -1457,7 +1449,7 @@ static inline void uhc_dwc2_handle_port_events(const struct device *dev)
 	LOG_DBG("Port event: %d", port_event);
 
 	switch (port_event) {
-	case UHC_PORT_EVENT_NONE:
+	case UHC_DWC2_EVENT_NONE:
 		/* No event, nothing to do */
 		break;
 
@@ -1799,7 +1791,7 @@ static int uhc_dwc2_init(const struct device *dev)
 
 	/* Update the port state and flags */
 	priv->port_state = UHC_PORT_STATE_NOT_POWERED;
-	priv->last_event = UHC_PORT_EVENT_NONE;
+	priv->last_event = UHC_DWC2_EVENT_NONE;
 
 	/* TODO: Clear all the flags and channels */
 	priv->pending_channel_intrs_msk = 0;
