@@ -174,8 +174,6 @@ struct uhc_dwc2_chan {
 	uint8_t ls_via_fs_hub: 1;
 	uint8_t waiting_halt: 1;
 	uint8_t chan_cmd_processing: 1;
-	/* XFER: pending, in-flight or done */
-	uint8_t has_xfer: 1;
 	/* Is channel enabled */
 	uint8_t active: 1;
 	/* Halt has been requested */
@@ -1510,31 +1508,12 @@ static inline int uhc_dwc2_chan_config(const struct device *dev, uint8_t chan_id
 /*
  * Free the chan and its resources.
  */
-static inline int uhc_dwc2_chan_deinit(const struct device *dev, struct uhc_dwc2_chan *chan)
+static void uhc_dwc2_chan_deinit(const struct device *dev, struct uhc_dwc2_chan *chan)
 {
 	const struct uhc_dwc2_config *const config = dev->config;
 	struct usb_dwc2_reg *const dwc2 = config->base;
-	struct uhc_dwc2_data *priv = uhc_get_private(dev);
-
-	if (chan->num_xfer_pending && chan->has_xfer) {
-		LOG_ERR("Unable to free chan with pending XFERs");
-		return -EBUSY;
-	}
-
-	if (chan->type == UHC_DWC2_XFER_TYPE_INTR || chan->type == UHC_DWC2_XFER_TYPE_ISOCHRONOUS) {
-		/* TODO: Unschedule this channel */
-		LOG_WRN("Cannot free interrupt or isochronous channels yet");
-	}
-
-	__ASSERT(!chan->active, "Cannot free channel %d, it is still active", chan->chan_idx);
 
 	sys_clear_bits((mem_addr_t)&dwc2->haintmsk, (1 << chan->chan_idx));
-
-	LOG_DBG("Freeing channel %d", chan->chan_idx);
-
-	/* TODO: Remove the chan from the list of idle chans in the port object */
-
-	return 0;
 }
 
 static inline void uhc_dwc2_handle_port_events(const struct device *dev)
@@ -1612,7 +1591,6 @@ static inline void uhc_dwc2_handle_port_events(const struct device *dev)
 
 static inline void uhc_dwc2_handle_chan_events(const struct device *dev, struct uhc_dwc2_chan *chan)
 {
-	struct uhc_dwc2_data *priv = uhc_get_private(dev);
 	const struct uhc_dwc2_config *const config = dev->config;
 	struct usb_dwc2_reg *const dwc2 = config->base;
 	const struct usb_dwc2_host_chan *chan_regs = UHC_DWC2_CHAN_REG(dwc2, chan->chan_idx);
@@ -1637,9 +1615,6 @@ static inline void uhc_dwc2_handle_chan_events(const struct device *dev, struct 
 				     (chan->dev_addr << USB_DWC2_HCCHAR0_DEVADDR_POS));
 			k_msleep(SET_ADDR_DELAY_MS);
 		}
-
-		/* TODO: Refactor chan resources release */
-		chan->has_xfer = 0;
 
 		uhc_xfer_return(dev, xfer, 0);
 
@@ -1681,7 +1656,6 @@ static inline void uhc_dwc2_thread_handler(void *const arg)
 static inline int uhc_dwc2_submit_ctrl_xfer(const struct device *dev, struct uhc_dwc2_chan *chan,
 					    struct uhc_transfer *const xfer)
 {
-	struct uhc_dwc2_data *priv = uhc_get_private(dev);
 	unsigned int key;
 
 	LOG_HEXDUMP_INF(xfer->setup_pkt, 8, "setup");
@@ -1713,13 +1687,6 @@ static inline int uhc_dwc2_submit_ctrl_xfer(const struct device *dev, struct uhc
 	}
 	if (_buffer_can_exec(chan)) {
 		_buffer_exec(dev, chan);
-	}
-
-	if (!chan->has_xfer) {
-		/* This is the first XFER to be enqueued into the chan. */
-		/* TODO: remove chan from idle chans list */
-		/* TODO: add chan to active chans list */
-		chan->has_xfer = 1;
 	}
 
 	irq_unlock(key);
