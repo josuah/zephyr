@@ -284,7 +284,7 @@ static inline void uhc_dwc2_config_fifo_fixed_dma(const struct device *dev)
  * DWC2 low-level Functions,
  */
 
-void dwc2_hal_flush_rx_fifo(struct usb_dwc2_reg *const dwc2)
+static void dwc2_hal_flush_rx_fifo(struct usb_dwc2_reg *const dwc2)
 {
 	sys_write32(USB_DWC2_GRSTCTL_RXFFLSH, (mem_addr_t)&dwc2->grstctl);
 	while (sys_read32((mem_addr_t)&dwc2->grstctl) & USB_DWC2_GRSTCTL_RXFFLSH) {
@@ -292,7 +292,7 @@ void dwc2_hal_flush_rx_fifo(struct usb_dwc2_reg *const dwc2)
 	}
 }
 
-void dwc2_hal_flush_tx_fifo(struct usb_dwc2_reg *const dwc2, const uint8_t fnum)
+static void dwc2_hal_flush_tx_fifo(struct usb_dwc2_reg *const dwc2, const uint8_t fnum)
 {
 	uint32_t grstctl;
 
@@ -341,7 +341,7 @@ static inline void dwc2_hal_toggle_power(struct usb_dwc2_reg *const dwc2, bool p
 {
 	uint32_t hprt;
 
-	hprt = sys_read32((mem_addr_t)&dwc2->hprt);;
+	hprt = sys_read32((mem_addr_t)&dwc2->hprt);
 	if (power_on) {
 		hprt |= USB_DWC2_HPRT_PRTPWR;
 	} else {
@@ -401,13 +401,13 @@ static void dwc2_channel_configure(const struct device *dev, struct uhc_dwc2_cha
 	const struct uhc_dwc2_config *const config = dev->config;
 	struct usb_dwc2_reg *const dwc2 = config->base;
 	const struct usb_dwc2_host_chan *chan_regs = UHC_DWC2_CHAN_REG(dwc2, chan->chan_idx);
+	uint32_t hcchar;
 
-	uint32_t hcchar =
-		((uint32_t)chan->ep_mps << USB_DWC2_HCCHAR0_MPS_POS) |
-		((uint32_t)USB_EP_GET_IDX(chan->ep_addr) << USB_DWC2_HCCHAR0_EPNUM_POS) |
-		((uint32_t)chan->type << USB_DWC2_HCCHAR0_EPTYPE_POS) |
-		((uint32_t)1UL /* TODO: chan->mult */ << USB_DWC2_HCCHAR0_EC_POS) |
-		((uint32_t)chan->dev_addr << USB_DWC2_HCCHAR0_DEVADDR_POS);
+	hcchar = ((uint32_t)chan->ep_mps << USB_DWC2_HCCHAR0_MPS_POS);
+	hcchar |= ((uint32_t)USB_EP_GET_IDX(chan->ep_addr) << USB_DWC2_HCCHAR0_EPNUM_POS);
+	hcchar |= ((uint32_t)chan->type << USB_DWC2_HCCHAR0_EPTYPE_POS);
+	hcchar |= ((uint32_t)1UL /* TODO: chan->mult */ << USB_DWC2_HCCHAR0_EC_POS);
+	hcchar |= ((uint32_t)chan->dev_addr << USB_DWC2_HCCHAR0_DEVADDR_POS);
 
 	if (USB_EP_DIR_IS_IN(chan->ep_addr)) {
 		hcchar |= USB_DWC2_HCCHAR0_EPDIR;
@@ -785,8 +785,8 @@ static inline enum uhc_dwc2_core_event uhc_dwc2_decode_intr(const struct device 
 	return core_event;
 }
 
-enum uhc_dwc2_chan_event uhc_dwc2_hal_chan_decode_intr(const struct device *dev,
-						       struct uhc_dwc2_chan *chan)
+static enum uhc_dwc2_chan_event uhc_dwc2_hal_chan_decode_intr(const struct device *dev,
+							      struct uhc_dwc2_chan *chan)
 {
 	const struct uhc_dwc2_config *const config = dev->config;
 	struct usb_dwc2_reg *const dwc2 = config->base;
@@ -839,7 +839,7 @@ enum uhc_dwc2_chan_event uhc_dwc2_hal_chan_decode_intr(const struct device *dev,
 	return chan_event;
 }
 
-struct uhc_dwc2_chan *uhc_dwc2_get_chan_pending_intr(const struct device *dev)
+static struct uhc_dwc2_chan *uhc_dwc2_get_chan_pending_intr(const struct device *dev)
 {
 	struct uhc_dwc2_data *priv = uhc_get_private(dev);
 	int chan_num;
@@ -1386,8 +1386,8 @@ static inline int uhc_dwc2_chan_config(const struct device *dev, uint8_t chan_id
 	/* TODO: Double buffering scheme? */
 
 	/* Set the default chan's MPS to the worst case MPS for the device's speed */
-	chan->ep_mps = (dev_speed == UHC_DWC2_SPEED_LOW) ? CTRL_EP_MAX_MPS_LS
-							 : CTRL_EP_MAX_MPS_HSFS;
+	chan->ep_mps =
+		(dev_speed == UHC_DWC2_SPEED_LOW) ? CTRL_EP_MAX_MPS_LS : CTRL_EP_MAX_MPS_HSFS;
 	chan->type = type;
 	chan->ep_addr = ep_addr;
 	chan->chan_idx = chan_idx;
