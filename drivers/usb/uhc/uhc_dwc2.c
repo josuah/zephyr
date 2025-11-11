@@ -719,33 +719,31 @@ static inline enum uhc_dwc2_event uhc_dwc2_decode_intr(const struct device *dev,
 			core_event = UHC_DWC2_EVENT_DISCONNECTION;
 			/* Debounce lock */
 			uhc_dwc2_lock_enable(dev);
-		} else {
-			/* Port still connected, check port event */
-			if (port_intrs & USB_DWC2_HPRT_PRTOVRCURRCHNG) {
-				/* Check if this is an overcurrent or an overcurrent cleared */
-				if (port_intrs & USB_DWC2_HPRT_PRTOVRCURRACT) {
-					/* TODO: Verify handling logic during overcurrent */
-					core_event = UHC_DWC2_EVENT_OVERCURRENT;
-				} else {
-					core_event = UHC_DWC2_EVENT_OVERCURRENT_CLEAR;
-				}
-			} else if (port_intrs & USB_DWC2_HPRT_PRTENCHNG) {
-				if (port_intrs & USB_DWC2_HPRT_PRTENA) {
-					/* Host port was enabled */
-					core_event = UHC_DWC2_EVENT_ENABLED;
-				} else {
-					/* Host port has been disabled */
-					core_event = UHC_DWC2_EVENT_DISABLED;
-				}
-			} else if (port_intrs & USB_DWC2_HPRT_PRTCONNDET && !priv->lock_enabled) {
-				core_event = UHC_DWC2_EVENT_CONNECTION;
-				/* Debounce lock */
-				uhc_dwc2_lock_enable(dev);
+		/* Port still connected, check port event */
+		} else if (port_intrs & USB_DWC2_HPRT_PRTOVRCURRCHNG) {
+			/* Check if this is an overcurrent or an overcurrent cleared */
+			if (port_intrs & USB_DWC2_HPRT_PRTOVRCURRACT) {
+				/* TODO: Verify handling logic during overcurrent */
+				core_event = UHC_DWC2_EVENT_OVERCURRENT;
 			} else {
-				/* Should never happened, as port event masked with
-				 * PORT_EVENTS_INTRS_MSK */
-				__ASSERT(false, "Unknown port interrupt, HPRT=%08Xh", port_intrs);
+				core_event = UHC_DWC2_EVENT_OVERCURRENT_CLEAR;
 			}
+		} else if (port_intrs & USB_DWC2_HPRT_PRTENCHNG) {
+			if (port_intrs & USB_DWC2_HPRT_PRTENA) {
+				/* Host port was enabled */
+				core_event = UHC_DWC2_EVENT_ENABLED;
+			} else {
+				/* Host port has been disabled */
+				core_event = UHC_DWC2_EVENT_DISABLED;
+			}
+		} else if (port_intrs & USB_DWC2_HPRT_PRTCONNDET && !priv->lock_enabled) {
+			core_event = UHC_DWC2_EVENT_CONNECTION;
+			/* Debounce lock */
+			uhc_dwc2_lock_enable(dev);
+		} else {
+			/* Should never happened, as port event masked with
+			 * PORT_EVENTS_INTRS_MSK */
+			__ASSERT(false, "Unknown port interrupt, HPRT=%08Xh", port_intrs);
 		}
 	}
 
