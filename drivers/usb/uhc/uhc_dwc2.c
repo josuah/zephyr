@@ -1747,10 +1747,6 @@ static int uhc_dwc2_init(const struct device *dev)
 	/* 6. Disable OTG and mode-mismatch interrupts */
 	/* TODO */
 
-	/* Update the port state and flags */
-	priv->port_state = UHC_PORT_STATE_NOT_POWERED;
-	priv->last_event = UHC_DWC2_EVENT_NONE;
-
 	return 0;
 }
 
