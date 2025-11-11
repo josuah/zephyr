@@ -1074,7 +1074,7 @@ static void uhc_dwc2_isr_handler(const struct device *dev)
 }
 
 /* TODO: critical section */
-static inline bool uhc_dwc2_port_debounce(const struct device *dev)
+static inline bool uhc_dwc2_port_debounced(const struct device *dev)
 {
 	const struct uhc_dwc2_config *const config = dev->config;
 	struct uhc_dwc2_data *priv = uhc_get_private(dev);
@@ -1095,36 +1095,6 @@ static inline bool uhc_dwc2_port_debounce(const struct device *dev)
 	/* Disable debounce lock */
 	uhc_dwc2_lock_disable(dev);
 	return is_connected;
-}
-
-static inline enum uhc_dwc2_event uhc_dwc2_get_port_event(const struct device *dev)
-{
-	struct uhc_dwc2_data *priv = uhc_get_private(dev);
-	enum uhc_dwc2_event port_event = UHC_DWC2_EVENT_NONE;
-
-	port_event = priv->last_event;
-
-	switch (port_event) {
-	case UHC_DWC2_EVENT_CONNECTION:
-		/* Don't update state immediately, we still need to debounce. */
-		if (uhc_dwc2_port_debounce(dev)) {
-			port_event = UHC_DWC2_EVENT_CONNECTION;
-		} else {
-			LOG_ERR("Port is not connected after debounce");
-			/* TODO: Simulate and/or verify */
-			LOG_WRN("Port debounce error handling is not implemented yet");
-		}
-		break;
-	case UHC_DWC2_EVENT_DISCONNECTION:
-	case UHC_DWC2_EVENT_ERROR:
-	case UHC_DWC2_EVENT_OVERCURRENT:
-		break;
-	default:
-		break;
-	}
-
-	/* TODO: exit critical section */
-	return port_event;
 }
 
 /*
@@ -1399,20 +1369,26 @@ static void uhc_dwc2_chan_deinit(const struct device *dev, struct uhc_dwc2_chan 
 static inline void uhc_dwc2_handle_port_events(const struct device *dev)
 {
 	struct uhc_dwc2_data *priv = uhc_get_private(dev);
-	enum uhc_dwc2_event port_event = uhc_dwc2_get_port_event(dev);
 	enum uhc_dwc2_speed port_speed;
 	bool port_has_device;
 	int ret;
 
-	LOG_DBG("Port event: %d", port_event);
+	LOG_DBG("Port event: %d", priv->last_event);
 
-	switch (port_event) {
-	case UHC_DWC2_EVENT_NONE:
-		/* No event, nothing to do */
+	switch (priv->last_event) {
+	case UHC_DWC2_EVENT_CONNECTION:
+		/* Don't update state immediately, we still need to debounce. */
+		if (uhc_dwc2_port_debounced(dev)) {
+			uhc_dwc2_port_reset(dev);
+		} else {
+			LOG_ERR("Port is not connected after debounce");
+			/* TODO: Simulate and/or verify */
+			LOG_WRN("Port debounce error handling is not implemented yet");
+		}
 		break;
 
-	case UHC_DWC2_EVENT_CONNECTION:
-		uhc_dwc2_port_reset(dev);
+	case UHC_DWC2_EVENT_NONE:
+		/* No event, nothing to do */
 		break;
 
 	case UHC_DWC2_EVENT_ENABLED:
@@ -1662,7 +1638,6 @@ static int uhc_dwc2_preinit(const struct device *dev)
 static int uhc_dwc2_init(const struct device *dev)
 {
 	const struct uhc_dwc2_config *const config = dev->config;
-	struct uhc_dwc2_data *priv = uhc_get_private(dev);
 	struct usb_dwc2_reg *const dwc2 = config->base;
 	uint32_t reg;
 	int ret;
