@@ -267,6 +267,7 @@ static inline void uhc_dwc2_config_fifo_fixed_dma(const struct device *dev)
 static void dwc2_hal_flush_rx_fifo(struct usb_dwc2_reg *const dwc2)
 {
 	sys_write32(USB_DWC2_GRSTCTL_RXFFLSH, (mem_addr_t)&dwc2->grstctl);
+
 	while (sys_read32((mem_addr_t)&dwc2->grstctl) & USB_DWC2_GRSTCTL_RXFFLSH) {
 		continue;
 	}
@@ -277,8 +278,8 @@ static void dwc2_hal_flush_tx_fifo(struct usb_dwc2_reg *const dwc2, const uint8_
 	uint32_t grstctl;
 
 	grstctl = usb_dwc2_set_grstctl_txfnum(fnum) | USB_DWC2_GRSTCTL_TXFFLSH;
-
 	sys_write32(grstctl, (mem_addr_t)&dwc2->grstctl);
+
 	while (sys_read32((mem_addr_t)&dwc2->grstctl) & USB_DWC2_GRSTCTL_TXFFLSH) {
 		continue;
 	}
@@ -1370,13 +1371,13 @@ static inline void uhc_dwc2_handle_port_events(const struct device *dev)
 {
 	struct uhc_dwc2_data *priv = uhc_get_private(dev);
 	enum uhc_dwc2_speed port_speed;
+	uint32_t events = BIT(priv->last_event);
 	bool port_has_device;
 	int ret;
 
-	LOG_DBG("Port event: %d", priv->last_event);
+	LOG_DBG("Port events: 0x08%x", events);
 
-	switch (priv->last_event) {
-	case UHC_DWC2_EVENT_CONNECTION:
+	if (events & BIT(UHC_DWC2_EVENT_CONNECTION)) {
 		/* Don't update state immediately, we still need to debounce. */
 		if (uhc_dwc2_port_debounced(dev)) {
 			uhc_dwc2_port_reset(dev);
@@ -1385,13 +1386,13 @@ static inline void uhc_dwc2_handle_port_events(const struct device *dev)
 			/* TODO: Simulate and/or verify */
 			LOG_WRN("Port debounce error handling is not implemented yet");
 		}
-		break;
+	}
 
-	case UHC_DWC2_EVENT_NONE:
+	if (events & BIT(UHC_DWC2_EVENT_NONE)) {
 		/* No event, nothing to do */
-		break;
+	}
 
-	case UHC_DWC2_EVENT_ENABLED:
+	if (events & BIT(UHC_DWC2_EVENT_ENABLED)) {
 		/* TODO: enter critical section */
 		priv->port_state = UHC_PORT_STATE_ENABLED;
 		/* TODO: exit critical section */
@@ -1399,23 +1400,23 @@ static inline void uhc_dwc2_handle_port_events(const struct device *dev)
 		ret = uhc_dwc2_get_port_speed(dev, &port_speed);
 		if (ret) {
 			LOG_ERR("Failed to get port speed");
-			break;
+			return;
 		}
 
 		ret = uhc_dwc2_chan_config(dev, 0, 0, 0, UHC_DWC2_SPEED_FULL, port_speed,
 					   UHC_DWC2_XFER_TYPE_CTRL);
 		if (ret) {
 			LOG_ERR("Failed to initialize channels: %d", ret);
-			break;
+			return;
 		}
 
 		/* Notify the higher logic about the new device */
 		uhc_dwc2_submit_new_device(dev, port_speed);
-		break;
+	}
 
-	case UHC_DWC2_EVENT_DISCONNECTION:
-	case UHC_DWC2_EVENT_ERROR:
-	case UHC_DWC2_EVENT_OVERCURRENT:
+	if ((events & BIT(UHC_DWC2_EVENT_DISCONNECTION)) ||
+	    (events & BIT(UHC_DWC2_EVENT_ERROR)) ||
+	    (events & BIT(UHC_DWC2_EVENT_OVERCURRENT))) {
 		port_has_device = false;
 
 		/* TODO: enter critical section */
@@ -1439,9 +1440,6 @@ static inline void uhc_dwc2_handle_port_events(const struct device *dev)
 
 		/* Recover the port */
 		uhc_dwc2_port_recovery(dev);
-		break;
-	default:
-		break;
 	}
 }
 
