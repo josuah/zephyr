@@ -171,8 +171,6 @@ struct uhc_dwc2_chan {
 struct uhc_dwc2_data {
 	struct k_sem irq_sem;
 	struct k_thread thread;
-	/* Mutex for port access */
-	struct k_mutex mutex;
 	/* Main events the driver thread waits for */
 	struct k_event event;
 	struct uhc_dwc2_chan chan[UHC_DWC2_MAX_CHAN];
@@ -1699,7 +1697,6 @@ static int uhc_dwc2_preinit(const struct device *dev)
 	/* Initialize the private data structure */
 	memset(priv, 0, sizeof(struct uhc_dwc2_data));
 	k_mutex_init(&data->mutex);
-	k_mutex_init(&priv->mutex);
 	k_event_init(&priv->event);
 
 	/* TODO: Overwrite the DWC2 register values with the devicetree values? */
