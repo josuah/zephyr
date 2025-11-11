@@ -176,8 +176,6 @@ struct uhc_dwc2_chan {
 	uint8_t chan_cmd_processing: 1;
 	/* XFER: pending, in-flight or done */
 	uint8_t has_xfer: 1;
-	/* Pipe event is pending */
-	uint8_t event_pending: 1;
 	/* Is channel enabled */
 	uint8_t active: 1;
 	/* Halt has been requested */
@@ -192,7 +190,7 @@ struct uhc_dwc2_data {
 	/* Mutex for port access */
 	struct k_mutex mutex;
 	/* Main events the driver thread waits for */
-	struct k_event drv_evt;
+	struct k_event event;
 	struct uhc_dwc2_chan chan[UHC_DWC2_MAX_CHAN];
 	/* Bit mask of channels with pending interrupts */
 	uint32_t pending_channel_intrs_msk;
@@ -210,8 +208,6 @@ struct uhc_dwc2_data {
 	uint8_t num_chans_queued;
 	/* Debounce lock */
 	uint8_t lock_enabled: 1;
-	/* Port event is pending */
-	uint8_t event_pending: 1;
 	/* Device is connected */
 	uint8_t conn_dev_ena: 1;
 	/* Waiting to be disabled */
@@ -1088,8 +1084,7 @@ static void uhc_dwc2_handle_chan_intr(const struct device *dev, struct uhc_dwc2_
 			break;
 		}
 		chan->last_event = chan_event;
-		chan->event_pending = 1;
-		k_event_post(&priv->drv_evt, BIT(UHC_DWC2_EVENT_CHAN0));
+		k_event_post(&priv->event, BIT(UHC_DWC2_EVENT_CHAN0));
 		break;
 	case DWC2_CHAN_EVENT_ERROR:
 		LOG_ERR("Channel error handling not implemented yet");
@@ -1189,8 +1184,7 @@ static void uhc_dwc2_isr_handler(const struct device *dev)
 			port_event = uhc_dwc2_decode_hprt(dev, core_event);
 			if (port_event != UHC_PORT_EVENT_NONE) {
 				priv->last_event = port_event;
-				priv->event_pending = 1;
-				k_event_post(&priv->drv_evt, BIT(UHC_DWC2_EVENT_PORT));
+				k_event_post(&priv->event, BIT(UHC_DWC2_EVENT_PORT));
 			}
 		} else {
 			/* No core event, nothing to do. Should never occur */
@@ -1232,31 +1226,25 @@ static inline enum uhc_port_event uhc_dwc2_get_port_event(const struct device *d
 	struct uhc_dwc2_data *priv = uhc_get_private(dev);
 	enum uhc_port_event port_event = UHC_PORT_EVENT_NONE;
 
-	/* TODO: enter critial section */
-	if (priv->event_pending) {
-		priv->event_pending = 0;
-		port_event = priv->last_event;
+	port_event = priv->last_event;
 
-		switch (port_event) {
-		case UHC_PORT_EVENT_CONNECTION:
-			/* Don't update state immediately, we still need to debounce. */
-			if (uhc_dwc2_port_debounce(dev)) {
-				port_event = UHC_PORT_EVENT_CONNECTION;
-			} else {
-				LOG_ERR("Port is not connected after debounce");
-				/* TODO: Simulate and/or verify */
-				LOG_WRN("Port debounce error handling is not implemented yet");
-			}
-			break;
-		case UHC_PORT_EVENT_DISCONNECTION:
-		case UHC_PORT_EVENT_ERROR:
-		case UHC_PORT_EVENT_OVERCURRENT:
-			break;
-		default:
-			break;
+	switch (port_event) {
+	case UHC_PORT_EVENT_CONNECTION:
+		/* Don't update state immediately, we still need to debounce. */
+		if (uhc_dwc2_port_debounce(dev)) {
+			port_event = UHC_PORT_EVENT_CONNECTION;
+		} else {
+			LOG_ERR("Port is not connected after debounce");
+			/* TODO: Simulate and/or verify */
+			LOG_WRN("Port debounce error handling is not implemented yet");
 		}
-	} else {
-		port_event = UHC_PORT_EVENT_NONE;
+		break;
+	case UHC_PORT_EVENT_DISCONNECTION:
+	case UHC_PORT_EVENT_ERROR:
+	case UHC_PORT_EVENT_OVERCURRENT:
+		break;
+	default:
+		break;
 	}
 
 	/* TODO: exit critical section */
@@ -1679,19 +1667,19 @@ static inline void uhc_dwc2_thread_handler(void *const arg)
 	struct uhc_dwc2_data *const priv = uhc_get_private(dev);
 	uint32_t evt;
 
-	evt = k_event_wait(&priv->drv_evt, UINT32_MAX, false, K_FOREVER);
+	evt = k_event_wait(&priv->event, UINT32_MAX, false, K_FOREVER);
 
 	uhc_lock_internal(dev, K_FOREVER);
 
 	if (evt & BIT(UHC_DWC2_EVENT_PORT)) {
-		k_event_clear(&priv->drv_evt, BIT(UHC_DWC2_EVENT_PORT));
+		k_event_clear(&priv->event, BIT(UHC_DWC2_EVENT_PORT));
 		uhc_dwc2_handle_port_events(dev);
 	}
 
 	/* TODO: loop over each of UHC_DWC2_MAX_CHAN */
 	for (uint32_t i = 0; i < 1; i++) {
 		if (evt & BIT(UHC_DWC2_EVENT_CHAN0 + i)) {
-			k_event_clear(&priv->drv_evt, BIT(UHC_DWC2_EVENT_CHAN0 + i));
+			k_event_clear(&priv->event, BIT(UHC_DWC2_EVENT_CHAN0 + i));
 			uhc_dwc2_handle_chan_events(dev, &priv->chan[i]);
 		}
 	}
@@ -1832,7 +1820,7 @@ static int uhc_dwc2_preinit(const struct device *dev)
 	memset(priv, 0, sizeof(struct uhc_dwc2_data));
 	k_mutex_init(&data->mutex);
 	k_mutex_init(&priv->mutex);
-	k_event_init(&priv->drv_evt);
+	k_event_init(&priv->event);
 
 	/* TODO: Overwrite the DWC2 register values with the devicetree values? */
 
