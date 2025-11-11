@@ -170,7 +170,7 @@ struct uhc_dwc2_chan {
 
 struct uhc_dwc2_data {
 	struct k_sem irq_sem;
-	struct k_thread thread_data;
+	struct k_thread thread;
 	/* Mutex for port access */
 	struct k_mutex mutex;
 	/* Main events the driver thread waits for */
@@ -226,6 +226,8 @@ struct uhc_dwc2_data {
 #define UHC_DWC2_PHYDATAWIDTH(config)                                                              \
 	((uint32_t)(((config)->ghwcfg4 & USB_DWC2_GHWCFG4_PHYDATAWIDTH_MASK) >>                    \
 		    USB_DWC2_GHWCFG4_PHYDATAWIDTH_POS))
+
+K_THREAD_STACK_DEFINE(uhc_dwc2_stack, CONFIG_UHC_DWC2_STACK_SIZE);
 
 /*
  * DWC2 FIFO Management
@@ -1554,35 +1556,6 @@ static inline void uhc_dwc2_handle_chan_events(const struct device *dev, struct 
 	}
 }
 
-/*
- * Thread that processes USB events from the DWC2 controller: Port, Pipe.
- */
-static inline void uhc_dwc2_thread_handler(void *const arg)
-{
-	const struct device *dev = (const struct device *)arg;
-	struct uhc_dwc2_data *const priv = uhc_get_private(dev);
-	uint32_t evt;
-
-	evt = k_event_wait(&priv->event, UINT32_MAX, false, K_FOREVER);
-
-	uhc_lock_internal(dev, K_FOREVER);
-
-	if (evt & BIT(UHC_DWC2_EVENT_PORT)) {
-		k_event_clear(&priv->event, BIT(UHC_DWC2_EVENT_PORT));
-		uhc_dwc2_handle_port_events(dev);
-	}
-
-	/* TODO: loop over each of UHC_DWC2_MAX_CHAN */
-	for (uint32_t i = 0; i < 1; i++) {
-		if (evt & BIT(UHC_DWC2_EVENT_CHAN0 + i)) {
-			k_event_clear(&priv->event, BIT(UHC_DWC2_EVENT_CHAN0 + i));
-			uhc_dwc2_handle_chan_events(dev, &priv->chan[i]);
-		}
-	}
-
-	uhc_unlock_internal(dev);
-}
-
 static inline int uhc_dwc2_submit_ctrl_xfer(const struct device *dev, struct uhc_dwc2_chan *chan,
 					    struct uhc_transfer *const xfer)
 {
@@ -1617,6 +1590,33 @@ static inline int uhc_dwc2_submit_ctrl_xfer(const struct device *dev, struct uhc
 	irq_unlock(key);
 
 	return 0;
+}
+
+static void uhc_dwc2_thread(void *arg1, void *arg2, void *arg3)
+{
+	const struct device *dev = (const struct device *)arg1;
+	struct uhc_dwc2_data *const priv = uhc_get_private(dev);
+	uint32_t evt;
+
+	while (true) {
+		evt = k_event_wait(&priv->event, UINT32_MAX, false, K_FOREVER);
+
+		uhc_lock_internal(dev, K_FOREVER);
+
+		if (evt & BIT(UHC_DWC2_EVENT_PORT)) {
+			k_event_clear(&priv->event, BIT(UHC_DWC2_EVENT_PORT));
+			uhc_dwc2_handle_port_events(dev);
+		}
+
+		for (uint32_t i = 0; i < 1; i++) {
+			if (evt & BIT(UHC_DWC2_EVENT_CHAN0 + i)) {
+				k_event_clear(&priv->event, BIT(UHC_DWC2_EVENT_CHAN0 + i));
+				uhc_dwc2_handle_chan_events(dev, &priv->chan[i]);
+			}
+		}
+
+		uhc_unlock_internal(dev);
+	}
 }
 
 /*
@@ -1693,7 +1693,6 @@ static int uhc_dwc2_dequeue(const struct device *dev, struct uhc_transfer *const
 
 static int uhc_dwc2_preinit(const struct device *dev)
 {
-	const struct uhc_dwc2_config *const config = dev->config;
 	struct uhc_dwc2_data *priv = uhc_get_private(dev);
 	struct uhc_data *data = dev->data;
 
@@ -1705,9 +1704,12 @@ static int uhc_dwc2_preinit(const struct device *dev)
 
 	/* TODO: Overwrite the DWC2 register values with the devicetree values? */
 
-	(void)uhc_dwc2_quirk_caps(dev);
+	uhc_dwc2_quirk_caps(dev);
 
-	config->make_thread(dev);
+	k_thread_create(&priv->thread, uhc_dwc2_stack, K_THREAD_STACK_SIZEOF(uhc_dwc2_stack),
+			uhc_dwc2_thread, (void *)dev, NULL, NULL,
+			K_PRIO_COOP(CONFIG_UHC_DWC2_THREAD_PRIORITY), K_ESSENTIAL, K_NO_WAIT);
+	k_thread_name_set(&priv->thread, dev->name);
 
 	return 0;
 }
@@ -1871,25 +1873,6 @@ static int uhc_dwc2_shutdown(const struct device *dev)
  * Device Definition and Initialization
  */
 
-K_THREAD_STACK_DEFINE(uhc_dwc2_stack, CONFIG_UHC_DWC2_STACK_SIZE);
-
-static void uhc_dwc2_thread(void *arg1, void *arg2, void *arg3)
-{
-	while (true) {
-		uhc_dwc2_thread_handler(arg1);
-	}
-}
-
-static void uhc_dwc2_make_thread(const struct device *dev)
-{
-	struct uhc_dwc2_data *priv = uhc_get_private(dev);
-
-	k_thread_create(&priv->thread_data, uhc_dwc2_stack, K_THREAD_STACK_SIZEOF(uhc_dwc2_stack),
-			uhc_dwc2_thread, (void *)dev, NULL, NULL,
-			K_PRIO_COOP(CONFIG_UHC_DWC2_THREAD_PRIORITY), K_ESSENTIAL, K_NO_WAIT);
-	k_thread_name_set(&priv->thread_data, dev->name);
-}
-
 static const struct uhc_api uhc_dwc2_api = {
 	/* Common */
 	.lock = uhc_dwc2_lock,
@@ -1919,7 +1902,6 @@ static struct uhc_dwc2_data uhc_dwc2_data = {
 
 static const struct uhc_dwc2_config uhc_dwc2_config_host = {
 	.base = (struct usb_dwc2_reg *)UHC_DWC2_DT_INST_REG_ADDR(0),
-	.make_thread = uhc_dwc2_make_thread,
 	.quirks = UHC_DWC2_VENDOR_QUIRK_GET(0),
 	.gsnpsid = DT_INST_PROP(0, gsnpsid),
 	.ghwcfg1 = DT_INST_PROP(0, ghwcfg1),
