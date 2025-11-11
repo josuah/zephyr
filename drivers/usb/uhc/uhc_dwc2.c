@@ -631,22 +631,6 @@ static inline void uhc_dwc2_init_gahbcfg(const struct device *dev)
 	sys_set_bits((mem_addr_t)&dwc2->gahbcfg, USB_DWC2_GAHBCFG_GLBINTRMASK);
 }
 
-static enum uhc_dwc2_event uhc_dwc2_decode_hprt(const struct device *dev,
-						enum uhc_dwc2_event core_event)
-{
-	struct uhc_dwc2_data *priv = uhc_get_private(dev);
-
-	switch (core_event) {
-	case UHC_DWC2_EVENT_ENABLED:
-		priv->conn_dev_ena = 1;
-		break;
-	case UHC_DWC2_EVENT_DISABLED:
-		priv->conn_dev_ena = 0;
-		break;
-	}
-	return core_event;
-}
-
 static inline enum uhc_dwc2_event uhc_dwc2_decode_intr(const struct device *dev,
 						       uint32_t *channels)
 {
@@ -700,11 +684,6 @@ static inline enum uhc_dwc2_event uhc_dwc2_decode_intr(const struct device *dev,
 			core_event = UHC_DWC2_EVENT_CONNECTION;
 			/* Debounce lock */
 			uhc_dwc2_lock_enable(dev);
-		} else {
-			/* Should never happened, as port event masked with
-			 * PORT_EVENTS_INTRS_MSK
-			 */
-			__ASSERT(false, "Unknown port interrupt, HPRT=%08Xh", port_intrs);
 		}
 	}
 
@@ -1013,18 +992,19 @@ static void uhc_dwc2_isr_handler(const struct device *dev)
 			uhc_dwc2_handle_chan_intr(dev, &priv->chan[i - 1]);
 		}
 	} else {
-		if (core_event != UHC_DWC2_EVENT_NONE) {
-			/* Port event */
-			enum uhc_dwc2_event port_event;
+		/* No core event, nothing to do. Should never occur */
+		__ASSERT(core_event != UHC_DWC2_EVENT_NONE, "No core event detected");
 
-			port_event = uhc_dwc2_decode_hprt(dev, core_event);
-			if (port_event != UHC_DWC2_EVENT_NONE) {
-				k_event_set(&priv->event, BIT(port_event));
-			}
-		} else {
-			/* No core event, nothing to do. Should never occur */
-			__ASSERT(false, "No core event detected");
+		switch (core_event) {
+		case UHC_DWC2_EVENT_ENABLED:
+			priv->conn_dev_ena = 1;
+			break;
+		case UHC_DWC2_EVENT_DISABLED:
+			priv->conn_dev_ena = 0;
+			break;
 		}
+
+		k_event_set(&priv->event, BIT(core_event));
 	}
 
 	(void)uhc_dwc2_quirk_irq_clear(dev);
