@@ -642,25 +642,6 @@ static enum uhc_dwc2_event uhc_dwc2_decode_hprt(const struct device *dev,
 		break;
 	case UHC_DWC2_EVENT_DISABLED:
 		priv->conn_dev_ena = 0;
-		/* Could be due to a disable request or reset request, or due to a port error */
-		/* Ignore the disable event if it's due to a reset request */
-		if (priv->port_state != UHC_PORT_STATE_RESETTING) {
-			if (priv->waiting_disable) {
-				/* Disabled by request (i.e. by port command). Generate an internal
-				 * event
-				 */
-				priv->port_state = UHC_PORT_STATE_DISABLED;
-				priv->waiting_disable = 0;
-				/* TODO: Notify the port event from ISR */
-				LOG_ERR("Port disabled by request, not implemented yet");
-			} else {
-				/* Disabled due to a port error */
-				LOG_ERR("Port disabled due to an error, changing state to "
-					"recovery");
-				priv->port_state = UHC_PORT_STATE_RECOVERY;
-				core_event = UHC_DWC2_EVENT_ERROR;
-			}
-		}
 		break;
 	}
 	return core_event;
@@ -1346,6 +1327,28 @@ static inline void uhc_dwc2_handle_port_events(const struct device *dev, uint32_
 
 		/* Notify the higher logic about the new device */
 		uhc_dwc2_submit_new_device(dev, port_speed);
+	}
+
+	if (events & BIT(UHC_DWC2_EVENT_DISABLED)) {
+		/* Could be due to a disable request or reset request, or due to a port error */
+		/* Ignore the disable event if it's due to a reset request */
+		if (priv->port_state != UHC_PORT_STATE_RESETTING) {
+			if (priv->waiting_disable) {
+				/* Disabled by request (i.e. by port command). Generate an internal
+				 * event
+				 */
+				priv->port_state = UHC_PORT_STATE_DISABLED;
+				priv->waiting_disable = 0;
+				/* TODO: Notify the port event from ISR */
+				LOG_ERR("Port disabled by request, not implemented yet");
+			} else {
+				/* Disabled due to a port error */
+				LOG_ERR("Port disabled due to an error, changing state to "
+					"recovery");
+				priv->port_state = UHC_PORT_STATE_RECOVERY;
+				events |= BIT(UHC_DWC2_EVENT_ERROR);
+			}
+		}
 	}
 
 	if (events & BIT(UHC_DWC2_EVENT_CONNECTION)) {
