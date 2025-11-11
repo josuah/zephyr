@@ -166,8 +166,6 @@ struct uhc_dwc2_data {
 	uint16_t fifo_ptxfsiz;
 	/* Debounce lock */
 	uint8_t lock_enabled: 1;
-	/* Waiting to be disabled */
-	uint8_t waiting_disable: 1;
 	/* TODO: Port context and callback? */
 	/* TODO: Dynamic chan allocation on enqueue? */
 	/* TODO: FRAME LIST? */
@@ -1302,21 +1300,13 @@ static inline void uhc_dwc2_handle_port_events(const struct device *dev, uint32_
 		/* Could be due to a disable request or reset request, or due to a port error */
 		/* Ignore the disable event if it's due to a reset request */
 		if (priv->port_state != UHC_PORT_STATE_RESETTING) {
-			if (priv->waiting_disable) {
-				/* Disabled by request (i.e. by port command). Generate an internal
-				 * event
-				 */
-				priv->port_state = UHC_PORT_STATE_DISABLED;
-				priv->waiting_disable = 0;
-				/* TODO: Notify the port event from ISR */
-				LOG_ERR("Port disabled by request, not implemented yet");
-			} else {
-				/* Disabled due to a port error */
-				LOG_ERR("Port disabled due to an error, changing state to "
-					"recovery");
-				priv->port_state = UHC_PORT_STATE_RECOVERY;
-				events |= BIT(UHC_DWC2_EVENT_ERROR);
-			}
+			/* Disabled due to a port error */
+			LOG_ERR("Port disabled due to an error, changing state to "
+				"recovery");
+			priv->port_state = UHC_PORT_STATE_RECOVERY;
+			events |= BIT(UHC_DWC2_EVENT_ERROR);
+			/* TODO: Notify the port event from ISR */
+			/* TODO: Port disabled by request, not implemented yet */
 		}
 	}
 
