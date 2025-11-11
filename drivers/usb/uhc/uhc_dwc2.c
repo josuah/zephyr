@@ -854,15 +854,6 @@ struct uhc_dwc2_chan *uhc_dwc2_get_chan_pending_intr(const struct device *dev)
 	}
 }
 
-struct uhc_transfer *chan_get_next_xfer(struct uhc_dwc2_chan *chan)
-{
-	struct uhc_transfer *xfer;
-	sys_dnode_t *node;
-
-	node = sys_dlist_peek_head(&chan->xfer_pending_list);
-	return (node == NULL) ? NULL : SYS_DLIST_CONTAINER(node, xfer, node);
-}
-
 static inline uint16_t calc_packet_count(const uint16_t size, const uint8_t mps)
 {
 	if (size == 0) {
@@ -904,23 +895,6 @@ static inline void _buffer_fill_ctrl(struct uhc_dwc2_chan *chan, struct uhc_tran
 	chan->xfer = xfer;
 
 	/* TODO Sync data from cache to memory. For OUT and CTRL transfers */
-}
-
-static void IRAM_ATTR _buffer_fill(struct uhc_dwc2_chan *chan)
-{
-	struct uhc_transfer *xfer = chan_get_next_xfer(chan);
-
-	/* TODO: Double buffering scheme? */
-
-	switch (chan->type) {
-	case UHC_DWC2_XFER_TYPE_CTRL:
-		_buffer_fill_ctrl(chan, xfer);
-		break;
-	default:
-		LOG_ERR("Unsupported transfer type %d", chan->type);
-		break;
-	}
-	/* TODO: sync CACHE */
 }
 
 static inline enum uhc_dwc2_ctrl_stage cal_next_pid(enum uhc_dwc2_ctrl_stage pid, uint8_t pkt_count)
@@ -1637,10 +1611,7 @@ static inline int uhc_dwc2_submit_ctrl_xfer(const struct device *dev, struct uhc
 
 	key = irq_lock();
 
-	if (!sys_dlist_is_empty(&chan->xfer_pending_list)) {
-		_buffer_fill(chan);
-	}
-
+	_buffer_fill_ctrl(chan, xfer);
 	_buffer_exec(dev, chan);
 
 	irq_unlock(key);
