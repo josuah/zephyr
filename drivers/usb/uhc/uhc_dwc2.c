@@ -889,45 +889,21 @@ static void uhc_dwc2_isr_handler(const struct device *dev)
 	core_intrs = sys_read32((mem_addr_t)&dwc2->gintsts);
 	sys_write32(core_intrs, (mem_addr_t)&dwc2->gintsts);
 
+	LOG_DBG("GINTSTS=%08Xh, HPRT=%08Xh", core_intrs, port_intrs);
+
 	if (core_intrs & USB_DWC2_GINTSTS_PRTINT) {
 		port_intrs = sys_read32((mem_addr_t)&dwc2->hprt);
 		/* Clear the interrupt status by writing 1 to the W1C bits, except the PRTENA bit */
 		sys_write32(port_intrs & (~USB_DWC2_HPRT_PRTENA), (mem_addr_t)&dwc2->hprt);
 	}
 
-	LOG_DBG("GINTSTS=%08Xh, HPRT=%08Xh", core_intrs, port_intrs);
-
-	/* Note:
-	 * Do not change order of checks. Regressing events (e.g. enable -> disabled,
-	 * connected -> disconnected) always take precedence.
-	 */
 	if (core_intrs & USB_DWC2_GINTSTS_DISCONNINT) {
 		/* Disconnect event */
 		k_event_set(&priv->event, BIT(UHC_DWC2_EVENT_DISCONNECTION));
 		uhc_dwc2_debounce_enable(dev);
 		/* Port still connected, check port event */
-	} else if (port_intrs & USB_DWC2_HPRT_PRTOVRCURRCHNG) {
-		/* Check if this is an overcurrent or an overcurrent cleared */
-		if (port_intrs & USB_DWC2_HPRT_PRTOVRCURRACT) {
-			/* TODO: Verify handling logic during overcurrent */
-			k_event_set(&priv->event, BIT(UHC_DWC2_EVENT_OVERCURRENT));
-		} else {
-			k_event_set(&priv->event, BIT(UHC_DWC2_EVENT_OVERCURRENT_CLEAR));
-		}
-	} else if (port_intrs & USB_DWC2_HPRT_PRTENCHNG) {
-		if (port_intrs & USB_DWC2_HPRT_PRTENA) {
-			/* Host port was enabled */
-			k_event_set(&priv->event, BIT(UHC_DWC2_EVENT_ENABLED));
-		} else {
-			/* Host port has been disabled */
-			k_event_set(&priv->event, BIT(UHC_DWC2_EVENT_DISABLED));
-		}
-	} else if (port_intrs & USB_DWC2_HPRT_PRTCONNDET && !priv->debouncing) {
-		k_event_set(&priv->event, BIT(UHC_DWC2_EVENT_CONNECTION));
-		uhc_dwc2_debounce_enable(dev);
 	}
 
-	/* Port events always take precedence over channel events */
 	if (core_intrs & USB_DWC2_GINTSTS_HCHINT) {
 		/* One or more channels have pending interrupts. Store the mask of those channels */
 		channels = sys_read32((mem_addr_t)&dwc2->haint);
@@ -945,6 +921,31 @@ static void uhc_dwc2_isr_handler(const struct device *dev)
 				k_event_set(&priv->event, BIT(UHC_DWC2_EVENT_CHAN0 + i - 1));
 			}
 		}
+	}
+
+	if (port_intrs & USB_DWC2_HPRT_PRTOVRCURRCHNG) {
+		/* Check if this is an overcurrent or an overcurrent cleared */
+		if (port_intrs & USB_DWC2_HPRT_PRTOVRCURRACT) {
+			/* TODO: Verify handling logic during overcurrent */
+			k_event_set(&priv->event, BIT(UHC_DWC2_EVENT_OVERCURRENT));
+		} else {
+			k_event_set(&priv->event, BIT(UHC_DWC2_EVENT_OVERCURRENT_CLEAR));
+		}
+	}
+
+	if (port_intrs & USB_DWC2_HPRT_PRTENCHNG) {
+		if (port_intrs & USB_DWC2_HPRT_PRTENA) {
+			/* Host port was enabled */
+			k_event_set(&priv->event, BIT(UHC_DWC2_EVENT_ENABLED));
+		} else {
+			/* Host port has been disabled */
+			k_event_set(&priv->event, BIT(UHC_DWC2_EVENT_DISABLED));
+		}
+	}
+
+	if (port_intrs & USB_DWC2_HPRT_PRTCONNDET && !priv->debouncing) {
+		k_event_set(&priv->event, BIT(UHC_DWC2_EVENT_CONNECTION));
+		uhc_dwc2_debounce_enable(dev);
 	}
 
 	(void)uhc_dwc2_quirk_irq_clear(dev);
@@ -1203,6 +1204,19 @@ static inline void uhc_dwc2_handle_port_events(const struct device *dev, uint32_
 	int ret;
 
 	LOG_DBG("Port events: 0x08%x", events);
+
+	/* Note:
+	 * Regressing events (e.g. enable -> disabled, connected -> disconnected) always
+	 * take precedence.
+	 */
+	if ((events & BIT(UHC_DWC2_EVENT_ENABLED)) &&
+	    (events & BIT(UHC_DWC2_EVENT_DISABLED))) {
+		events &= ~BIT(UHC_DWC2_EVENT_ENABLED);
+	}
+	if ((events & BIT(UHC_DWC2_EVENT_CONNECTION)) &&
+	    (events & BIT(UHC_DWC2_EVENT_DISCONNECTION))) {
+		events &= ~BIT(UHC_DWC2_EVENT_CONNECTION);
+	}
 
 	if (events & BIT(UHC_DWC2_EVENT_ENABLED)) {
 		/* Initialize remaining host port registers */
