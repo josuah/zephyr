@@ -361,43 +361,6 @@ static int dwc2_hal_core_reset(struct usb_dwc2_reg *const dwc2, k_timeout_t time
 	return 0;
 }
 
-static void dwc2_channel_configure(const struct device *dev, struct uhc_dwc2_chan *chan)
-{
-	const struct uhc_dwc2_config *const config = dev->config;
-	struct usb_dwc2_reg *const dwc2 = config->base;
-	const struct usb_dwc2_host_chan *chan_regs = UHC_DWC2_CHAN_REG(dwc2, chan->chan_idx);
-	uint32_t hcchar;
-
-	hcchar = ((uint32_t)chan->ep_mps << USB_DWC2_HCCHAR0_MPS_POS);
-	hcchar |= ((uint32_t)USB_EP_GET_IDX(chan->ep_addr) << USB_DWC2_HCCHAR0_EPNUM_POS);
-	hcchar |= ((uint32_t)chan->type << USB_DWC2_HCCHAR0_EPTYPE_POS);
-	hcchar |= ((uint32_t)1UL /* TODO: chan->mult */ << USB_DWC2_HCCHAR0_EC_POS);
-	hcchar |= ((uint32_t)chan->dev_addr << USB_DWC2_HCCHAR0_DEVADDR_POS);
-
-	if (USB_EP_DIR_IS_IN(chan->ep_addr)) {
-		hcchar |= USB_DWC2_HCCHAR0_EPDIR;
-	}
-
-	/* TODO: LS device plugged to HUB */
-	if (false) {
-		hcchar |= USB_DWC2_HCCHAR0_LSPDDEV;
-	}
-
-	if (chan->type == UHC_DWC2_XFER_TYPE_INTR) {
-		hcchar |= USB_DWC2_HCCHAR0_ODDFRM;
-	}
-
-	if (chan->type == UHC_DWC2_XFER_TYPE_ISOCHRONOUS) {
-		LOG_WRN("ISOC channels are note supported yet");
-	}
-
-	if (chan->type == UHC_DWC2_XFER_TYPE_INTR) {
-		LOG_WRN(" INTR channels are note supported yet");
-	}
-
-	sys_write32(hcchar, (mem_addr_t)&chan_regs->hcchar);
-}
-
 static inline enum uhc_dwc2_speed dwc2_hal_get_port_speed(struct usb_dwc2_reg *const dwc2)
 {
 	uint32_t hprt;
@@ -1168,11 +1131,11 @@ static inline int uhc_dwc2_chan_config(const struct device *dev, uint8_t chan_id
 				       enum uhc_dwc2_speed port_speed, enum uhc_dwc2_xfer_type type)
 {
 	struct uhc_dwc2_data *priv = uhc_get_private(dev);
-	/* TODO: Allocate the chan and it's resources */
 	struct uhc_dwc2_chan *chan = &priv->chan[0];
 	const struct uhc_dwc2_config *const config = dev->config;
 	struct usb_dwc2_reg *const dwc2 = config->base;
-	const struct usb_dwc2_host_chan *chan_regs;
+	const struct usb_dwc2_host_chan *chan_regs = UHC_DWC2_CHAN_REG(dwc2, chan->chan_idx);
+	uint32_t hcchar;
 	uint32_t hcint;
 
 	/* TODO: Double buffering scheme? */
@@ -1208,7 +1171,34 @@ static inline int uhc_dwc2_chan_config(const struct device *dev, uint8_t chan_id
 	sys_set_bits((mem_addr_t)&chan_regs->hcintmsk,
 		     USB_DWC2_HCINT_XFERCOMPL | USB_DWC2_HCINT_CHHLTD);
 
-	dwc2_channel_configure(dev, chan);
+	hcchar = ((uint32_t)chan->ep_mps << USB_DWC2_HCCHAR0_MPS_POS);
+	hcchar |= ((uint32_t)USB_EP_GET_IDX(chan->ep_addr) << USB_DWC2_HCCHAR0_EPNUM_POS);
+	hcchar |= ((uint32_t)chan->type << USB_DWC2_HCCHAR0_EPTYPE_POS);
+	hcchar |= ((uint32_t)1UL /* TODO: chan->mult */ << USB_DWC2_HCCHAR0_EC_POS);
+	hcchar |= ((uint32_t)chan->dev_addr << USB_DWC2_HCCHAR0_DEVADDR_POS);
+
+	if (USB_EP_DIR_IS_IN(chan->ep_addr)) {
+		hcchar |= USB_DWC2_HCCHAR0_EPDIR;
+	}
+
+	/* TODO: LS device plugged to HUB */
+	if (false) {
+		hcchar |= USB_DWC2_HCCHAR0_LSPDDEV;
+	}
+
+	if (chan->type == UHC_DWC2_XFER_TYPE_INTR) {
+		hcchar |= USB_DWC2_HCCHAR0_ODDFRM;
+	}
+
+	if (chan->type == UHC_DWC2_XFER_TYPE_ISOCHRONOUS) {
+		LOG_WRN("ISOC channels are note supported yet");
+	}
+
+	if (chan->type == UHC_DWC2_XFER_TYPE_INTR) {
+		LOG_WRN(" INTR channels are note supported yet");
+	}
+
+	sys_write32(hcchar, (mem_addr_t)&chan_regs->hcchar);
 
 	/* TODO: sync CACHE */
 
