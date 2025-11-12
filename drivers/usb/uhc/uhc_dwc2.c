@@ -106,8 +106,6 @@ enum uhc_dwc2_ctrl_stage {
 };
 
 struct uhc_dwc2_chan {
-	/* XFER queuing related */
-	sys_dlist_t xfer_pending_list;
 	/* Pointer to the transfer associated with the buffer */
 	struct uhc_transfer *xfer;
 	/* Interval in frames (FS) or microframes (HS) */
@@ -1159,8 +1157,6 @@ static inline int uhc_dwc2_chan_config(const struct device *dev, uint8_t chan_id
 
 	/* TODO: Add the chan to the list of idle chans in the port object */
 
-	sys_dlist_init(&chan->xfer_pending_list);
-
 	return 0;
 }
 
@@ -1294,7 +1290,7 @@ static inline void uhc_dwc2_handle_chan_events(const struct device *dev, struct 
 		/* XFER transfer is done, process the transfer and release the chan buffer */
 		struct uhc_transfer *const xfer = (struct uhc_transfer *)chan->xfer;
 
-		if (xfer->buf != NULL && xfer->buf->len) {
+		if (xfer->buf != NULL) {
 			LOG_HEXDUMP_INF(xfer->buf->data, xfer->buf->len, "data");
 		}
 
@@ -1332,9 +1328,10 @@ static inline void uhc_dwc2_handle_chan_events(const struct device *dev, struct 
 	}
 }
 
-static inline int uhc_dwc2_submit_ctrl_xfer(const struct device *dev, struct uhc_dwc2_chan *chan,
-					    struct uhc_transfer *const xfer)
+static inline int uhc_dwc2_submit_ctrl_xfer(const struct device *dev, struct uhc_dwc2_chan *chan)
 {
+	struct uhc_transfer *const xfer = uhc_xfer_get_next(dev);
+
 	LOG_HEXDUMP_INF(xfer->setup_pkt, 8, "setup");
 
 	LOG_DBG("endpoint=%02Xh, mps=%d, interval=%d, start_frame=%d, stage=%d, no_status=%d",
@@ -1349,12 +1346,10 @@ static inline int uhc_dwc2_submit_ctrl_xfer(const struct device *dev, struct uhc
 	}
 
 	/* TODO: Buffer addr that will used as dma addr also should be aligned */
-	if ((xfer->buf != NULL) && ((uintptr_t)net_buf_tail(xfer->buf) % 4)) {
+	if (xfer->buf != NULL && (uintptr_t)net_buf_tail(xfer->buf) % 4 != 0) {
 		LOG_WRN("XFER buffer address %08lXh is not 4-byte aligned",
 			(uintptr_t)net_buf_tail(xfer->buf));
 	}
-
-	sys_dlist_append(&chan->xfer_pending_list, &xfer->node);
 
 	uhc_dwc2_buffer_fill_ctrl(chan, xfer);
 	uhc_dwc2_buffer_exec(dev, chan);
@@ -1437,10 +1432,12 @@ static int uhc_dwc2_enqueue(const struct device *dev, struct uhc_transfer *const
 	struct uhc_dwc2_data *priv = uhc_get_private(dev);
 	int ret;
 
+	(void)uhc_xfer_append(dev, xfer);
+
 	uhc_lock_internal(dev, K_FOREVER);
 
 	if (USB_EP_GET_IDX(xfer->ep) == 0) {
-		ret = uhc_dwc2_submit_ctrl_xfer(dev, &priv->chan[0], xfer);
+		ret = uhc_dwc2_submit_ctrl_xfer(dev, &priv->chan[0]);
 		if (ret) {
 			LOG_ERR("Failed to submit xfer: %d", ret);
 			goto err;
