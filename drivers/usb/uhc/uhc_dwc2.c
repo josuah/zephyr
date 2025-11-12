@@ -388,9 +388,8 @@ static inline void dwc2_apply_fifo_config(const struct device *dev)
 	dwc2_hal_flush_tx_fifo(dwc2, 0x10UL);
 	dwc2_hal_flush_rx_fifo(dwc2);
 
-	LOG_DBG("FIFO configuration applied");
-	LOG_DBG("\tnptx=%u, rx=%u, ptx=%u", priv->fifo_nptxfsiz * 4, priv->fifo_rxfsiz * 4,
-		priv->fifo_ptxfsiz * 4);
+	LOG_DBG("FIFO configuration applied nptx=%u, rx=%u, ptx=%u",
+		priv->fifo_nptxfsiz * 4, priv->fifo_rxfsiz * 4, priv->fifo_ptxfsiz * 4);
 }
 
 /*
@@ -413,22 +412,6 @@ static inline void dwc2_apply_fifo_config(const struct device *dev)
 /* Interrupt that pertain to host port events */
 #define PORT_EVENTS_INTRS_MSK                                                                      \
 	(USB_DWC2_HPRT_PRTCONNDET | USB_DWC2_HPRT_PRTENCHNG | USB_DWC2_HPRT_PRTOVRCURRCHNG)
-
-static inline int uhc_dwc2_get_port_speed(const struct device *dev, enum uhc_dwc2_speed *speed)
-{
-	const struct uhc_dwc2_config *const config = dev->config;
-	struct uhc_dwc2_data *priv = uhc_get_private(dev);
-	struct usb_dwc2_reg *const dwc2 = config->base;
-
-	if (priv->port_state != UHC_PORT_STATE_ENABLED) {
-		LOG_ERR("Port is not enabled, cannot get speed");
-		return -ENODEV;
-	}
-
-	*speed = dwc2_hal_get_port_speed(dwc2);
-
-	return 0;
-}
 
 static void uhc_dwc2_debounce_enable(const struct device *dev)
 {
@@ -830,6 +813,7 @@ static void uhc_dwc2_isr_chan_handler(const struct device *dev, struct uhc_dwc2_
 		LOG_ERR("Channel %d error: 0x%08x", chan->chan_idx, hcint);
 		/* TODO: Store the error in hal context */
 		atomic_set_bit(&chan->event, DWC2_CHAN_EVENT_ERROR);
+
 	} else if (hcint & USB_DWC2_HCINT_CHHLTD) {
 		if (chan->halt_requested) {
 			chan->halt_requested = 0;
@@ -837,6 +821,7 @@ static void uhc_dwc2_isr_chan_handler(const struct device *dev, struct uhc_dwc2_
 		} else {
 			atomic_set_bit(&chan->event, DWC2_CHAN_EVENT_CPLT);
 		}
+
 	} else if (hcint & USB_DWC2_HCINT_XFERCOMPL) {
 		/* Note:
 		 * The channel isn't halted yet, so we need to halt it manually to stop the
@@ -881,7 +866,7 @@ static void uhc_dwc2_isr_handler(const struct device *dev)
 	if (core_intrs & USB_DWC2_GINTSTS_PRTINT) {
 		port_intrs = sys_read32((mem_addr_t)&dwc2->hprt);
 		/* Clear the interrupt status by writing 1 to the W1C bits, except the PRTENA bit */
-		sys_write32(port_intrs & (~USB_DWC2_HPRT_PRTENA), (mem_addr_t)&dwc2->hprt);
+		sys_write32(port_intrs & ~USB_DWC2_HPRT_PRTENA, (mem_addr_t)&dwc2->hprt);
 	}
 
 	if (core_intrs & USB_DWC2_GINTSTS_DISCONNINT) {
@@ -1174,6 +1159,8 @@ static void uhc_dwc2_chan_deinit(const struct device *dev, struct uhc_dwc2_chan 
 static inline void uhc_dwc2_handle_port_events(const struct device *dev, uint32_t events)
 {
 	struct uhc_dwc2_data *priv = uhc_get_private(dev);
+	const struct uhc_dwc2_config *const config = dev->config;
+	struct usb_dwc2_reg *const dwc2 = config->base;
 	enum uhc_dwc2_speed port_speed;
 	bool port_has_device;
 	int ret;
@@ -1198,12 +1185,7 @@ static inline void uhc_dwc2_handle_port_events(const struct device *dev, uint32_
 		dwc2_port_enable(dev);
 
 		priv->port_state = UHC_PORT_STATE_ENABLED;
-
-		ret = uhc_dwc2_get_port_speed(dev, &port_speed);
-		if (ret) {
-			LOG_ERR("Failed to get port speed");
-			return;
-		}
+		port_speed = dwc2_hal_get_port_speed(dwc2);
 
 		ret = uhc_dwc2_chan_config(dev, 0, 0, 0, UHC_DWC2_SPEED_FULL, port_speed,
 					   UHC_DWC2_XFER_TYPE_CTRL);
