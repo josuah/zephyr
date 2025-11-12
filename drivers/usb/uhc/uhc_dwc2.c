@@ -876,51 +876,6 @@ static inline enum uhc_dwc2_ctrl_stage cal_next_pid(enum uhc_dwc2_ctrl_stage pid
 	}
 }
 
-/*
- * Decode a channel interrupt and take appropriate action.
- * Interrupt context.
- */
-static void uhc_dwc2_handle_chan_intr(const struct device *dev, struct uhc_dwc2_chan *chan)
-{
-	struct uhc_dwc2_data *priv = uhc_get_private(dev);
-	enum uhc_dwc2_chan_event chan_event = uhc_dwc2_hal_chan_decode_intr(dev, chan);
-
-	LOG_DBG("Channel event: %d", chan_event);
-
-	switch (chan_event) {
-	case DWC2_CHAN_EVENT_NONE:
-		/* No event, nothing to do */
-		break;
-	case DWC2_CHAN_EVENT_CPLT:
-		if (!uhc_dwc2_buffer_is_done(chan)) {
-			uhc_dwc2_buffer_exec_proceed(dev, chan);
-			break;
-		}
-		chan->event = chan_event;
-		k_event_set(&priv->event, BIT(UHC_DWC2_EVENT_CHAN0 + chan->chan_idx));
-		break;
-	case DWC2_CHAN_EVENT_ERROR:
-		LOG_ERR("Channel error handling not implemented yet");
-		/* TODO: get channel error, halt the chan */
-		break;
-	case DWC2_CHAN_EVENT_HALT_REQ:
-		LOG_ERR("Channel halt request handling not implemented yet");
-
-		/* TODO: Implement halting the ongoing transfer */
-
-		/* Hint:
-		 * We've halted a transfer, so we need to trigger the chan callback
-		 * Halt request event is triggered when packet is successful completed.
-		 * But just treat all halted transfers as errors
-		 * Notify the task waiting for the chan halt or halt it right away
-		 * _internal_chan_event_notify(chan, true);
-		 */
-		break;
-	default:
-		CODE_UNREACHABLE;
-	}
-}
-
 static void uhc_dwc2_isr_handler(const struct device *dev)
 {
 	struct uhc_dwc2_data *priv = uhc_get_private(dev);
@@ -977,7 +932,44 @@ static void uhc_dwc2_isr_handler(const struct device *dev)
 		/* One or more channels have pending interrupts. Store the mask of those channels */
 		channels = sys_read32((mem_addr_t)&dwc2->haint);
 		for (uint8_t i; (i = __builtin_ffs(channels)) != 0; channels &= !BIT(i - 1)) {
-			uhc_dwc2_handle_chan_intr(dev, &priv->chan[i - 1]);
+			struct uhc_dwc2_chan *chan = &priv->chan[i - 1];
+			enum uhc_dwc2_chan_event chan_event =
+				uhc_dwc2_hal_chan_decode_intr(dev, chan);
+
+			LOG_DBG("Channel event: 0x%08x", chan_event);
+
+			switch (chan_event) {
+			case DWC2_CHAN_EVENT_NONE:
+				/* No event, nothing to do */
+				break;
+			case DWC2_CHAN_EVENT_CPLT:
+				if (!uhc_dwc2_buffer_is_done(chan)) {
+					uhc_dwc2_buffer_exec_proceed(dev, chan);
+					break;
+				}
+				chan->event = chan_event;
+				k_event_set(&priv->event, BIT(UHC_DWC2_EVENT_CHAN0 + chan->chan_idx));
+				break;
+			case DWC2_CHAN_EVENT_ERROR:
+				LOG_ERR("Channel error handling not implemented yet");
+				/* TODO: get channel error, halt the chan */
+				break;
+			case DWC2_CHAN_EVENT_HALT_REQ:
+				LOG_ERR("Channel halt request handling not implemented yet");
+
+				/* TODO: Implement halting the ongoing transfer */
+
+				/* Hint:
+				 * We've halted a transfer, so we need to trigger the chan callback
+				 * Halt request event is triggered when packet is successful completed.
+				 * But just treat all halted transfers as errors
+				 * Notify the task waiting for the chan halt or halt it right away
+				 * _internal_chan_event_notify(chan, true);
+				 */
+				break;
+			default:
+				break;
+			}
 		}
 	}
 
