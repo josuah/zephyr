@@ -807,14 +807,13 @@ static void uhc_dwc2_buffer_exec(const struct device *dev, struct uhc_dwc2_chan 
 }
 
 /*
- * Runtime functions
+ * Interrupt handler (ISR)
  *
- * Handle the interrupts being dispatched into events, and the driver thread handling them
- * as well as handlers called from them.
+ * Handle the interrupts being dispatched into events, as well as some immediate handling of
+ * events directly from the IRQ handler.
  */
 
-static enum uhc_dwc2_chan_event uhc_dwc2_hal_chan_decode_intr(const struct device *dev,
-							      struct uhc_dwc2_chan *chan)
+static void uhc_dwc2_isr_chan_handler(const struct device *dev, struct uhc_dwc2_chan *chan)
 {
 	const struct uhc_dwc2_config *const config = dev->config;
 	struct usb_dwc2_reg *const dwc2 = config->base;
@@ -870,18 +869,6 @@ static enum uhc_dwc2_chan_event uhc_dwc2_hal_chan_decode_intr(const struct devic
 		atomic_set_bit(&chan->event, chan_event);
 		k_event_set(&priv->event, BIT(UHC_DWC2_EVENT_CHAN0 + chan->chan_idx));
 	}
-
-	return chan_event;
-}
-
-static inline enum uhc_dwc2_ctrl_stage cal_next_pid(enum uhc_dwc2_ctrl_stage pid, uint8_t pkt_count)
-{
-	if (pkt_count & 0x01) {
-		/* Toggle DATA0 and DATA1 */
-		return pid ^ 0x02;
-	} else {
-		return pid;
-	}
 }
 
 static void uhc_dwc2_isr_handler(const struct device *dev)
@@ -916,12 +903,9 @@ static void uhc_dwc2_isr_handler(const struct device *dev)
 		/* One or more channels have pending interrupts. Store the mask of those channels */
 		channels = sys_read32((mem_addr_t)&dwc2->haint);
 		for (uint8_t i; (i = __builtin_ffs(channels)) != 0; channels &= !BIT(i - 1)) {
-			struct uhc_dwc2_chan *chan = &priv->chan[i - 1];
-			enum uhc_dwc2_chan_event chan_event =
-				uhc_dwc2_hal_chan_decode_intr(dev, chan);
-
-			LOG_DBG("Channel event: 0x%08x", chan_event);
+			uhc_dwc2_isr_chan_handler(dev, &priv->chan[i - 1]);
 		}
+		LOG_DBG("Handling channel event");
 	}
 
 	if (port_intrs & USB_DWC2_HPRT_PRTOVRCURRCHNG) {
