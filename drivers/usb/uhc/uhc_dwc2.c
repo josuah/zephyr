@@ -36,8 +36,6 @@ LOG_MODULE_REGISTER(uhc_dwc2, CONFIG_UHC_DRIVER_LOG_LEVEL);
 #define UHC_DWC2_MAX_CHAN    16
 
 enum uhc_dwc2_event {
-	/* No event occurred, or could not decode interrupt */
-	UHC_DWC2_EVENT_NONE,
 	/* Root port event */
 	UHC_DWC2_EVENT_PORT,
 	/* The host port has been enabled (i.e., connected device has been reset. Send SOFs) */
@@ -56,6 +54,15 @@ enum uhc_dwc2_event {
 	UHC_DWC2_EVENT_ERROR,
 	/* Event on a channel 0. Use +N for channel N */
 	UHC_DWC2_EVENT_CHAN0,
+};
+
+enum uhc_dwc2_chan_event {
+	/* The channel has completed execution of a transfer. Channel is now halted */
+	DWC2_CHAN_EVENT_CPLT,
+	/* The channel has encountered an error. Channel is now halted */
+	DWC2_CHAN_EVENT_ERROR,
+	/* A halt has been requested on the channel */
+	DWC2_CHAN_EVENT_HALT_REQ,
 };
 
 enum uhc_dwc2_speed {
@@ -89,17 +96,6 @@ enum uhc_port_state {
 	UHC_PORT_STATE_ENABLED,
 	/* Port needs to be recovered from a fatal error (error, overcurrent, or disconnection) */
 	UHC_PORT_STATE_RECOVERY,
-};
-
-enum uhc_dwc2_chan_event {
-	/* The channel has completed execution of a transfer. Channel is now halted */
-	DWC2_CHAN_EVENT_CPLT,
-	/* The channel has encountered an error. Channel is now halted */
-	DWC2_CHAN_EVENT_ERROR,
-	/* A halt has been requested on the channel */
-	DWC2_CHAN_EVENT_HALT_REQ,
-	/* No event (interrupt ran for internal processing) */
-	DWC2_CHAN_EVENT_NONE,
 };
 
 enum uhc_dwc2_ctrl_stage {
@@ -819,7 +815,6 @@ static void uhc_dwc2_isr_chan_handler(const struct device *dev, struct uhc_dwc2_
 	struct usb_dwc2_reg *const dwc2 = config->base;
 	struct uhc_dwc2_data *priv = uhc_get_private(dev);
 	const struct usb_dwc2_host_chan *chan_regs = UHC_DWC2_CHAN_REG(dwc2, chan->chan_idx);
-	enum uhc_dwc2_chan_event chan_event;
 	uint32_t hcint;
 
 	/* Clear the interrupt bits by writing them back */
@@ -836,13 +831,13 @@ static void uhc_dwc2_isr_chan_handler(const struct device *dev, struct uhc_dwc2_
 
 		LOG_ERR("Channel %d error: 0x%08x", chan->chan_idx, hcint);
 		/* TODO: Store the error in hal context */
-		chan_event = DWC2_CHAN_EVENT_ERROR;
+		atomic_set_bit(&chan->event, DWC2_CHAN_EVENT_ERROR);
 	} else if (hcint & USB_DWC2_HCINT_CHHLTD) {
 		if (chan->halt_requested) {
 			chan->halt_requested = 0;
-			chan_event = DWC2_CHAN_EVENT_HALT_REQ;
+			atomic_set_bit(&chan->event, DWC2_CHAN_EVENT_HALT_REQ);
 		} else {
-			chan_event = DWC2_CHAN_EVENT_CPLT;
+			atomic_set_bit(&chan->event, DWC2_CHAN_EVENT_CPLT);
 		}
 	} else if (hcint & USB_DWC2_HCINT_XFERCOMPL) {
 		/* Note:
@@ -854,19 +849,18 @@ static void uhc_dwc2_isr_chan_handler(const struct device *dev, struct uhc_dwc2_
 
 		/*
 		 * After setting the halt bit, this will generate another channel halted interrupt.
-		 * We treat this interrupt as a NONE event, then cycle back with the channel halted
+		 * We treat this interrupt as no event, then cycle back with the channel halted
 		 * interrupt to handle the CPLT event.
 		 */
-		chan_event = DWC2_CHAN_EVENT_NONE;
 	} else {
 		__ASSERT(false, "Unknown channel interrupt, HCINT=%08Xh", hcint);
-		chan_event = DWC2_CHAN_EVENT_NONE;
 	}
 
-	if (chan_event == DWC2_CHAN_EVENT_CPLT && !uhc_dwc2_buffer_is_done(chan)) {
+	if (atomic_test_bit(&chan->event, DWC2_CHAN_EVENT_CPLT) && !uhc_dwc2_buffer_is_done(chan)) {
+		/* No completion event until the buffer is complete software-side too */
+		atomic_clear_bit(&chan->event, DWC2_CHAN_EVENT_CPLT);
 		uhc_dwc2_buffer_exec_proceed(dev, chan);
 	} else {
-		atomic_set_bit(&chan->event, chan_event);
 		k_event_set(&priv->event, BIT(UHC_DWC2_EVENT_CHAN0 + chan->chan_idx));
 	}
 }
@@ -1249,10 +1243,6 @@ static inline void uhc_dwc2_handle_port_events(const struct device *dev, uint32_
 			/* TODO: Simulate and/or verify */
 			LOG_WRN("Port debounce error handling is not implemented yet");
 		}
-	}
-
-	if (events & BIT(UHC_DWC2_EVENT_NONE)) {
-		/* No event, nothing to do */
 	}
 
 	if ((events & BIT(UHC_DWC2_EVENT_OVERCURRENT)) ||
