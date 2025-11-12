@@ -822,8 +822,8 @@ static enum uhc_dwc2_chan_event uhc_dwc2_hal_chan_decode_intr(const struct devic
 	enum uhc_dwc2_chan_event chan_event;
 	uint32_t hcint;
 
-	hcint = sys_read32((mem_addr_t)&chan_regs->hcint);
 	/* Clear the interrupt bits by writing them back */
+	hcint = sys_read32((mem_addr_t)&chan_regs->hcint);
 	sys_write32(hcint, (mem_addr_t)&chan_regs->hcint);
 
 	/* Note:
@@ -938,37 +938,11 @@ static void uhc_dwc2_isr_handler(const struct device *dev)
 
 			LOG_DBG("Channel event: 0x%08x", chan_event);
 
-			switch (chan_event) {
-			case DWC2_CHAN_EVENT_NONE:
-				/* No event, nothing to do */
-				break;
-			case DWC2_CHAN_EVENT_CPLT:
-				if (!uhc_dwc2_buffer_is_done(chan)) {
-					uhc_dwc2_buffer_exec_proceed(dev, chan);
-					break;
-				}
+			if (chan_event == DWC2_CHAN_EVENT_CPLT && !uhc_dwc2_buffer_is_done(chan)) {
+				uhc_dwc2_buffer_exec_proceed(dev, chan);
+			} else {
 				chan->event = chan_event;
-				k_event_set(&priv->event, BIT(UHC_DWC2_EVENT_CHAN0 + chan->chan_idx));
-				break;
-			case DWC2_CHAN_EVENT_ERROR:
-				LOG_ERR("Channel error handling not implemented yet");
-				/* TODO: get channel error, halt the chan */
-				break;
-			case DWC2_CHAN_EVENT_HALT_REQ:
-				LOG_ERR("Channel halt request handling not implemented yet");
-
-				/* TODO: Implement halting the ongoing transfer */
-
-				/* Hint:
-				 * We've halted a transfer, so we need to trigger the chan callback
-				 * Halt request event is triggered when packet is successful completed.
-				 * But just treat all halted transfers as errors
-				 * Notify the task waiting for the chan halt or halt it right away
-				 * _internal_chan_event_notify(chan, true);
-				 */
-				break;
-			default:
-				break;
+				k_event_set(&priv->event, BIT(UHC_DWC2_EVENT_CHAN0 + i - 1));
 			}
 		}
 	}
@@ -1324,7 +1298,7 @@ static inline void uhc_dwc2_handle_chan_events(const struct device *dev, struct 
 	struct usb_dwc2_reg *const dwc2 = config->base;
 	const struct usb_dwc2_host_chan *chan_regs = UHC_DWC2_CHAN_REG(dwc2, chan->chan_idx);
 
-	LOG_DBG("Pipe event: %d", chan->event);
+	LOG_DBG("Channel event: 0x%08x", chan->event);
 
 	if (chan->event == DWC2_CHAN_EVENT_CPLT) {
 		/* XFER transfer is done, process the transfer and release the chan buffer */
@@ -1346,10 +1320,25 @@ static inline void uhc_dwc2_handle_chan_events(const struct device *dev, struct 
 		}
 
 		uhc_xfer_return(dev, xfer, 0);
+	}
 
-	} else {
-		/* TODO: Handle the rest chan events */
-		LOG_ERR("Unhandled chan event %d", chan->event);
+	if (chan->event == DWC2_CHAN_EVENT_ERROR) {
+		LOG_ERR("Channel error handling not implemented yet");
+		/* TODO: get channel error, halt the chan */
+	}
+
+	if (chan->event == DWC2_CHAN_EVENT_HALT_REQ) {
+		LOG_ERR("Channel halt request handling not implemented yet");
+
+		/* TODO: Implement halting the ongoing transfer */
+
+		/* Hint:
+		 * We've halted a transfer, so we need to trigger the chan callback
+		 * Halt request event is triggered when packet is successful completed.
+		 * But just treat all halted transfers as errors
+		 * Notify the task waiting for the chan halt or halt it right away
+		 * _internal_chan_event_notify(chan, true);
+		 */
 	}
 }
 
