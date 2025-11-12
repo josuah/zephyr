@@ -120,7 +120,7 @@ struct uhc_dwc2_chan {
 	uint32_t offset;
 	/* Type of endpoint */
 	enum uhc_dwc2_xfer_type type;
-	enum uhc_dwc2_chan_event last_event;
+	enum uhc_dwc2_chan_event event;
 	/* The index of the channel */
 	uint8_t chan_idx;
 	/* Maximum Packet Size */
@@ -157,7 +157,6 @@ struct uhc_dwc2_data {
 	struct k_event event;
 	struct uhc_dwc2_chan chan[UHC_DWC2_MAX_CHAN];
 	/* Data, that is used in multiple threads */
-	enum uhc_dwc2_event last_event;
 	enum uhc_port_state port_state;
 	/* FIFO */
 	uint16_t fifo_top;
@@ -897,7 +896,7 @@ static void uhc_dwc2_handle_chan_intr(const struct device *dev, struct uhc_dwc2_
 			uhc_dwc2_buffer_exec_proceed(dev, chan);
 			break;
 		}
-		chan->last_event = chan_event;
+		chan->event = chan_event;
 		k_event_set(&priv->event, BIT(UHC_DWC2_EVENT_CHAN0 + chan->chan_idx));
 		break;
 	case DWC2_CHAN_EVENT_ERROR:
@@ -1333,9 +1332,9 @@ static inline void uhc_dwc2_handle_chan_events(const struct device *dev, struct 
 	struct usb_dwc2_reg *const dwc2 = config->base;
 	const struct usb_dwc2_host_chan *chan_regs = UHC_DWC2_CHAN_REG(dwc2, chan->chan_idx);
 
-	LOG_DBG("Pipe event: %d", chan->last_event);
+	LOG_DBG("Pipe event: %d", chan->event);
 
-	if (chan->last_event == DWC2_CHAN_EVENT_CPLT) {
+	if (chan->event == DWC2_CHAN_EVENT_CPLT) {
 		/* XFER transfer is done, process the transfer and release the chan buffer */
 		struct uhc_transfer *const xfer = (struct uhc_transfer *)chan->xfer;
 
@@ -1358,7 +1357,7 @@ static inline void uhc_dwc2_handle_chan_events(const struct device *dev, struct 
 
 	} else {
 		/* TODO: Handle the rest chan events */
-		LOG_ERR("Unhandled chan event %d", chan->last_event);
+		LOG_ERR("Unhandled chan event %d", chan->event);
 	}
 }
 
@@ -1465,7 +1464,7 @@ static int uhc_dwc2_bus_resume(const struct device *dev)
 static int uhc_dwc2_enqueue(const struct device *dev, struct uhc_transfer *const xfer)
 {
 	struct uhc_dwc2_data *priv = uhc_get_private(dev);
-	int ret = 0;
+	int ret;
 
 	uhc_lock_internal(dev, K_FOREVER);
 
@@ -1481,6 +1480,7 @@ static int uhc_dwc2_enqueue(const struct device *dev, struct uhc_transfer *const
 		goto err;
 	}
 
+	ret = 0;
 err:
 	uhc_unlock_internal(dev);
 
