@@ -796,6 +796,7 @@ static void uhc_dwc2_isr_chan_handler(const struct device *dev, struct uhc_dwc2_
 	struct usb_dwc2_reg *const dwc2 = config->base;
 	struct uhc_dwc2_data *priv = uhc_get_private(dev);
 	const struct usb_dwc2_host_chan *chan_regs = UHC_DWC2_CHAN_REG(dwc2, chan->chan_idx);
+	uint32_t chan_event = 0;
 	uint32_t hcint;
 
 	/* Clear the interrupt bits by writing them back */
@@ -812,14 +813,14 @@ static void uhc_dwc2_isr_chan_handler(const struct device *dev, struct uhc_dwc2_
 
 		LOG_ERR("Channel %d error: 0x%08x", chan->chan_idx, hcint);
 		/* TODO: Store the error in hal context */
-		atomic_set_bit(&chan->event, DWC2_CHAN_EVENT_ERROR);
+		chan_event |= BIT(DWC2_CHAN_EVENT_ERROR);
 
 	} else if (hcint & USB_DWC2_HCINT_CHHLTD) {
 		if (chan->halt_requested) {
 			chan->halt_requested = 0;
-			atomic_set_bit(&chan->event, DWC2_CHAN_EVENT_HALT_REQ);
+			chan_event |= BIT(DWC2_CHAN_EVENT_HALT_REQ);
 		} else {
-			atomic_set_bit(&chan->event, DWC2_CHAN_EVENT_CPLT);
+			chan_event |= BIT(DWC2_CHAN_EVENT_CPLT);
 		}
 
 	} else if (hcint & USB_DWC2_HCINT_XFERCOMPL) {
@@ -839,11 +840,14 @@ static void uhc_dwc2_isr_chan_handler(const struct device *dev, struct uhc_dwc2_
 		__ASSERT(false, "Unknown channel interrupt, HCINT=%08Xh", hcint);
 	}
 
-	if (atomic_test_bit(&chan->event, DWC2_CHAN_EVENT_CPLT) && !uhc_dwc2_buffer_is_done(chan)) {
+	if ((chan_event & BIT(DWC2_CHAN_EVENT_CPLT)) && !uhc_dwc2_buffer_is_done(chan)) {
 		/* No completion event until the buffer is complete software-side too */
-		atomic_clear_bit(&chan->event, DWC2_CHAN_EVENT_CPLT);
+		chan_event &= ~BIT(DWC2_CHAN_EVENT_CPLT);
 		uhc_dwc2_buffer_exec_proceed(dev, chan);
-	} else {
+	}
+
+	if (chan_event != 0) {
+		atomic_or(&chan->event, chan_event);
 		k_event_set(&priv->event, BIT(UHC_DWC2_EVENT_CHAN0 + chan->chan_idx));
 	}
 }
@@ -871,8 +875,8 @@ static void uhc_dwc2_isr_handler(const struct device *dev)
 
 	if (core_intrs & USB_DWC2_GINTSTS_DISCONNINT) {
 		/* Disconnect event */
-		k_event_set(&priv->event, BIT(UHC_DWC2_EVENT_DISCONNECTION));
 		uhc_dwc2_debounce_enable(dev);
+		k_event_set(&priv->event, BIT(UHC_DWC2_EVENT_DISCONNECTION));
 		/* Port still connected, check port event */
 	}
 
@@ -906,8 +910,8 @@ static void uhc_dwc2_isr_handler(const struct device *dev)
 	}
 
 	if (port_intrs & USB_DWC2_HPRT_PRTCONNDET && !priv->debouncing) {
-		k_event_set(&priv->event, BIT(UHC_DWC2_EVENT_CONNECTION));
 		uhc_dwc2_debounce_enable(dev);
+		k_event_set(&priv->event, BIT(UHC_DWC2_EVENT_CONNECTION));
 	}
 
 	(void)uhc_dwc2_quirk_irq_clear(dev);
