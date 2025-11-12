@@ -120,7 +120,7 @@ struct uhc_dwc2_chan {
 	uint32_t offset;
 	/* Type of endpoint */
 	enum uhc_dwc2_xfer_type type;
-	enum uhc_dwc2_chan_event event;
+	atomic_t event;
 	/* The index of the channel */
 	uint8_t chan_idx;
 	/* Maximum Packet Size */
@@ -917,7 +917,7 @@ static void uhc_dwc2_isr_handler(const struct device *dev)
 			if (chan_event == DWC2_CHAN_EVENT_CPLT && !uhc_dwc2_buffer_is_done(chan)) {
 				uhc_dwc2_buffer_exec_proceed(dev, chan);
 			} else {
-				chan->event = chan_event;
+				atomic_set_bit(&chan->event, chan_event);
 				k_event_set(&priv->event, BIT(UHC_DWC2_EVENT_CHAN0 + i - 1));
 			}
 		}
@@ -1311,10 +1311,11 @@ static inline void uhc_dwc2_handle_chan_events(const struct device *dev, struct 
 	const struct uhc_dwc2_config *const config = dev->config;
 	struct usb_dwc2_reg *const dwc2 = config->base;
 	const struct usb_dwc2_host_chan *chan_regs = UHC_DWC2_CHAN_REG(dwc2, chan->chan_idx);
+	uint32_t events = atomic_clear(&chan->event);
 
-	LOG_DBG("Channel event: 0x%08x", chan->event);
+	LOG_DBG("Channel event: 0x%08x", events);
 
-	if (chan->event == DWC2_CHAN_EVENT_CPLT) {
+	if (events & BIT(DWC2_CHAN_EVENT_CPLT)) {
 		/* XFER transfer is done, process the transfer and release the chan buffer */
 		struct uhc_transfer *const xfer = (struct uhc_transfer *)chan->xfer;
 
@@ -1336,12 +1337,12 @@ static inline void uhc_dwc2_handle_chan_events(const struct device *dev, struct 
 		uhc_xfer_return(dev, xfer, 0);
 	}
 
-	if (chan->event == DWC2_CHAN_EVENT_ERROR) {
+	if (events & BIT(DWC2_CHAN_EVENT_ERROR)) {
 		LOG_ERR("Channel error handling not implemented yet");
 		/* TODO: get channel error, halt the chan */
 	}
 
-	if (chan->event == DWC2_CHAN_EVENT_HALT_REQ) {
+	if (events & BIT(DWC2_CHAN_EVENT_HALT_REQ)) {
 		LOG_ERR("Channel halt request handling not implemented yet");
 
 		/* TODO: Implement halting the ongoing transfer */
