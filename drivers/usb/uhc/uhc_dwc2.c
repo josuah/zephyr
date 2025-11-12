@@ -323,17 +323,9 @@ static inline void dwc2_hal_toggle_power(struct usb_dwc2_reg *const dwc2, bool p
 	sys_write32(hprt & (~USB_DWC2_HPRT_W1C_MSK), (mem_addr_t)&dwc2->hprt);
 }
 
-int dwc2_core_reset(const struct device *dev, k_timeout_t timeout)
+static int dwc2_hal_core_reset(struct usb_dwc2_reg *const dwc2, k_timeout_t timeout)
 {
-	const struct uhc_dwc2_config *const config = dev->config;
 	k_timepoint_t timepoint = sys_timepoint_calc(timeout);
-	struct usb_dwc2_reg *const dwc2 = config->base;
-
-	/* Software reset won't finish without PHY clock */
-	if (uhc_dwc2_quirk_is_phy_clk_off(dev)) {
-		LOG_ERR("PHY clock is  turned off, cannot reset");
-		return -EIO;
-	}
 
 	/* Check AHB master idle state */
 	while ((sys_read32((mem_addr_t)&dwc2->grstctl) & USB_DWC2_GRSTCTL_AHBIDLE) == 0) {
@@ -1580,8 +1572,14 @@ static int uhc_dwc2_init(const struct device *dev)
 		return ret;
 	}
 
+	/* Software reset won't finish without PHY clock */
+	if (uhc_dwc2_quirk_is_phy_clk_off(dev)) {
+		LOG_ERR("PHY clock is  turned off, cannot reset");
+		return -EIO;
+	}
+
 	/* Reset core after selecting PHY */
-	ret = dwc2_core_reset(dev, K_MSEC(10));
+	ret = dwc2_hal_core_reset(config->base, K_MSEC(10));
 	if (ret) {
 		LOG_ERR("DWC2 core reset failed after PHY init: %d", ret);
 		return ret;
