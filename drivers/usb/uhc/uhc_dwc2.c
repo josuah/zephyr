@@ -818,6 +818,7 @@ static enum uhc_dwc2_chan_event uhc_dwc2_hal_chan_decode_intr(const struct devic
 {
 	const struct uhc_dwc2_config *const config = dev->config;
 	struct usb_dwc2_reg *const dwc2 = config->base;
+	struct uhc_dwc2_data *priv = uhc_get_private(dev);
 	const struct usb_dwc2_host_chan *chan_regs = UHC_DWC2_CHAN_REG(dwc2, chan->chan_idx);
 	enum uhc_dwc2_chan_event chan_event;
 	uint32_t hcint;
@@ -861,6 +862,13 @@ static enum uhc_dwc2_chan_event uhc_dwc2_hal_chan_decode_intr(const struct devic
 	} else {
 		__ASSERT(false, "Unknown channel interrupt, HCINT=%08Xh", hcint);
 		chan_event = DWC2_CHAN_EVENT_NONE;
+	}
+
+	if (chan_event == DWC2_CHAN_EVENT_CPLT && !uhc_dwc2_buffer_is_done(chan)) {
+		uhc_dwc2_buffer_exec_proceed(dev, chan);
+	} else {
+		atomic_set_bit(&chan->event, chan_event);
+		k_event_set(&priv->event, BIT(UHC_DWC2_EVENT_CHAN0 + chan->chan_idx));
 	}
 
 	return chan_event;
@@ -913,13 +921,6 @@ static void uhc_dwc2_isr_handler(const struct device *dev)
 				uhc_dwc2_hal_chan_decode_intr(dev, chan);
 
 			LOG_DBG("Channel event: 0x%08x", chan_event);
-
-			if (chan_event == DWC2_CHAN_EVENT_CPLT && !uhc_dwc2_buffer_is_done(chan)) {
-				uhc_dwc2_buffer_exec_proceed(dev, chan);
-			} else {
-				atomic_set_bit(&chan->event, chan_event);
-				k_event_set(&priv->event, BIT(UHC_DWC2_EVENT_CHAN0 + i - 1));
-			}
 		}
 	}
 
