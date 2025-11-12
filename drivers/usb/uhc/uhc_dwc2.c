@@ -233,18 +233,14 @@ static inline void uhc_dwc2_config_fifo_fixed_dma(const struct device *dev)
 {
 	const struct uhc_dwc2_config *const config = dev->config;
 	struct uhc_dwc2_data *priv = uhc_get_private(dev);
-	uint32_t nptx_largest;
-	uint32_t ptx_largest;
+	uint32_t nptx_largest = EPSIZE_BULK_FS / 4;
+	uint32_t ptx_largest = 256 / 4;
 
 	LOG_DBG("Configuring FIFO sizes");
-	priv->fifo_top = UHC_DWC2_FIFODEPTH(config);
-	priv->fifo_top -= UHC_DWC2_NUMHSTCHNL(config) + 1;
 
 	/* TODO: support HS */
 
-	nptx_largest = EPSIZE_BULK_FS / 4;
-	ptx_largest = 256 / 4;
-
+	priv->fifo_top = UHC_DWC2_FIFODEPTH(config) - (UHC_DWC2_NUMHSTCHNL(config) + 1);
 	priv->fifo_nptxfsiz = 2 * nptx_largest;
 	priv->fifo_rxfsiz = 2 * (ptx_largest + 2) + UHC_DWC2_NUMHSTCHNL(config) + 1;
 	priv->fifo_ptxfsiz = priv->fifo_top - (priv->fifo_nptxfsiz + priv->fifo_rxfsiz);
