@@ -819,8 +819,10 @@ static void uhc_dwc2_isr_chan_handler(const struct device *dev, struct uhc_dwc2_
 		if (chan->halt_requested) {
 			chan->halt_requested = 0;
 			chan_event |= BIT(DWC2_CHAN_EVENT_HALT_REQ);
-		} else {
+		} else if (uhc_dwc2_buffer_is_done(chan)) {
 			chan_event |= BIT(DWC2_CHAN_EVENT_CPLT);
+		} else {
+			uhc_dwc2_buffer_exec_proceed(dev, chan);
 		}
 
 	} else if (hcint & USB_DWC2_HCINT_XFERCOMPL) {
@@ -838,12 +840,6 @@ static void uhc_dwc2_isr_chan_handler(const struct device *dev, struct uhc_dwc2_
 		 */
 	} else {
 		__ASSERT(false, "Unknown channel interrupt, HCINT=%08Xh", hcint);
-	}
-
-	if ((chan_event & BIT(DWC2_CHAN_EVENT_CPLT)) && !uhc_dwc2_buffer_is_done(chan)) {
-		/* No completion event until the buffer is complete software-side too */
-		chan_event &= ~BIT(DWC2_CHAN_EVENT_CPLT);
-		uhc_dwc2_buffer_exec_proceed(dev, chan);
 	}
 
 	if (chan_event != 0) {
@@ -873,11 +869,15 @@ static void uhc_dwc2_isr_handler(const struct device *dev)
 		sys_write32(port_intrs & ~USB_DWC2_HPRT_PRTENA, (mem_addr_t)&dwc2->hprt);
 	}
 
+	/* Disconnection takes precedense over connection */
 	if (core_intrs & USB_DWC2_GINTSTS_DISCONNINT) {
 		/* Disconnect event */
 		uhc_dwc2_debounce_enable(dev);
 		k_event_set(&priv->event, BIT(UHC_DWC2_EVENT_DISCONNECTION));
 		/* Port still connected, check port event */
+	} else if (port_intrs & USB_DWC2_HPRT_PRTCONNDET && !priv->debouncing) {
+		uhc_dwc2_debounce_enable(dev);
+		k_event_set(&priv->event, BIT(UHC_DWC2_EVENT_CONNECTION));
 	}
 
 	if (core_intrs & USB_DWC2_GINTSTS_HCHINT) {
@@ -886,7 +886,6 @@ static void uhc_dwc2_isr_handler(const struct device *dev)
 		for (uint8_t i; (i = __builtin_ffs(channels)) != 0; channels &= !BIT(i - 1)) {
 			uhc_dwc2_isr_chan_handler(dev, &priv->chan[i - 1]);
 		}
-		LOG_DBG("Handling channel event");
 	}
 
 	if (port_intrs & USB_DWC2_HPRT_PRTOVRCURRCHNG) {
@@ -907,11 +906,6 @@ static void uhc_dwc2_isr_handler(const struct device *dev)
 			/* Host port has been disabled */
 			k_event_set(&priv->event, BIT(UHC_DWC2_EVENT_DISABLED));
 		}
-	}
-
-	if (port_intrs & USB_DWC2_HPRT_PRTCONNDET && !priv->debouncing) {
-		uhc_dwc2_debounce_enable(dev);
-		k_event_set(&priv->event, BIT(UHC_DWC2_EVENT_CONNECTION));
 	}
 
 	(void)uhc_dwc2_quirk_irq_clear(dev);
@@ -1170,19 +1164,6 @@ static inline void uhc_dwc2_handle_port_events(const struct device *dev, uint32_
 	int ret;
 
 	LOG_DBG("Port events: 0x08%x", events);
-
-	/* Note:
-	 * Regressing events (e.g. enable -> disabled, connected -> disconnected) always
-	 * take precedence.
-	 */
-	if ((events & BIT(UHC_DWC2_EVENT_ENABLED)) &&
-	    (events & BIT(UHC_DWC2_EVENT_DISABLED))) {
-		events &= ~BIT(UHC_DWC2_EVENT_ENABLED);
-	}
-	if ((events & BIT(UHC_DWC2_EVENT_CONNECTION)) &&
-	    (events & BIT(UHC_DWC2_EVENT_DISCONNECTION))) {
-		events &= ~BIT(UHC_DWC2_EVENT_CONNECTION);
-	}
 
 	if (events & BIT(UHC_DWC2_EVENT_ENABLED)) {
 		/* Initialize remaining host port registers */
