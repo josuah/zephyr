@@ -230,9 +230,7 @@ DT_INST_FOREACH_STATUS_OKAY(QUIRK_ESP32_USB_OTG_DEFINE)
 /*
  * On USBHS, we cannot access the DWC2 register until VBUS is detected and
  * valid. If the user tries to force usbd_enable() and the corresponding
- * uhc_enable() without a "VBUS ready" notification, the event wait will block
- * until a valid VBUS signal is detected or until the
- * CONFIG_UHC_DWC2_USBHS_VBUS_READY_TIMEOUT timeout expires.
+ * uhc_enable() without a "VBUS ready" notification, the event wait will block.
  */
 static K_EVENT_DEFINE(usbhs_events);
 #define USBHS_VBUS_READY	BIT(0)
@@ -243,18 +241,14 @@ static struct onoff_client pclk24m_cli;
 
 static void vregusb_isr(const void *arg)
 {
-	//const struct device *dev = arg;
-
 	if (NRF_VREGUSB->EVENTS_VBUSDETECTED) {
 		NRF_VREGUSB->EVENTS_VBUSDETECTED = 0;
 		k_event_post(&usbhs_events, USBHS_VBUS_READY);
-		//uhc_submit_event(dev, UHC_EVT_VBUS_READY, 0);
 	}
 
 	if (NRF_VREGUSB->EVENTS_VBUSREMOVED) {
 		NRF_VREGUSB->EVENTS_VBUSREMOVED = 0;
 		k_event_set_masked(&usbhs_events, 0, USBHS_VBUS_REMOVED);
-		//uhc_submit_event(dev, UHC_EVT_VBUS_REMOVED, 0);
 	}
 }
 
@@ -262,12 +256,11 @@ static inline int usbhs_enable_core(const struct device *dev)
 {
 	LOG_MODULE_DECLARE(uhc_dwc2, CONFIG_UHC_DRIVER_LOG_LEVEL);
 	NRF_USBHS_Type *wrapper = USBHS_DT_WRAPPER_REG_ADDR(0);
-	k_timeout_t timeout = K_FOREVER;
 	int err;
 
 	if (!k_event_wait(&usbhs_events, USBHS_VBUS_READY, false, K_NO_WAIT)) {
 		LOG_WRN("VBUS is not ready, block uhc_enable()");
-		if (!k_event_wait(&usbhs_events, USBHS_VBUS_READY, false, timeout)) {
+		if (!k_event_wait(&usbhs_events, USBHS_VBUS_READY, false, K_FOREVER)) {
 			return -ETIMEDOUT;
 		}
 	}
@@ -338,7 +331,6 @@ static inline int usbhs_init_vreg_and_clock_and_core(const struct device *dev)
 	/* TODO: Determine conditions when VBUSDETECTED is not generated */
 	if (sys_read32((mem_addr_t)NRF_VREGUSB + 0x400) & BIT(2)) {
 		k_event_post(&usbhs_events, USBHS_VBUS_READY);
-		//uhc_submit_event(dev, UHC_EVT_VBUS_READY, 0);
 	}
 
 	irq_enable(VREGUSB_IRQn);
