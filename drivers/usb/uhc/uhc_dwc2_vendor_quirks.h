@@ -60,12 +60,12 @@ struct usb_dw_esp32_data {
 static void uhc_dwc2_isr_handler(const struct device *dev);
 
 static inline int esp32_usb_otg_init(const struct device *dev,
-									 const struct usb_dw_esp32_config *cfg,
-									 struct usb_dw_esp32_data *data)
+				     const struct usb_dw_esp32_config *cfg,
+				     struct usb_dw_esp32_data *data)
 {
-	LOG_MODULE_DECLARE(uhc_dwc2, CONFIG_UHC_DRIVER_LOG_LEVEL);
-
 	int ret;
+
+	LOG_MODULE_DECLARE(uhc_dwc2, CONFIG_UHC_DRIVER_LOG_LEVEL);
 
 	if (!device_is_ready(cfg->clock_dev)) {
 		return -ENODEV;
@@ -80,7 +80,8 @@ static inline int esp32_usb_otg_init(const struct device *dev,
 	/* pinout config to work in USB_OTG_MODE_HOST */
 	esp_rom_gpio_connect_in_signal(GPIO_MATRIX_CONST_ZERO_INPUT, USB_OTG_IDDIG_IN_IDX, false);
 	esp_rom_gpio_connect_in_signal(GPIO_MATRIX_CONST_ZERO_INPUT, USB_SRP_BVALID_IN_IDX, false);
-	esp_rom_gpio_connect_in_signal(GPIO_MATRIX_CONST_ONE_INPUT, USB_OTG_VBUSVALID_IN_IDX, false);
+	esp_rom_gpio_connect_in_signal(GPIO_MATRIX_CONST_ONE_INPUT, USB_OTG_VBUSVALID_IN_IDX,
+				       false);
 	esp_rom_gpio_connect_in_signal(GPIO_MATRIX_CONST_ONE_INPUT, USB_OTG_AVALID_IN_IDX, false);
 
 	if (cfg->phy_ctx->target == USB_PHY_TARGET_INT) {
@@ -92,10 +93,9 @@ static inline int esp32_usb_otg_init(const struct device *dev,
 	 * spurious suspend/resume event at enumeration phase
 	 */
 	ret = esp_intr_alloc(cfg->irq_source,
-						 ESP_INTR_FLAG_INTRDISABLED |
-						 ESP_PRIO_TO_FLAGS(cfg->irq_priority) |
-								 ESP_INT_FLAGS_CHECK(cfg->irq_flags),
-						 (intr_handler_t)uhc_dwc2_isr_handler, (void *)dev, &data->int_handle);
+			     ESP_INTR_FLAG_INTRDISABLED | ESP_PRIO_TO_FLAGS(cfg->irq_priority) |
+				     ESP_INT_FLAGS_CHECK(cfg->irq_flags),
+			     (intr_handler_t)uhc_dwc2_isr_handler, (void *)dev, &data->int_handle);
 
 	if (ret != 0) {
 		return -ECANCELED;
@@ -108,13 +108,14 @@ static inline int esp32_usb_otg_init(const struct device *dev,
 static inline int esp32_usb_otg_enable_phy(struct phy_context_t *phy_ctx, bool enable)
 {
 	LOG_MODULE_DECLARE(uhc_dwc2, CONFIG_UHC_DRIVER_LOG_LEVEL);
+
 	if (enable) {
 		usb_wrap_ll_enable_bus_clock(true);
 		usb_wrap_hal_init(&phy_ctx->wrap_hal);
 
 #if USB_WRAP_LL_EXT_PHY_SUPPORTED
 		usb_wrap_hal_phy_set_external(&phy_ctx->wrap_hal,
-									  (phy_ctx->target == USB_PHY_TARGET_EXT));
+					      (phy_ctx->target == USB_PHY_TARGET_EXT));
 #endif
 		if (phy_ctx->target == USB_PHY_TARGET_INT) {
 			/* Configure pull resistors for host */
@@ -140,76 +141,75 @@ static inline int esp32_usb_otg_get_phy_clock(struct phy_context_t *phy_ctx)
 {
 	if (phy_ctx->otg_speed == USB_PHY_SPEED_FULL) {
 		return MHZ(48);
-	} else if (phy_ctx->otg_speed == USB_PHY_SPEED_LOW) {
+	}
+
+	if (phy_ctx->otg_speed == USB_PHY_SPEED_LOW) {
 		/* PHY has implicit divider of 8 when in low speed */
 		return MHZ(48) / 8;
-	} else {
-		/* non supported speed */
-		return 0;
 	}
+
+	/* non supported speed */
 	return 0;
 }
 
-#define QUIRK_ESP32_USB_OTG_DEFINE(n)                                          \
-																				\
-	static struct phy_context_t phy_ctx_##n = {                                 \
-		.target = USB_PHY_TARGET_INT,                                           \
-		.controller = USB_PHY_CTRL_OTG,                                         \
-		.otg_mode = USB_OTG_MODE_HOST,                                          \
-		.otg_speed = USB_PHY_SPEED_UNDEFINED,                                   \
-		.ext_io_pins = NULL,                                                    \
-		.wrap_hal = {},                                                         \
-	};                                                                          \
-																				\
-	static const struct usb_dw_esp32_config usb_otg_config_##n = {              \
-		.clock_dev = DEVICE_DT_GET(DT_INST_CLOCKS_CTLR(n)),                     \
-		.clock_subsys = (clock_control_subsys_t)                                \
-			DT_INST_CLOCKS_CELL(n, offset),                                     \
-		.irq_source = DT_INST_IRQ_BY_IDX(n, 0, irq),                            \
-		.irq_priority = DT_INST_IRQ_BY_IDX(n, 0, priority),                     \
-		.irq_flags = DT_INST_IRQ_BY_IDX(n, 0, flags),                           \
-		.phy_ctx = &phy_ctx_##n,                                                \
-	};                                                                          \
-																				\
-	static struct usb_dw_esp32_data usb_otg_data_##n;                           \
-																				\
-	static int esp32_usb_otg_init_##n(const struct device *dev)                 \
-	{                                                                           \
-		return esp32_usb_otg_init(dev,                                          \
-			&usb_otg_config_##n, &usb_otg_data_##n);                            \
-	}                                                                           \
-																				\
-	static int esp32_usb_otg_enable_phy_##n(const struct device *dev)           \
-	{                                                                           \
-		return esp32_usb_otg_enable_phy(&phy_ctx_##n, true);                    \
-	}                                                                           \
-																				\
-	static int esp32_usb_otg_disable_phy_##n(const struct device *dev)          \
-	{                                                                           \
-		return esp32_usb_otg_enable_phy(&phy_ctx_##n, false);                   \
-	}                                                                           \
-	static int esp32_usb_int_enable_func_##n(const struct device *dev)          \
-	{                                                                           \
-		return esp_intr_enable(usb_otg_data_##n.int_handle);                    \
-	}                                                                           \
-																				\
-	static int esp32_usb_int_disable_func_##n(const struct device *dev)         \
-	{                                                                           \
-		return esp_intr_disable(usb_otg_data_##n.int_handle);                   \
-	}                                                                           \
-																				\
-	static int esp32_usb_get_phy_clock_##n(const struct device *dev)            \
-	{                                                                           \
-		return esp32_usb_otg_get_phy_clock(&phy_ctx_##n);                       \
-	}                                                                           \
-																				\
-	struct uhc_dwc2_vendor_quirks uhc_dwc2_vendor_quirks_##n = {                \
-		.init = esp32_usb_otg_init_##n,                                         \
-		.pre_enable = esp32_usb_otg_enable_phy_##n,                             \
-		.disable = esp32_usb_otg_disable_phy_##n,                               \
-		.irq_enable_func = esp32_usb_int_enable_func_##n,                       \
-		.irq_disable_func = esp32_usb_int_disable_func_##n,                     \
-		.get_phy_clk = esp32_usb_get_phy_clock_##n,                             \
+#define QUIRK_ESP32_USB_OTG_DEFINE(n)                                                              \
+                                                                                                   \
+	static struct phy_context_t phy_ctx_##n = {                                                \
+		.target = USB_PHY_TARGET_INT,                                                      \
+		.controller = USB_PHY_CTRL_OTG,                                                    \
+		.otg_mode = USB_OTG_MODE_HOST,                                                     \
+		.otg_speed = USB_PHY_SPEED_UNDEFINED,                                              \
+		.ext_io_pins = NULL,                                                               \
+		.wrap_hal = {},                                                                    \
+	};                                                                                         \
+                                                                                                   \
+	static const struct usb_dw_esp32_config usb_otg_config_##n = {                             \
+		.clock_dev = DEVICE_DT_GET(DT_INST_CLOCKS_CTLR(n)),                                \
+		.clock_subsys = (clock_control_subsys_t)DT_INST_CLOCKS_CELL(n, offset),            \
+		.irq_source = DT_INST_IRQ_BY_IDX(n, 0, irq),                                       \
+		.irq_priority = DT_INST_IRQ_BY_IDX(n, 0, priority),                                \
+		.irq_flags = DT_INST_IRQ_BY_IDX(n, 0, flags),                                      \
+		.phy_ctx = &phy_ctx_##n,                                                           \
+	};                                                                                         \
+                                                                                                   \
+	static struct usb_dw_esp32_data usb_otg_data_##n;                                          \
+                                                                                                   \
+	static int esp32_usb_otg_init_##n(const struct device *dev)                                \
+	{                                                                                          \
+		return esp32_usb_otg_init(dev, &usb_otg_config_##n, &usb_otg_data_##n);            \
+	}                                                                                          \
+                                                                                                   \
+	static int esp32_usb_otg_enable_phy_##n(const struct device *dev)                          \
+	{                                                                                          \
+		return esp32_usb_otg_enable_phy(&phy_ctx_##n, true);                               \
+	}                                                                                          \
+                                                                                                   \
+	static int esp32_usb_otg_disable_phy_##n(const struct device *dev)                         \
+	{                                                                                          \
+		return esp32_usb_otg_enable_phy(&phy_ctx_##n, false);                              \
+	}                                                                                          \
+	static int esp32_usb_int_enable_func_##n(const struct device *dev)                         \
+	{                                                                                          \
+		return esp_intr_enable(usb_otg_data_##n.int_handle);                               \
+	}                                                                                          \
+                                                                                                   \
+	static int esp32_usb_int_disable_func_##n(const struct device *dev)                        \
+	{                                                                                          \
+		return esp_intr_disable(usb_otg_data_##n.int_handle);                              \
+	}                                                                                          \
+                                                                                                   \
+	static int esp32_usb_get_phy_clock_##n(const struct device *dev)                           \
+	{                                                                                          \
+		return esp32_usb_otg_get_phy_clock(&phy_ctx_##n);                                  \
+	}                                                                                          \
+                                                                                                   \
+	struct uhc_dwc2_vendor_quirks uhc_dwc2_vendor_quirks_##n = {                               \
+		.init = esp32_usb_otg_init_##n,                                                    \
+		.pre_enable = esp32_usb_otg_enable_phy_##n,                                        \
+		.disable = esp32_usb_otg_disable_phy_##n,                                          \
+		.irq_enable_func = esp32_usb_int_enable_func_##n,                                  \
+		.irq_disable_func = esp32_usb_int_disable_func_##n,                                \
+		.get_phy_clk = esp32_usb_get_phy_clock_##n,                                        \
 	};
 
 DT_INST_FOREACH_STATUS_OKAY(QUIRK_ESP32_USB_OTG_DEFINE)
@@ -233,8 +233,8 @@ DT_INST_FOREACH_STATUS_OKAY(QUIRK_ESP32_USB_OTG_DEFINE)
  * uhc_enable() without a "VBUS ready" notification, the event wait will block.
  */
 static K_EVENT_DEFINE(usbhs_events);
-#define USBHS_VBUS_READY	BIT(0)
-#define USBHS_VBUS_REMOVED	BIT(1)
+#define USBHS_VBUS_READY   BIT(0)
+#define USBHS_VBUS_REMOVED BIT(1)
 
 static struct onoff_manager *pclk24m_mgr;
 static struct onoff_client pclk24m_cli;
@@ -254,9 +254,10 @@ static void vregusb_isr(const void *arg)
 
 static inline int usbhs_enable_core(const struct device *dev)
 {
-	LOG_MODULE_DECLARE(uhc_dwc2, CONFIG_UHC_DRIVER_LOG_LEVEL);
 	NRF_USBHS_Type *wrapper = USBHS_DT_WRAPPER_REG_ADDR(0);
 	int err;
+
+	LOG_MODULE_DECLARE(uhc_dwc2, CONFIG_UHC_DRIVER_LOG_LEVEL);
 
 	if (!k_event_wait(&usbhs_events, USBHS_VBUS_READY, false, K_NO_WAIT)) {
 		LOG_WRN("VBUS is not ready, block uhc_enable()");
@@ -297,9 +298,10 @@ static inline int usbhs_enable_core(const struct device *dev)
 
 static inline int usbhs_disable_core(const struct device *dev)
 {
-	LOG_MODULE_DECLARE(uhc_dwc2, CONFIG_UHC_DRIVER_LOG_LEVEL);
 	NRF_USBHS_Type *wrapper = USBHS_DT_WRAPPER_REG_ADDR(0);
 	int err;
+
+	LOG_MODULE_DECLARE(uhc_dwc2, CONFIG_UHC_DRIVER_LOG_LEVEL);
 
 	/* Set ID to Device and forcefully disable D+ pull-up */
 	wrapper->PHY.OVERRIDEVALUES = (1 << 31);
@@ -321,11 +323,9 @@ static inline int usbhs_init_vreg_and_clock_and_core(const struct device *dev)
 {
 	/* Init VREG */
 
-	IRQ_CONNECT(VREGUSB_IRQn, NRF_DEFAULT_IRQ_PRIORITY,
-		    vregusb_isr, DEVICE_DT_INST_GET(0), 0);
+	IRQ_CONNECT(VREGUSB_IRQn, NRF_DEFAULT_IRQ_PRIORITY, vregusb_isr, DEVICE_DT_INST_GET(0), 0);
 
-	NRF_VREGUSB->INTEN = VREGUSB_INTEN_VBUSDETECTED_Msk |
-			     VREGUSB_INTEN_VBUSREMOVED_Msk;
+	NRF_VREGUSB->INTEN = VREGUSB_INTEN_VBUSDETECTED_Msk | VREGUSB_INTEN_VBUSREMOVED_Msk;
 	NRF_VREGUSB->TASKS_START = 1;
 
 	/* TODO: Determine conditions when VBUSDETECTED is not generated */
@@ -394,45 +394,41 @@ static inline int usbhs_pre_hibernation_exit(const struct device *dev)
 	return 0;
 }
 
-#define UHC_DWC2_IRQ_FLAGS_TYPE0(n)	0
-#define UHC_DWC2_IRQ_FLAGS_TYPE1(n)	DT_INST_IRQ(n, type)
+#define UHC_DWC2_IRQ_FLAGS_TYPE0(n) 0
+#define UHC_DWC2_IRQ_FLAGS_TYPE1(n) DT_INST_IRQ(n, type)
 
-#define UHC_DWC2_IRQ_FLAGS(n)							\
-	_CONCAT(UHC_DWC2_IRQ_FLAGS_TYPE, DT_INST_IRQ_HAS_CELL(n, type))(n)
+#define UHC_DWC2_IRQ_FLAGS(n) _CONCAT(UHC_DWC2_IRQ_FLAGS_TYPE, DT_INST_IRQ_HAS_CELL(n, type))(n)
 
-#define QUIRK_NRF_USBHS_DEFINE(n)						\
-										\
-	static int usbhs_irq_enable_func_##n(const struct device *dev)		\
-	{									\
-		IRQ_CONNECT(DT_INST_IRQN(n),					\
-			    DT_INST_IRQ(n, priority),				\
-			    uhc_dwc2_isr_handler,				\
-			    DEVICE_DT_INST_GET(n),				\
-			    UHC_DWC2_IRQ_FLAGS(n));				\
-										\
-		irq_enable(DT_INST_IRQN(n));					\
-										\
-		return 0;							\
-	}									\
-										\
-	static int usbhs_irq_disable_func_##n(const struct device *dev)		\
-	{									\
-		irq_disable(DT_INST_IRQN(n));					\
-										\
-		return 0;							\
-	}									\
-										\
-	struct uhc_dwc2_vendor_quirks uhc_dwc2_vendor_quirks_##n = {		\
-		.init = usbhs_init_vreg_and_clock_and_core,			\
-		.pre_enable = usbhs_enable_core,				\
-		.disable = usbhs_disable_core,					\
-		.shutdown = usbhs_disable_vreg,					\
-		.caps = usbhs_init_caps,					\
-		.is_phy_clk_off = usbhs_is_phy_clk_off,				\
-		.post_hibernation_entry = usbhs_post_hibernation_entry,		\
-		.pre_hibernation_exit = usbhs_pre_hibernation_exit,		\
-		.irq_enable_func = usbhs_irq_enable_func_##n,			\
-		.irq_disable_func = usbhs_irq_disable_func_##n,			\
+#define QUIRK_NRF_USBHS_DEFINE(n)                                                                  \
+                                                                                                   \
+	static int usbhs_irq_enable_func_##n(const struct device *dev)                             \
+	{                                                                                          \
+		IRQ_CONNECT(DT_INST_IRQN(n), DT_INST_IRQ(n, priority), uhc_dwc2_isr_handler,       \
+			    DEVICE_DT_INST_GET(n), UHC_DWC2_IRQ_FLAGS(n));                         \
+                                                                                                   \
+		irq_enable(DT_INST_IRQN(n));                                                       \
+                                                                                                   \
+		return 0;                                                                          \
+	}                                                                                          \
+                                                                                                   \
+	static int usbhs_irq_disable_func_##n(const struct device *dev)                            \
+	{                                                                                          \
+		irq_disable(DT_INST_IRQN(n));                                                      \
+                                                                                                   \
+		return 0;                                                                          \
+	}                                                                                          \
+                                                                                                   \
+	struct uhc_dwc2_vendor_quirks uhc_dwc2_vendor_quirks_##n = {                               \
+		.init = usbhs_init_vreg_and_clock_and_core,                                        \
+		.pre_enable = usbhs_enable_core,                                                   \
+		.disable = usbhs_disable_core,                                                     \
+		.shutdown = usbhs_disable_vreg,                                                    \
+		.caps = usbhs_init_caps,                                                           \
+		.is_phy_clk_off = usbhs_is_phy_clk_off,                                            \
+		.post_hibernation_entry = usbhs_post_hibernation_entry,                            \
+		.pre_hibernation_exit = usbhs_pre_hibernation_exit,                                \
+		.irq_enable_func = usbhs_irq_enable_func_##n,                                      \
+		.irq_disable_func = usbhs_irq_disable_func_##n,                                    \
 	};
 
 DT_INST_FOREACH_STATUS_OKAY(QUIRK_NRF_USBHS_DEFINE)
