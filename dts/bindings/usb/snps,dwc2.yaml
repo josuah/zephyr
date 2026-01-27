@@ -34,8 +34,7 @@ properties:
   gsnpsid:
     type: int
     description: |
-      Value of the GSNPSID register, used to identify the version of the core
-      and avoid mismatch by checking the register at runtime.
+      Value of the GSNPSID register, used to declare the version of the core.
 
   ghwcfg1:
     type: int
