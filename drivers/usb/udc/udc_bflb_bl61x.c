@@ -133,7 +133,7 @@ static uint8_t udc_bflb_bl61x_fifo_get_ep(const struct device *const dev, const 
 	return 2;
 }
 
-static void udc_bflb_bl61x_ctrl_ack(const struct device *const dev)
+static void udc_bflb_bl61x_ctrl_status_start(const struct device *const dev)
 {
 	uint32_t tmp;
 	const struct udc_bflb_bl61x_config *const cfg = dev->config;
@@ -143,7 +143,7 @@ static void udc_bflb_bl61x_ctrl_ack(const struct device *const dev)
 	sys_write32(tmp, cfg->base + USB_DEV_CXCFE_OFFSET);
 }
 
-static void udc_bflb_bl61x_ep_ack(const struct device *const dev, const uint8_t ep_idx)
+static void udc_bflb_bl61x_ep_zlp_start(const struct device *const dev, const uint8_t ep_idx)
 {
 	uint32_t tmp;
 	const struct udc_bflb_bl61x_config *const cfg = dev->config;
@@ -469,6 +469,9 @@ static void udc_bflb_bl61x_ctrl_setup_start(const struct device *const dev)
 	udc_buf_put(ep_cfg, buf);
 	net_buf_add(buf, 8);
 
+	LOG_DBG("start DMA for ep 0x%02x, buf %p, data %p, size %i",
+		ep_cfg->addr, (void *)buf, (void *)buf->data, buf->size);
+	udc_ep_set_busy(ep_cfg, true);
 	udc_bflb_bl61x_vdma_startread_ctrl(dev, buf->data, 8U);
 }
 
@@ -476,8 +479,6 @@ static void udc_bflb_bl61x_ctrl_dout_start(const struct device *const dev, const
 {
 	struct net_buf *buf;
 	struct udc_ep_config *const ep_cfg = udc_get_ep_cfg(dev, USB_CONTROL_EP_OUT);
-
-	LOG_DBG("ctrl dout start ep 0x%02x", ep_cfg->addr);
 
 	if (!udc_ctrl_stage_is_data_out(dev) || udc_bflb_bl61x_ctrl_remain(dev) != 0) {
 		LOG_ERR("Unexpected control dout token");
@@ -488,9 +489,12 @@ static void udc_bflb_bl61x_ctrl_dout_start(const struct device *const dev, const
 		udc_submit_event(dev, UDC_EVT_ERROR, -ENOMEM);
 	}
 
-	udc_buf_put(ep_cfg, buf);
 	net_buf_add(buf, size);
+	udc_buf_put(ep_cfg, buf);
 
+	LOG_DBG("start DMA for ep 0x%02x, buf %p, data %p, size %i",
+		ep_cfg->addr, (void *)buf, (void *)buf->data, buf->size);
+	udc_ep_set_busy(ep_cfg, true);
 	udc_bflb_bl61x_vdma_startread_ctrl(dev, buf->data, size);
 }
 
@@ -498,8 +502,6 @@ static void udc_bflb_bl61x_ctrl_din_start(const struct device *const dev)
 {
 	struct net_buf *buf;
 	struct udc_ep_config *const ep_cfg = udc_get_ep_cfg(dev, USB_CONTROL_EP_IN);
-
-	LOG_DBG("ctrl din start ep 0x%02x", ep_cfg->addr);
 
 	if (!udc_ctrl_stage_is_data_in(dev) || udc_bflb_bl61x_ctrl_remain(dev) != 0) {
 		LOG_ERR("Unexpected control din token");
@@ -510,50 +512,128 @@ static void udc_bflb_bl61x_ctrl_din_start(const struct device *const dev)
 		udc_submit_event(dev, UDC_EVT_ERROR, -ENODATA);
 	}
 
-	LOG_DBG("start DMA for buf %p, data %p, len %i", (void *)buf, (void *)buf->data, buf->len);
+	LOG_DBG("start DMA for ep 0x%02x, buf %p, data %p, len %i",
+		ep_cfg->addr, (void *)buf, (void *)buf->data, buf->len);
+	udc_ep_set_busy(ep_cfg, true);
 	udc_bflb_bl61x_vdma_startwrite_ctrl(dev, buf->data, buf->len);
 }
 
-static int udc_bflb_bl61x_ctrl_evt_end(const struct device *const dev)
+static int udc_bflb_bl61x_on_ctrl_read_status(const struct device *dev, struct net_buf *buf);
+
+/* control read */
+static int udc_bflb_bl61x_on_ctrl_read_setup(const struct device *dev, struct net_buf *buf)
 {
-	struct udc_bflb_bl61x_data *const priv = udc_get_private(dev);
-	struct net_buf *buf;
+	LOG_DBG("OUT received, data %p, len %u", (void *)buf->data, buf->len);
+	/* next stage is "in", submit */
+	return udc_ctrl_submit_s_in_status(dev);
+}
+static int udc_bflb_bl61x_on_ctrl_read_data(const struct device *dev, struct net_buf *buf)
+{
+	LOG_DBG("IN sent, data %p, size %u", (void *)buf->data, buf->size);
+	udc_ctrl_update_stage(dev, buf);
+	net_buf_unref(buf);
+	udc_bflb_bl61x_ctrl_status_start(dev);
+	return 0;
+}
+static int udc_bflb_bl61x_on_ctrl_read_status(const struct device *dev, struct net_buf *buf)
+{
 	int err;
 
+	LOG_DBG("OUT done");
+	err = udc_ctrl_submit_status(dev, buf);
+	udc_ctrl_update_stage(dev, buf);
+	return err;
+}
+
+/* control write */
+static int udc_bflb_bl61x_on_ctrl_write_setup(const struct device *dev, struct net_buf *buf)
+{
+	LOG_DBG("OUT received, data %p, len %u", (void *)buf->data, buf->len);
+	udc_bflb_bl61x_ctrl_dout_start(dev, udc_data_stage_length(buf));
+	return 0;
+}
+static int udc_bflb_bl61x_on_ctrl_write_data(const struct device *dev, struct net_buf *buf)
+{
+	int err;
+
+	LOG_DBG("OUT received, data %p, len %u", (void *)buf->data, buf->len);
+	udc_ctrl_update_stage(dev, buf);
+	/* next stage is "in", submit */
+	err = udc_ctrl_submit_s_out_status(dev, buf);
+	return err;
+}
+static int udc_bflb_bl61x_on_ctrl_write_status(const struct device *dev, struct net_buf *buf)
+{
+	int err;
+
+	LOG_DBG("IN done");
+	err = udc_ctrl_submit_status(dev, buf);
+	udc_ctrl_update_stage(dev, buf);
+	return err;
+}
+
+/* control nodata */
+static int udc_bflb_bl61x_on_ctrl_nodata_setup(const struct device *dev, struct net_buf *buf)
+{
+	struct usb_setup_packet *spkt = (struct usb_setup_packet *)buf->data;
+
+	LOG_DBG("OUT received, data %p", (void *)buf->data);
+	/* Stack queue too slow */
+	if (spkt->bRequest == USB_SREQ_SET_ADDRESS) {
+		udc_bflb_bl61x_set_address(dev, spkt->wValue);
+	}
+	/* next stage is "in", submit */
+	return udc_ctrl_submit_s_status(dev);
+}
+static int udc_bflb_bl61x_on_ctrl_nodata_status(const struct device *dev, struct net_buf *buf)
+{
+	int err;
+
+	LOG_DBG("IN done");
+	err = udc_ctrl_submit_status(dev, buf);
+	udc_ctrl_update_stage(dev, buf);
+	return err;
+}
+
+static int udc_bflb_bl61x_ctrl_evt_end(const struct device *const dev,
+				       struct udc_ep_config *const ep_cfg)
+{
+	struct udc_bflb_bl61x_data *const priv = udc_get_private(dev);
+	struct net_buf *const buf = udc_buf_get(ep_cfg);
+	int err;
+
+	udc_ep_set_busy(ep_cfg, false);
+
 	if (priv->setup_received) {
-		/* setup stage */
-		buf = udc_buf_get(udc_get_ep_cfg(dev, USB_CONTROL_EP_OUT));
-		udc_ctrl_update_stage(dev, buf);
 		priv->setup_received = false;
 
+		__ASSERT_NO_MSG(ep_cfg->ep_addr == USB_CONTROL_EP_OUT);
+		__ASSERT_NO_MSG(udc_get_buf_info(buf)->setup);
+
+		/* to know which stage it is */
+		udc_ep_buf_set_setup(buf);
+		udc_ctrl_update_stage(dev, buf);
+
 		if (udc_ctrl_stage_is_data_in(dev)) {
-			return udc_ctrl_submit_s_in_status(dev);
+			return udc_bflb_bl61x_on_ctrl_read_setup(dev, buf);
 		} else if (udc_ctrl_stage_is_data_out(dev)) {
-			udc_bflb_bl61x_ctrl_dout_start(dev, udc_data_stage_length(buf));
+			return udc_bflb_bl61x_on_ctrl_write_setup(dev, buf);
 		} else if (udc_ctrl_stage_is_no_data(dev)) {
-			struct usb_setup_packet *spkg = (struct usb_setup_packet *)buf->data;
-			/* Stack queue too slow */
-			if (spkg->bRequest == USB_SREQ_SET_ADDRESS) {
-				udc_bflb_bl61x_set_address(dev, spkg->wValue);
-			}
-			return udc_ctrl_submit_s_status(dev);
+			return udc_bflb_bl61x_on_ctrl_nodata_setup(dev, buf);
+		} else {
+			CODE_UNREACHABLE;
 		}
 	} else if (udc_ctrl_stage_is_data_out(dev)) {
-		buf = udc_buf_get(udc_get_ep_cfg(dev, USB_CONTROL_EP_OUT));
-		udc_ctrl_update_stage(dev, buf);
-		return udc_ctrl_submit_s_out_status(dev, buf);
+		__ASSERT_NO_MSG(ep_cfg->ep_addr == USB_CONTROL_EP_OUT);
+		return udc_bflb_bl61x_on_ctrl_write_data(dev, buf);
 	} else if (udc_ctrl_stage_is_data_in(dev)) {
-		buf = udc_buf_get(udc_get_ep_cfg(dev, USB_CONTROL_EP_IN));
-		net_buf_unref(buf);
-		buf = udc_buf_get(udc_get_ep_cfg(dev, USB_CONTROL_EP_OUT));
-		udc_ctrl_update_stage(dev, buf);
-		if (udc_ctrl_stage_is_status_out(dev)) {
-			buf = udc_ctrl_alloc(dev, USB_CONTROL_EP_OUT, 0U);
-			err = udc_ctrl_submit_status(dev, buf);
-			udc_ctrl_update_stage(dev, buf);
-			net_buf_unref(buf);
+		__ASSERT_NO_MSG(ep_cfg->ep_addr == USB_CONTROL_EP_IN);
+		err = udc_bflb_bl61x_on_ctrl_read_data(dev, buf);
+		if (err != 0) {
 			return err;
 		}
+		/* no interrupt for STATUS IN, report completion directly */
+		return udc_bflb_bl61x_on_ctrl_read_status(dev, udc_ctrl_alloc(dev, USB_CONTROL_EP_OUT, 0));
 	} else {
 		LOG_ERR("Completed VDMA transfer of Unknown Stage");
 	}
@@ -590,15 +670,16 @@ static void udc_bflb_bl61x_ep_dout_start(const struct device *const dev,
 	if (buf == NULL) {
 		LOG_ERR("No buffer for OUT ep 0x%02x", ep_cfg->addr);
 		udc_submit_event(dev, UDC_EVT_ERROR, -ENOBUFS);
-	} else {
-		priv->ep_is_in[ep_idx] = false;
-		udc_bflb_bl61x_vdma_startread(dev,
-			udc_bflb_bl61x_ep_get_fifo(ep_cfg), buf->data, buf->size);
-		if (priv->wa_reset_packet_count > 0) {
-			udc_bflb_bl61x_ev_submit(dev, ep_cfg->addr, UBFBL61X_EVT_CHECK_EP,
-					 UBFBL61X_EVT_CHECK_EP_TIME(buf->size));
-			priv->wa_reset_packet_count--;
-		}
+		return;
+	}
+
+	priv->ep_is_in[ep_idx] = false;
+	udc_bflb_bl61x_vdma_startread(dev,
+		udc_bflb_bl61x_ep_get_fifo(ep_cfg), buf->data, buf->size);
+	if (priv->wa_reset_packet_count > 0) {
+		udc_bflb_bl61x_ev_submit(dev, ep_cfg->addr, UBFBL61X_EVT_CHECK_EP,
+					UBFBL61X_EVT_CHECK_EP_TIME(buf->size));
+		priv->wa_reset_packet_count--;
 	}
 }
 
@@ -619,15 +700,16 @@ static void udc_bflb_bl61x_ep_din_start(const struct device *const dev,
 	if (buf == NULL) {
 		LOG_ERR("No buffer for IN ep 0x%02x", ep_cfg->addr);
 		udc_submit_event(dev, UDC_EVT_ERROR, -ENOBUFS);
-	} else {
-		priv->ep_is_in[ep_idx] = true;
-		udc_bflb_bl61x_vdma_startwrite(dev,
-			udc_bflb_bl61x_ep_get_fifo(ep_cfg), buf->data, buf->len);
-		if (priv->wa_reset_packet_count > 0) {
-			udc_bflb_bl61x_ev_submit(dev, ep_cfg->addr, UBFBL61X_EVT_CHECK_EP,
-					 UBFBL61X_EVT_CHECK_EP_TIME(buf->len));
-			priv->wa_reset_packet_count--;
-		}
+		return;
+	}
+
+	priv->ep_is_in[ep_idx] = true;
+	udc_bflb_bl61x_vdma_startwrite(dev,
+		udc_bflb_bl61x_ep_get_fifo(ep_cfg), buf->data, buf->len);
+	if (priv->wa_reset_packet_count > 0) {
+		udc_bflb_bl61x_ev_submit(dev, ep_cfg->addr, UBFBL61X_EVT_CHECK_EP,
+					UBFBL61X_EVT_CHECK_EP_TIME(buf->len));
+		priv->wa_reset_packet_count--;
 	}
 }
 
@@ -659,23 +741,21 @@ static void udc_bflb_bl61x_work_handler_xfer(const struct device *const dev,
 					     struct udc_ep_config *const ep_cfg)
 {
 	struct udc_bflb_bl61x_data *const priv = udc_get_private(dev);
-	const struct net_buf *buf = udc_buf_peek(ep_cfg);
+	struct net_buf *const buf = udc_buf_peek(ep_cfg);
 	const uint8_t ep_idx = USB_EP_GET_IDX(ep_cfg->addr);
 
-	if (USB_EP_DIR_IS_OUT(ep_cfg->addr)) {
+	if (udc_get_buf_info(buf)->zlp) {
+		LOG_DBG("IN: ZLP");
+		udc_bflb_bl61x_ep_zlp_start(dev, ep_cfg->addr);
+	} else if (USB_EP_DIR_IS_OUT(ep_cfg->addr)) {
 		priv->ep_is_in[ep_idx] = false;
-		udc_ep_set_busy(ep_cfg, true);
 		udc_bflb_bl61x_ep_dout_start(dev, ep_cfg);
-	} else if (buf->len == 0) {
-		LOG_DBG("IN: EMPTY LENGTH");
-		udc_bflb_bl61x_ep_ack(dev, ep_idx);
-		udc_bflb_bl61x_ep_evt_end(dev, ep_cfg);
+	} else if (udc_ctrl_stage_is_status_in(dev)) {
+		udc_bflb_bl61x_ctrl_status_start(dev);
+		/* no interrupt for STATUS IN, report completion directly */
+		udc_bflb_bl61x_on_ctrl_write_status(dev, buf);
 	} else {
-		if (udc_get_buf_info(buf)->zlp) {
-			LOG_DBG("IN: ZLP");
-		}
 		priv->ep_is_in[ep_idx] = true;
-		udc_ep_set_busy(ep_cfg, true);
 		udc_bflb_bl61x_ep_din_start(dev, ep_cfg);
 	}
 }
@@ -689,8 +769,8 @@ static void udc_bflb_bl61x_work_handler_check(const struct device *const dev,
 			& (1U << udc_bflb_bl61x_ep_get_fifo(ep_cfg));
 
 	if (udc_ep_is_busy(ep_cfg)) {
-		err = udc_bflb_bl61x_ep_evt_end(dev, ep_cfg);
 		udc_ep_set_busy(ep_cfg, false);
+		err = udc_bflb_bl61x_ep_evt_end(dev, ep_cfg);
 		if (unlikely(err)) {
 			udc_submit_event(dev, UDC_EVT_ERROR, err);
 		}
@@ -700,6 +780,7 @@ static void udc_bflb_bl61x_work_handler_check(const struct device *const dev,
 		return;
 	}
 }
+
 static void udc_bflb_bl61x_work_handler(struct k_work *item)
 {
 	struct k_work_delayable *item_delayable = k_work_delayable_from_work(item);
@@ -717,13 +798,10 @@ static void udc_bflb_bl61x_work_handler(struct k_work *item)
 	} else {
 		switch (ev->event) {
 		case UBFBL61X_EVT_CTRL_END:
-			err = udc_bflb_bl61x_ctrl_evt_end(ev->dev);
+			err = udc_bflb_bl61x_ctrl_evt_end(ev->dev, ep_cfg);
 			break;
 		case UBFBL61X_EVT_END:
-			if (udc_ep_is_busy(ep_cfg)) {
-				err = udc_bflb_bl61x_ep_evt_end(ev->dev, ep_cfg);
-				udc_ep_set_busy(ep_cfg, false);
-			}
+			err = udc_bflb_bl61x_ep_evt_end(ev->dev, ep_cfg);
 			break;
 		case UBFBL61X_EVT_XFER:
 			udc_bflb_bl61x_work_handler_xfer(ev->dev, ep_cfg);
@@ -793,10 +871,15 @@ static int udc_bflb_bl61x_ep_enqueue(const struct device *const dev,
 		if (USB_EP_DIR_IS_OUT(config->addr)) {
 			udc_buf_put(config, buf);
 			udc_bflb_bl61x_ctrl_dout_start(dev, udc_data_stage_length(buf));
-		} else if (buf->len == 0) {
-			udc_bflb_bl61x_ctrl_ack(dev);
-			udc_ctrl_submit_status(dev, buf);
-			udc_ctrl_update_stage(dev, buf);
+		} else if (udc_get_buf_info(buf)->status) {
+			udc_bflb_bl61x_ctrl_status_start(dev);
+			/* no interrupt for STATUS OUT, report completion directly */
+			udc_ep_set_busy(udc_get_ep_cfg(dev, USB_CONTROL_EP_IN), false);
+			if (udc_ctrl_stage_is_no_data(dev)) {
+				udc_bflb_bl61x_on_ctrl_nodata_status(dev, buf);
+			} else {
+				udc_bflb_bl61x_on_ctrl_read_status(dev, buf);
+			}
 		} else {
 			udc_buf_put(config, buf);
 			udc_bflb_bl61x_ctrl_din_start(dev);
@@ -881,15 +964,13 @@ static int udc_bflb_bl61x_ep_enable(const struct device *const dev,
 	return 0;
 }
 
-/* Can't disable */
 static int udc_bflb_bl61x_ep_disable(const struct device *const dev,
 				   struct udc_ep_config *const config)
 {
 	LOG_DBG("Disable ep 0x%02x", config->addr);
 
-	return -ENOTSUP;
+	return 0;
 }
-
 
 static int udc_bflb_bl61x_ep_set_halt(const struct device *const dev,
 				    struct udc_ep_config *const config)
@@ -1459,7 +1540,6 @@ static void udc_bflb_bl61x_isr(const struct device *const dev)
 					udc_bflb_bl61x_ev_submit(dev,
 						USB_CONTROL_EP_IN, UBFBL61X_EVT_CTRL_END,
 						K_NO_WAIT);
-					udc_bflb_bl61x_ctrl_ack(dev);
 				} else {
 					udc_bflb_bl61x_ev_submit(dev,
 						USB_CONTROL_EP_OUT, UBFBL61X_EVT_CTRL_END,
