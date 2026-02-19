@@ -21,6 +21,9 @@ LOG_MODULE_REGISTER(uhc_dwc2, CONFIG_UHC_DRIVER_LOG_LEVEL);
 #define DEBOUNCE_DELAY_MS	CONFIG_UHC_DWC2_DEBOUNCE_DELAY_MS
 #define RESET_HOLD_MS		CONFIG_UHC_DWC2_RESET_HOLD_MS
 #define RESET_RECOVERY_MS	CONFIG_UHC_DWC2_RESET_RECOVERY_MS
+#define SET_ADDR_DELAY_MS	CONFIG_UHC_DWC2_SET_ADDR_DELAY_MS
+/* TODO: Configurable? */
+#define MAX_CHANNELS		16
 
 enum uhc_dwc2_event {
 	/* No event has occurred or the event is no longer valid */
@@ -41,14 +44,56 @@ enum uhc_dwc2_event {
 	UHC_DWC2_EVENT_PORT_PEND_CHANNEL
 };
 
+enum uhc_dwc2_channel_event {
+	/* The channel has completed a transfer. Channel is now halted */
+	UHC_DWC2_CHANNEL_EVENT_CPLT,
+	/* The channel has completed a transfer. Request STALLed. Channel is now halted */
+	UHC_DWC2_CHANNEL_EVENT_STALL,
+	/* The channel has encountered an error. Channel is now halted */
+	UHC_DWC2_CHANNEL_EVENT_ERROR,
+	/* Need to release the channel for the next transfer */
+	UHC_DWC2_CHANNEL_DO_RELEASE,
+};
+
 enum uhc_dwc2_speed {
 	UHC_DWC2_SPEED_HIGH = 0,
 	UHC_DWC2_SPEED_FULL = 1,
 	UHC_DWC2_SPEED_LOW = 2,
 };
 
+enum uhc_dwc2_xfer_type {
+	UHC_DWC2_XFER_TYPE_CTRL = 0,
+	UHC_DWC2_XFER_TYPE_ISOCHRONOUS = 1,
+	UHC_DWC2_XFER_TYPE_BULK = 2,
+	UHC_DWC2_XFER_TYPE_INTR = 3,
+};
+
+enum uhc_dwc2_channel_pid {
+	UHC_DWC2_PID_DATA0 = 0,
+	UHC_DWC2_PID_DATA2 = 1,
+	UHC_DWC2_PID_DATA1 = 2,
+	UHC_DWC2_PID_MDATA_SETUP = 3,
+};
+
+enum {
+	EPSIZE_BULK_FS = 64,
+	EPSIZE_BULK_HS = 512,
+
+	EPSIZE_ISO_FS_MAX = 1023,
+	EPSIZE_ISO_HS_MAX = 1024,
+};
+
 #define UHC_DWC2_CHANNEL_REGS(base, chan_idx)					\
 	((struct usb_dwc2_host_chan *)(((mem_addr_t)(base)) + USB_DWC2_HCCHAR(chan_idx)))
+
+#define UHC_DWC2_FIFODEPTH(config)						\
+	((uint32_t)(((config)->ghwcfg3 & USB_DWC2_GHWCFG3_DFIFODEPTH_MASK) >>	\
+		    USB_DWC2_GHWCFG3_DFIFODEPTH_POS))
+
+#define UHC_DWC2_NUMHSTCHNL(config)						\
+	((uint32_t)(((config)->ghwcfg2 & USB_DWC2_GHWCFG2_NUMHSTCHNL_MASK) >>	\
+		    USB_DWC2_GHWCFG2_NUMHSTCHNL_POS))
+
 
 /* Mask to clear HPRT register */
 #define USB_DWC2_HPRT_W1C_MSK	(USB_DWC2_HPRT_PRTENA |				\
@@ -65,16 +110,69 @@ enum uhc_dwc2_speed {
 				USB_DWC2_HPRT_PRTENCHNG |			\
 				USB_DWC2_HPRT_PRTOVRCURRCHNG)
 
+struct uhc_dwc2_channel {
+	/* Index of the channel */
+	uint8_t index;
+	/* Cached pointer to channel registers */
+	const struct usb_dwc2_host_chan *regs;
+	/* Pointer to the transfer */
+	struct uhc_transfer *xfer;
+	/* Channel events */
+	atomic_t events;
+
+	/* Control transfer stage */
+	enum uhc_control_stage ctrl_stg;
+
+	/* Associated endpoint characteristics */
+	/* Type of endpoint */
+	enum uhc_dwc2_xfer_type type;
+	/* Address */
+	uint8_t ep_addr;
+	/* Device Address */
+	uint8_t dev_addr;
+	/* Maximum Packet Size */
+	uint16_t ep_mps;
+
+	/* Channel flags */
+	/* Channel is claimed and has associated endpoint */
+	uint8_t claimed: 1;
+	/* Transfer stage is IN */
+	uint8_t data_stg_in: 1;
+	/* Transfer has no data stage */
+	uint8_t data_stg_skip: 1;
+	/* Transfer will change the device address */
+	uint8_t set_address: 1;
+	/* Channel executing transfer */
+	uint8_t executing: 1;
+};
+
 struct uhc_dwc2_data {
 	struct k_thread thread;
 	/* Event bitmask the driver thread waits for */
 	struct k_event event;
+	/* Port channels */
+	struct uhc_dwc2_channel channel[MAX_CHANNELS];
 	/* Bit mask of channels with pending interrupts */
 	uint32_t pending_channels_msk;
+	/* Port FIFO configuration */
+	uint16_t fifo_top;
+	uint16_t fifo_nptxfsiz;
+	uint16_t fifo_rxfsiz;
+	uint16_t fifo_ptxfsiz;
 	/* Root Port flags */
 	uint8_t debouncing: 1;
 	uint8_t has_device: 1;
 };
+
+/* TODO: search in case of present helper function like this */
+static inline uint16_t calc_packet_count(const uint16_t size, const uint8_t mps)
+{
+	if (size == 0) {
+		return 1; /* in Buffer DMA mode Zero Length Packet still counts as 1 packet */
+	} else {
+		return DIV_ROUND_UP(size, mps);
+	}
+}
 
 static inline void dwc2_hal_toggle_reset(struct usb_dwc2_reg *const dwc2, const bool reset_on)
 {
@@ -119,6 +217,28 @@ static inline enum uhc_dwc2_speed dwc2_hal_get_speed(struct usb_dwc2_reg *const 
 		break;
 	}
 	return UHC_DWC2_SPEED_FULL;
+}
+
+static void dwc2_hal_flush_rx_fifo(struct usb_dwc2_reg *const dwc2)
+{
+	sys_write32(USB_DWC2_GRSTCTL_RXFFLSH, (mem_addr_t)&dwc2->grstctl);
+
+	while (sys_read32((mem_addr_t)&dwc2->grstctl) & USB_DWC2_GRSTCTL_RXFFLSH) {
+		continue;
+	}
+}
+
+static void dwc2_hal_flush_tx_fifo(struct usb_dwc2_reg *const dwc2, const uint8_t fnum)
+{
+	uint32_t grstctl;
+
+	grstctl = usb_dwc2_set_grstctl_txfnum(fnum) | USB_DWC2_GRSTCTL_TXFFLSH;
+	sys_write32(grstctl, (mem_addr_t)&dwc2->grstctl);
+
+	/* TODO: add counter? */
+	while (sys_read32((mem_addr_t)&dwc2->grstctl) & USB_DWC2_GRSTCTL_TXFFLSH) {
+		continue;
+	}
 }
 
 static inline void dwc2_hal_enable_port(struct usb_dwc2_reg *const dwc2,
@@ -305,6 +425,42 @@ static int dwc2_hal_init_host(struct usb_dwc2_reg *const dwc2)
 	return ret;
 }
 
+static void dwc2_hal_config_fifo(struct usb_dwc2_reg *const dwc2, uint16_t top,
+				uint16_t nptxfsiz, uint8_t ptxfsiz, uint16_t rxfsiz)
+{
+	uint16_t fifo_available = top;
+
+	const uint32_t gdfifocfg = usb_dwc2_set_gdfifocfg_epinfobaseaddr(fifo_available) |
+					usb_dwc2_set_gdfifocfg_gdfifocfg(fifo_available);
+
+	sys_write32(gdfifocfg, (mem_addr_t)&dwc2->gdfifocfg);
+
+	fifo_available -= rxfsiz;
+
+	const uint32_t grxfsiz = usb_dwc2_set_grxfsiz(rxfsiz);
+
+	sys_write32(grxfsiz, (mem_addr_t)&dwc2->grxfsiz);
+
+	fifo_available -= nptxfsiz;
+
+	const uint32_t gnptxfsiz = usb_dwc2_set_gnptxfsiz_nptxfdep(nptxfsiz) |
+				usb_dwc2_set_gnptxfsiz_nptxfstaddr(fifo_available);
+
+	sys_write32(gnptxfsiz, (mem_addr_t)&dwc2->gnptxfsiz);
+
+	fifo_available -= ptxfsiz;
+
+	uint32_t hptxfsiz = usb_dwc2_set_hptxfsiz_ptxfsize(ptxfsiz) | fifo_available;
+
+	sys_write32(hptxfsiz, (mem_addr_t)&dwc2->hptxfsiz);
+
+	dwc2_hal_flush_tx_fifo(dwc2, 0x10UL);
+	dwc2_hal_flush_rx_fifo(dwc2);
+
+	LOG_DBG("FIFO configured: nptx=%u, rx=%u, ptx=%u, available=%u",
+		nptxfsiz * 4, rxfsiz * 4, ptxfsiz * 4, fifo_available * 4);
+}
+
 static void uhc_dwc2_port_debounce_lock(const struct device *dev)
 {
 	const struct uhc_dwc2_config *const config = dev->config;
@@ -333,6 +489,145 @@ static void uhc_dwc2_port_debounce_unlock(const struct device *dev)
 	/* Re-enable the HPRT (connection) and disconnection interrupts */
 	sys_set_bits((mem_addr_t)&dwc2->gintmsk, USB_DWC2_GINTSTS_PRTINT |
 						USB_DWC2_GINTSTS_DISCONNINT);
+}
+
+static inline bool uhc_dwc2_channel_xfer_is_done(struct uhc_dwc2_channel *channel)
+{
+	/* Only control transfers need to be handled in stages */
+	if (channel->type != UHC_DWC2_XFER_TYPE_CTRL) {
+		return true;
+	}
+
+	/* Is done when we finished the UHC_CONTROL_STAGE_STATUS */
+	return (channel->ctrl_stg == UHC_CONTROL_STAGE_STATUS);
+}
+
+static void IRAM_ATTR uhc_dwc2_channel_process_ctrl(struct uhc_dwc2_channel *channel)
+{
+	struct uhc_transfer *const xfer = channel->xfer;
+	bool next_dir_is_in;
+	enum uhc_dwc2_channel_pid next_pid;
+	uint16_t size = 0;
+	uint8_t *dma_addr = NULL;
+	uint32_t hctsiz;
+
+	if (channel->ctrl_stg == UHC_CONTROL_STAGE_SETUP) {
+		/* Just finished UHC_CONTROL_STAGE_SETUP */
+		if (channel->data_stg_skip) {
+			/* No data stage. Go strait to status */
+			next_dir_is_in = true;
+			next_pid = UHC_DWC2_PID_DATA1;
+			channel->ctrl_stg = UHC_CONTROL_STAGE_STATUS;
+		} else {
+			/* Data stage is present, go to data stage */
+			next_dir_is_in = channel->data_stg_in;
+			next_pid = UHC_DWC2_PID_DATA1;
+			channel->ctrl_stg = UHC_CONTROL_STAGE_DATA;
+
+			/*
+			 * NOTE:
+			 * For OUT - number of bytes host sends to device
+			 * For IN - number of bytes host reserves to receive
+			 */
+			if (!next_dir_is_in) {
+				size = xfer->buf->len;
+			} else {
+				/* TODO: Check the buffer is large enough for the next transfer? */
+				size = net_buf_tailroom(xfer->buf);
+			}
+
+			/* TODO: Toggle PID? */
+
+			if (xfer->buf != NULL) {
+				/* Get the tail of the buffer to append data */
+				dma_addr = net_buf_tail(xfer->buf);
+			}
+		}
+	} else {
+		/* Just finished UHC_CONTROL_STAGE_DATA */
+		hctsiz = sys_read32((mem_addr_t)&channel->regs->hctsiz);
+		/* Actual is requested minus remaining */
+		size_t actual = xfer->buf->size - usb_dwc2_get_hctsiz_xfersize(hctsiz);
+		/* Increase the net_buf for the actual transferred len */
+		net_buf_add(xfer->buf, actual);
+		/* Status stage is always the opposite direction of data stage */
+		next_dir_is_in = !channel->data_stg_in;
+		/* Status stage always has a PID of DATA1 */
+		next_pid = UHC_DWC2_PID_DATA1;
+		channel->ctrl_stg = UHC_CONTROL_STAGE_STATUS;
+	}
+
+	/* Calculate new packet count */
+	const uint16_t pkt_cnt = calc_packet_count(size, channel->ep_mps);
+
+	if (next_dir_is_in) {
+		sys_set_bits((mem_addr_t)&channel->regs->hcchar, USB_DWC2_HCCHAR_EPDIR);
+	} else {
+		sys_clear_bits((mem_addr_t)&channel->regs->hcchar, USB_DWC2_HCCHAR_EPDIR);
+	}
+
+	hctsiz = usb_dwc2_set_hctsiz_pid(next_pid) |
+		usb_dwc2_set_hctsiz_pktcnt(pkt_cnt) |
+		usb_dwc2_set_hctsiz_xfersize(size);
+
+	sys_write32(hctsiz, (mem_addr_t)&channel->regs->hctsiz);
+	sys_write32((uint32_t)dma_addr, (mem_addr_t)&channel->regs->hcdma);
+
+	/* TODO: Configure split transaction if needed */
+
+	/* TODO: sync CACHE */
+
+	uint32_t hcchar = sys_read32((mem_addr_t)&channel->regs->hcchar);
+
+	hcchar |= USB_DWC2_HCCHAR_CHENA;
+	hcchar &= ~USB_DWC2_HCCHAR_CHDIS;
+	sys_write32(hcchar, (mem_addr_t)&channel->regs->hcchar);
+}
+
+static uint32_t uhc_dwc2_channel_irq_handle_events(struct uhc_dwc2_channel *channel)
+{
+	uint32_t hcint = sys_read32((mem_addr_t)&channel->regs->hcint);
+	uint32_t channel_events = 0;
+
+	/* Clear the interrupt bits by writing them back */
+	sys_write32(hcint, (mem_addr_t)&channel->regs->hcint);
+
+	/* TODO: Read hcchar and split paths for EP IN and OUT? */
+
+	/* TODO: Read hcchar and split paths for BULK/CTRL/ISOC/INTR? */
+
+	if (hcint & USB_DWC2_HCINT_CHHLTD) {
+		if (hcint & USB_DWC2_HCINT_XFERCOMPL) {
+			/* TODO: channel error count = 0 */
+
+			if (!uhc_dwc2_channel_xfer_is_done(channel)) {
+				/* Control transfer isn't finished yet - continue in ISR */
+				uhc_dwc2_channel_process_ctrl(channel);
+			} else {
+				/* Transfer finished, notify thread */
+				channel_events |= BIT(UHC_DWC2_CHANNEL_DO_RELEASE);
+				channel_events |= BIT(UHC_DWC2_CHANNEL_EVENT_CPLT);
+			}
+		} else if (hcint & USB_DWC2_HCINT_STALL) {
+			/* TODO: channel error count = 0 */
+
+			/* Expecting ACK interrupt next */
+			sys_set_bits((mem_addr_t)&channel->regs->hcintmsk, USB_DWC2_HCINT_ACK);
+
+			/* Notify thread */
+			channel_events |= BIT(UHC_DWC2_CHANNEL_DO_RELEASE);
+			channel_events |= BIT(UHC_DWC2_CHANNEL_EVENT_STALL);
+		}
+	} else if (hcint & USB_DWC2_HCINT_ACK) {
+		/* TODO: channel error count = 1 */
+
+		/* Not expecting ACK interrupt anymore */
+		sys_clear_bits((mem_addr_t)&channel->regs->hcintmsk, USB_DWC2_HCINT_ACK);
+	} else {
+		LOG_WRN("Channel has not been handled: HCINT=0x%08x", hcint);
+	}
+
+	return channel_events;
 }
 
 static enum uhc_dwc2_event uhc_dwc2_port_get_event(const struct device *dev)
@@ -433,6 +728,7 @@ static inline void uhc_dwc2_port_power_on(const struct device *dev)
 static inline void uhc_dwc2_port_reset(const struct device *dev)
 {
 	const struct uhc_dwc2_config *const config = dev->config;
+	struct uhc_dwc2_data *priv = uhc_get_private(dev);
 	struct usb_dwc2_reg *const dwc2 = config->base;
 
 	/* Reset the port */
@@ -451,6 +747,10 @@ static inline void uhc_dwc2_port_reset(const struct device *dev)
 
 	/* Finish the port config for the appeared device */
 	/* TODO: apply FIFO settings */
+	dwc2_hal_config_fifo(dwc2, priv->fifo_top,
+				priv->fifo_nptxfsiz,
+				priv->fifo_ptxfsiz,
+				priv->fifo_rxfsiz);
 	/* TODO: set frame list for the ISOC/INTR xfer */
 	/* TODO: enable periodic transfer */
 }
@@ -485,12 +785,208 @@ static inline int uhc_dwc2_soft_reset(const struct device *dev)
 	return ret;
 }
 
+static void uhc_dwc2_port_fifo_precalc_dma(const struct device *dev)
+{
+	const struct uhc_dwc2_config *const config = dev->config;
+	struct uhc_dwc2_data *const priv = uhc_get_private(dev);
+
+	const uint32_t nptx_largest = EPSIZE_BULK_FS / 4;
+	const uint32_t ptx_largest = 256 / 4;
+
+	LOG_DBG("Init FIFO sizes");
+
+	/* TODO: support HS */
+
+	priv->fifo_top = UHC_DWC2_FIFODEPTH(config) - (UHC_DWC2_NUMHSTCHNL(config) + 1);
+	priv->fifo_nptxfsiz = 2 * nptx_largest;
+	priv->fifo_rxfsiz = 2 * (ptx_largest + 2) + UHC_DWC2_NUMHSTCHNL(config) + 1;
+	priv->fifo_ptxfsiz = priv->fifo_top - (priv->fifo_nptxfsiz + priv->fifo_rxfsiz);
+
+	/* TODO: verify ptxfsiz is overflowed */
+
+	LOG_DBG("FIFO sizes: top=%u, nptx=%u, rx=%u, ptx=%u", priv->fifo_top * 4,
+		priv->fifo_nptxfsiz * 4, priv->fifo_rxfsiz * 4, priv->fifo_ptxfsiz * 4);
+}
+
+static int uhc_dwc2_channel_claim(const struct device *dev,
+					struct uhc_transfer *const xfer,
+					struct uhc_dwc2_channel **channel_hdl)
+{
+	const struct uhc_dwc2_config *const config = dev->config;
+	struct uhc_dwc2_data *priv = uhc_get_private(dev);
+	struct usb_dwc2_reg *const dwc2 = config->base;
+	const struct usb_device *udev = xfer->udev;
+
+	/* TODO: select non-claimed channel, use channel 0 for now */
+	uint8_t idx = 0;
+
+	struct uhc_dwc2_channel *channel = &priv->channel[idx];
+
+	switch (xfer->type) {
+	case USB_EP_TYPE_CONTROL:
+		channel->type = UHC_DWC2_XFER_TYPE_CTRL;
+		break;
+	case USB_EP_TYPE_BULK:
+		channel->type = UHC_DWC2_XFER_TYPE_BULK;
+		break;
+	case USB_EP_TYPE_INTERRUPT:
+		channel->type = UHC_DWC2_XFER_TYPE_INTR;
+		break;
+	case USB_EP_TYPE_ISO:
+		channel->type = UHC_DWC2_XFER_TYPE_ISOCHRONOUS;
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	/* Save channel characteristics underlying channel */
+	channel->xfer = xfer;
+	channel->ep_addr = xfer->ep;
+	channel->dev_addr = udev->addr;
+	channel->ep_mps = xfer->mps;
+
+	/* Claim channel */
+	channel->claimed = 1;
+
+	/* Init underlying channel registers */
+
+	/* Clear the interrupt bits by writing them back */
+	uint32_t hcint = sys_read32((mem_addr_t)&channel->regs->hcint);
+
+	sys_write32(hcint, (mem_addr_t)&channel->regs->hcint);
+
+	/* Enable channel interrupt in the core */
+	sys_set_bits((mem_addr_t)&dwc2->haintmsk, (1 << idx));
+
+	/* Enable transfer complete and channel halted interrupts */
+	sys_set_bits((mem_addr_t)&channel->regs->hcintmsk, USB_DWC2_HCINT_XFERCOMPL |
+							USB_DWC2_HCINT_CHHLTD);
+
+	uint32_t hcchar = usb_dwc2_set_hcchar_mps(channel->ep_mps) |
+			usb_dwc2_set_hcchar_epnum(USB_EP_GET_IDX(channel->ep_addr)) |
+			usb_dwc2_set_hcchar_eptype(channel->type) |
+			usb_dwc2_set_hcchar_ec(1UL /* TODO: ep_config->mult */) |
+			usb_dwc2_set_hcchar_devaddr(channel->dev_addr);
+
+	if (USB_EP_DIR_IS_IN(channel->ep_addr)) {
+		hcchar |= USB_DWC2_HCCHAR_EPDIR;
+	}
+
+	if (false /* TODO: Support Hubs channel->ls_via_fs_hub */) {
+		hcchar |= USB_DWC2_HCCHAR_LSPDDEV;
+	}
+
+	if (channel->type == UHC_DWC2_XFER_TYPE_INTR) {
+		hcchar |= USB_DWC2_HCCHAR_ODDFRM;
+	}
+
+	sys_write32(hcchar, (mem_addr_t)&channel->regs->hcchar);
+
+	LOG_DBG("Claimed channel%d", idx);
+
+	*channel_hdl = channel;
+	return 0;
+}
+
+static int uhc_dwc2_channel_release(const struct device *dev,
+				struct uhc_dwc2_channel *channel)
+{
+	const struct uhc_dwc2_config *const config = dev->config;
+	struct usb_dwc2_reg *const dwc2 = config->base;
+
+	sys_clear_bits((mem_addr_t)&dwc2->haintmsk, (1 << channel->index));
+
+	/* Release channel */
+	channel->xfer = NULL;
+	channel->claimed = 0;
+
+	LOG_DBG("Released channel%d", channel->index);
+
+	return 0;
+}
+
+static int uhc_dwc2_channel_start_transfer_ctrl(struct uhc_dwc2_channel *channel)
+{
+	/* Get information about the control transfer by analyzing the setup packet */
+	struct uhc_transfer *const xfer = channel->xfer;
+	const struct usb_setup_packet *setup_pkt = (const struct usb_setup_packet *)xfer->setup_pkt;
+
+	LOG_HEXDUMP_DBG(xfer->setup_pkt, 8, "setup");
+
+	channel->ctrl_stg = UHC_CONTROL_STAGE_SETUP;
+	channel->data_stg_in = usb_reqtype_is_to_host(setup_pkt);
+	channel->data_stg_skip = (setup_pkt->wLength == 0);
+	channel->set_address = (setup_pkt->bRequest == USB_SREQ_SET_ADDRESS) ? 1 : 0;
+
+	LOG_DBG("data_in: %s, data_skip: %s",
+			channel->data_stg_in ? "true" : "false",
+			channel->data_stg_skip ? "true" : "false");
+
+	if (USB_EP_GET_IDX(xfer->ep) == 0) {
+		/* Control stage is always OUT */
+		sys_clear_bits((mem_addr_t)&channel->regs->hcchar, USB_DWC2_HCCHAR_EPDIR);
+	}
+
+	if (xfer->interval != 0) {
+		LOG_WRN("Periodic transfer is not supported");
+	}
+
+	const uint16_t pkt_cnt = calc_packet_count(sizeof(struct usb_setup_packet),
+						channel->ep_mps);
+
+	uint32_t hctsiz = usb_dwc2_set_hctsiz_pid(UHC_DWC2_PID_MDATA_SETUP) |
+		usb_dwc2_set_hctsiz_pktcnt(pkt_cnt) |
+		usb_dwc2_set_hctsiz_xfersize(sizeof(struct usb_setup_packet));
+
+	sys_write32(hctsiz, (mem_addr_t)&channel->regs->hctsiz);
+	sys_write32((uint32_t)xfer->setup_pkt, (mem_addr_t)&channel->regs->hcdma);
+
+	/* TODO: Configure split transaction if needed */
+
+	uint32_t hcint = sys_read32((mem_addr_t)&channel->regs->hcint);
+
+	sys_write32(hcint, (mem_addr_t)&channel->regs->hcint);
+
+	/* TODO: sync CACHE */
+
+	uint32_t hcchar = sys_read32((mem_addr_t)&channel->regs->hcchar);
+
+	hcchar |= USB_DWC2_HCCHAR_CHENA;
+	hcchar &= ~USB_DWC2_HCCHAR_CHDIS;
+	sys_write32(hcchar, (mem_addr_t)&channel->regs->hcchar);
+
+	channel->executing = 1;
+
+	return 0;
+}
+
+static int uhc_dwc2_channel_start_transfer(struct uhc_dwc2_channel *channel)
+{
+	LOG_WRN("Submit channel type: %d has not implemented yet", channel->type);
+	return -EINVAL;
+}
+
+
+struct uhc_dwc2_channel *uhc_dwc2_channel_get_pending(const struct device *dev)
+{
+	struct uhc_dwc2_data *priv = uhc_get_private(dev);
+	int chan_num = __builtin_ffs(priv->pending_channels_msk);
+
+	if (chan_num) {
+		/* Clear the pending bit for that channel */
+		priv->pending_channels_msk &= ~(1 << (chan_num - 1));
+		return &priv->channel[chan_num - 1];
+	} else {
+		return NULL;
+	}
+}
+
 static inline void uhc_dwc2_submit_new_device(const struct device *dev, enum uhc_dwc2_speed speed)
 {
 	static const char *const uhc_dwc2_speed_str[] = {"High", "Full", "Low"};
 	enum uhc_event_type type;
 
-	LOG_WRN("New device, %s-speed", uhc_dwc2_speed_str[speed]);
+	LOG_DBG("New device, %s-speed", uhc_dwc2_speed_str[speed]);
 
 	switch (speed) {
 	case UHC_DWC2_SPEED_LOW:
@@ -507,15 +1003,59 @@ static inline void uhc_dwc2_submit_new_device(const struct device *dev, enum uhc
 		return;
 	}
 
-	/* TODO: uhc submit event UHC_EVT_DEV_CONNECTED_XX */
-	(void) type;
+	uhc_submit_event(dev, type, 0);
 }
 
 static inline void uhc_dwc2_submit_dev_gone(const struct device *dev)
 {
-	LOG_WRN("Device removed");
+	LOG_DBG("Device removed");
 
-	/* TODO: uhc submit event UHC_EVT_DEV_REMOVED */
+	uhc_submit_event(dev, UHC_EVT_DEV_REMOVED, 0);
+}
+
+static int uhc_dwc2_submit_xfer(const struct device *const dev, struct uhc_transfer *const xfer)
+{
+	struct uhc_dwc2_channel *channel = NULL;
+	int ret;
+
+	LOG_DBG("ep=%02Xh, mps=%d, int=%d, start_frame=%d, stage=%d, no_status=%d",
+		xfer->ep, xfer->mps, xfer->interval,
+		xfer->start_frame, xfer->stage, xfer->no_status);
+
+	/* TODO: dma requirement, setup packet must be aligned 4 bytes */
+	if (((uintptr_t)xfer->setup_pkt % 4)) {
+		LOG_WRN("Setup packet address %p is not 4-byte aligned",
+					xfer->setup_pkt);
+	}
+
+	/* TODO: dma requirement, buffer addr that will used as dma addr also should be aligned */
+	if ((xfer->buf != NULL) && ((uintptr_t)net_buf_tail(xfer->buf) % 4)) {
+		LOG_WRN("Buffer address %08lXh is not 4-byte aligned",
+					(uintptr_t)net_buf_tail(xfer->buf));
+	}
+
+	ret = uhc_dwc2_channel_claim(dev, xfer, &channel);
+	if (ret) {
+		LOG_ERR("Failed to claim channel: %d", ret);
+		return ret;
+	}
+
+	switch (xfer->type) {
+	case USB_EP_TYPE_CONTROL:
+		ret = uhc_dwc2_channel_start_transfer_ctrl(channel);
+		break;
+	case USB_EP_TYPE_BULK:
+		ret = uhc_dwc2_channel_start_transfer(channel);
+		break;
+	case USB_EP_TYPE_INTERRUPT:
+	case USB_EP_TYPE_ISO:
+	default:
+		LOG_WRN("Channel type isn't supported yet");
+		uhc_dwc2_channel_release(dev, channel);
+		return -EINVAL;
+	}
+
+	return ret;
 }
 
 static void uhc_dwc2_port_handle_events(const struct device *dev, uint32_t event_mask)
@@ -594,15 +1134,53 @@ static void uhc_dwc2_port_handle_events(const struct device *dev, uint32_t event
 	}
 }
 
-static void uhc_dwc2_channel_handle_events(const struct device *dev, void *channel)
+static void uhc_dwc2_channel_handle_events(const struct device *dev,
+						struct uhc_dwc2_channel *channel)
 {
-	LOG_WRN("Channel event handle has not been implemented");
+	uint32_t events = (uint32_t)atomic_set(&channel->events, 0);
+	struct uhc_transfer *const xfer = channel->xfer;
+	int err;
+
+	LOG_DBG("Thread channel%d events: %08Xh", channel->index, events);
+
+	channel->executing = 0;
+
+	if (events & BIT(UHC_DWC2_CHANNEL_EVENT_CPLT)) {
+		/**
+		 * HINT: When device is processing SetAddress(), delay should be applied
+		 */
+		if (channel->set_address) {
+			k_msleep(SET_ADDR_DELAY_MS);
+		}
+		/* No error */
+		err = 0;
+	}
+
+	if (events & BIT(UHC_DWC2_CHANNEL_EVENT_STALL)) {
+		/* Request STALLed */
+		err = -EPIPE;
+	}
+
+	if (events & BIT(UHC_DWC2_CHANNEL_EVENT_ERROR)) {
+		LOG_ERR("Channel%d error", channel->index);
+		/* TODO: Channel has an error */
+		LOG_WRN("Channel error handing has not been implemented yet");
+	}
+
+	if (events & BIT(UHC_DWC2_CHANNEL_DO_RELEASE)) {
+		uhc_dwc2_channel_release(dev, channel);
+	}
+
+	/* Notify the upper logic */
+	uhc_xfer_return(dev, xfer, err);
 }
 
 static void uhc_dwc2_isr_handler(const struct device *dev)
 {
 	struct uhc_dwc2_data *const priv = uhc_get_private(dev);
+	struct uhc_dwc2_channel *channel = NULL;
 	enum uhc_dwc2_event port_event = uhc_dwc2_port_get_event(dev);
+	uint32_t channel_events = 0;
 
 	/**
 	 * TODO: port_event serialization might be simplified by
@@ -616,7 +1194,19 @@ static void uhc_dwc2_isr_handler(const struct device *dev)
 	}
 	case UHC_DWC2_EVENT_PORT_PEND_CHANNEL: {
 		/* Handle pending channel event  */
-		/* TODO: Cycle through each pending channel */
+		channel = uhc_dwc2_channel_get_pending(dev);
+		while (channel != NULL) {
+			channel_events = uhc_dwc2_channel_irq_handle_events(channel);
+			if (channel_events) {
+				/**
+				 * The rest channel events be handled by the thread
+				 */
+				atomic_or(&channel->events, channel_events);
+				k_event_set(&priv->event,
+					BIT(UHC_DWC2_EVENT_PORT_PEND_CHANNEL + channel->index));
+			}
+			channel = uhc_dwc2_channel_get_pending(dev);
+		}
 		break;
 	}
 	default:
@@ -642,8 +1232,11 @@ static void uhc_dwc2_thread(void *arg0, void *arg1, void *arg2)
 		/* Handle port events */
 		uhc_dwc2_port_handle_events(dev, event_mask);
 
-		if (event_mask & BIT(UHC_DWC2_EVENT_PORT_PEND_CHANNEL)) {
-			uhc_dwc2_channel_handle_events(dev, NULL /* &priv->channel[index] */);
+		/* Interate channels events */
+		for (uint32_t index = 0; index < MAX_CHANNELS; index++) {
+			if (event_mask & BIT(UHC_DWC2_EVENT_PORT_PEND_CHANNEL + index)) {
+				uhc_dwc2_channel_handle_events(dev, &priv->channel[index]);
+			}
 		}
 
 		uhc_unlock_internal(dev);
@@ -680,9 +1273,10 @@ static int uhc_dwc2_bus_suspend(const struct device *const dev)
 
 static int uhc_dwc2_bus_reset(const struct device *const dev)
 {
-	LOG_WRN("%s has not been implemented", __func__);
+	uhc_dwc2_port_reset(dev);
 
-	return -ENOSYS;
+	uhc_submit_event(dev, UHC_EVT_RESETED, 0);
+	return 0;
 }
 
 static int uhc_dwc2_bus_resume(const struct device *const dev)
@@ -694,9 +1288,17 @@ static int uhc_dwc2_bus_resume(const struct device *const dev)
 
 static int uhc_dwc2_enqueue(const struct device *const dev, struct uhc_transfer *const xfer)
 {
-	LOG_WRN("%s has not been implemented", __func__);
+	int ret;
 
-	return -ENOSYS;
+	(void)uhc_xfer_append(dev, xfer);
+
+	uhc_lock_internal(dev, K_FOREVER);
+
+	ret = uhc_dwc2_submit_xfer(dev, xfer);
+
+	uhc_unlock_internal(dev);
+
+	return ret;
 }
 
 static int uhc_dwc2_dequeue(const struct device *const dev, struct uhc_transfer *const xfer)
@@ -734,6 +1336,7 @@ static int uhc_dwc2_preinit(const struct device *const dev)
 
 static int uhc_dwc2_init(const struct device *const dev)
 {
+	struct uhc_dwc2_data *priv = uhc_get_private(dev);
 	const struct uhc_dwc2_config *const config = dev->config;
 	struct usb_dwc2_reg *const dwc2 = config->base;
 	uint32_t reg;
@@ -804,11 +1407,20 @@ static int uhc_dwc2_init(const struct device *const dev)
 		return ret;
 	}
 
-	/* 4. Init DWC2 controller as a host */
+	/* 4. Pre-calculate FIFO settings */
+	uhc_dwc2_port_fifo_precalc_dma(dev);
+
+	/* 5. Init DWC2 controller as a host */
 
 	ret = dwc2_hal_init_host(dwc2);
 	if (ret) {
 		return ret;
+	}
+
+	/* 6. Init channels list */
+	for (uint32_t idx = 0; idx < MAX_CHANNELS; idx++) {
+		priv->channel[idx].regs = UHC_DWC2_CHANNEL_REGS(dwc2, idx);
+		priv->channel[idx].index = idx;
 	}
 
 	return 0;
