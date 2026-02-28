@@ -4,6 +4,8 @@
 config UDC_DWC3
 	bool "Synopsys USB device controller driver"
 	default y
+	select NOCACHE_MEMORY if ARCH_HAS_NOCACHE_MEMORY_SUPPORT
+	select UDC_BUF_FORCE_NOCACHE
 	depends on DT_HAS_SNPS_DWC3_ENABLED
 	help
 	  Synopsys DWC3 USB device controller driver.

@@ -13,6 +13,7 @@
 
 #include <zephyr/kernel.h>
 #include <zephyr/drivers/usb/udc.h>
+#include <zephyr/sys/device_mmio.h>
 #include <zephyr/sys/util.h>
 #include <zephyr/shell/shell.h>
 
@@ -522,6 +523,8 @@ struct udc_dwc3_trb {
  * Controller configuration items that can remain in non-volatile memory
  */
 struct udc_dwc3_config {
+	DEVICE_MMIO_NAMED_ROM(base);
+
 	/* USB endpoints data */
 	struct udc_dwc3_ep_data *ep_data_in;
 	struct udc_dwc3_ep_data *ep_data_out;
@@ -530,11 +533,10 @@ struct udc_dwc3_config {
 	struct udc_dwc3_trb (*trb_buf_out)[CONFIG_UDC_DWC3_TRB_NUM];
 	/* USB device configuration */
 	int maximum_speed_idx;
-	/* Base address at which the DWC3 core registers are mapped */
-	uintptr_t base;
 	/* Pointers to event buffer fetched by DWC3 with DMA */
 	volatile uint32_t *evt_buf;
-	/* Custom data used by vendor-specific functions ("quirks") */
+	/* Data used by vendor-specific functions ("quirks") */
+	const struct udc_dwc3_quirk_config *quirk_config;
 	struct udc_dwc3_quirk_data *quirk_data;
 	/* IRQ management functions */
 	void (*irq_enable_func)(void);
@@ -577,6 +579,8 @@ struct udc_dwc3_ep_data {
  * Accessed via "udc_get_private(dev)".
  */
 struct udc_dwc3_data {
+	DEVICE_MMIO_NAMED_RAM(base);
+
 	/* Index within trb where to queue new TRBs */
 	uint32_t evt_next;
 	/* A work queue entry to process the events from the event buffer */
@@ -599,7 +603,49 @@ enum {
 	UDC_DWC3_SPEED_IDX_SUPER_SPEED = 3,
 };
 
-#include "udc_dwc3_vendor_quirks.h"
+#if CONFIG_UDC_DWC3_TI_AM62
+#include "udc_dwc3_ti_am62.h"
+#endif
+
+/* Fallback no-op implementations */
+#ifndef UDC_DWC3_HAS_QUIRK_PREINIT
+int udc_dwc3_quirk_preinit(const struct device *const dev)
+{
+	LOG_DBG("Fallback quirk called for %s", __func__);
+	return 0;
+}
+#endif
+#ifndef UDC_DWC3_HAS_QUIRK_INIT
+int udc_dwc3_quirk_init(const struct device *const dev)
+{
+	LOG_DBG("Fallback quirk called for %s", __func__);
+	return 0;
+}
+#endif
+#ifndef UDC_DWC3_HAS_QUIRK_ENABLE
+int udc_dwc3_quirk_enable(const struct device *const dev)
+{
+	LOG_DBG("Fallback quirk called for %s", __func__);
+	return 0;
+}
+#endif
+#ifndef UDC_DWC3_HAS_QUIRK_DISABLE
+int udc_dwc3_quirk_disable(const struct device *const dev)
+{
+	LOG_DBG("Fallback quirk called for %s", __func__);
+	return 0;
+}
+#endif
+#ifndef UDC_DWC3_HAS_QUIRK_SHUTDOWN
+int udc_dwc3_quirk_shutdown(const struct device *const dev)
+{
+	LOG_DBG("Fallback quirk called for %s", __func__);
+	return 0;
+}
+#endif
+
+#define DEV_CFG(dev) ((const struct udc_dwc3_config *)(dev->config))
+#define DEV_DATA(dev) ((struct udc_dwc3_data *)udc_get_private(dev))
 
 /* Shut down the controller completely  */
 static int udc_dwc3_shutdown(const struct device *const dev)
@@ -705,12 +751,12 @@ static struct net_buf *udc_dwc3_pop_trb(const struct device *const dev,
 
 static uint32_t udc_dwc3_depcmd(const struct device *const dev, uint32_t addr, uint32_t cmd)
 {
-	const struct udc_dwc3_config *cfg = dev->config;
+	mm_reg_t base = DEVICE_MMIO_NAMED_GET(dev, base);
 	uint32_t reg;
 
-	sys_write32(cmd | UDC_DWC3_DEPCMD_CMDACT, cfg->base + addr);
+	sys_write32(cmd | UDC_DWC3_DEPCMD_CMDACT, base + addr);
 	do {
-		reg = sys_read32(cfg->base + addr);
+		reg = sys_read32(base + addr);
 	} while ((reg & UDC_DWC3_DEPCMD_CMDACT) != 0);
 
 	switch (reg & UDC_DWC3_DEPCMD_STATUS_MASK) {
@@ -729,7 +775,7 @@ static uint32_t udc_dwc3_depcmd(const struct device *const dev, uint32_t addr, u
 static void udc_dwc3_depcmd_ep_config(const struct device *const dev,
 				      struct udc_dwc3_ep_data *const ep_data)
 {
-	const struct udc_dwc3_config *cfg = dev->config;
+	mm_reg_t base = DEVICE_MMIO_NAMED_GET(dev, base);
 	uint32_t param0 = 0, param1 = 0;
 
 	LOG_INF("cmd: configuring endpoint 0x%02x with wMaxPacketSize=%u", ep_data->cfg.addr,
@@ -781,21 +827,21 @@ static void udc_dwc3_depcmd_ep_config(const struct device *const dev,
 	 */
 	param1 |= FIELD_PREP(UDC_DWC3_DEPCMDPAR1_DEPCFG_EPNUMBER_MASK, ep_data->epn);
 
-	sys_write32(param0, cfg->base + UDC_DWC3_DEPCMDPAR0(ep_data->epn));
-	sys_write32(param1, cfg->base + UDC_DWC3_DEPCMDPAR1(ep_data->epn));
+	sys_write32(param0, base + UDC_DWC3_DEPCMDPAR0(ep_data->epn));
+	sys_write32(param1, base + UDC_DWC3_DEPCMDPAR1(ep_data->epn));
 	udc_dwc3_depcmd(dev, UDC_DWC3_DEPCMD(ep_data->epn), UDC_DWC3_DEPCMD_DEPCFG);
 }
 
 static void udc_dwc3_depcmd_ep_xfer_config(const struct device *const dev,
 					   struct udc_dwc3_ep_data *const ep_data)
 {
-	const struct udc_dwc3_config *cfg = dev->config;
+	mm_reg_t base = DEVICE_MMIO_NAMED_GET(dev, base);
 	uint32_t reg;
 
 	LOG_DBG("cmd: DepXferConfig: ep=0x%02x", ep_data->cfg.addr);
 
 	reg = FIELD_PREP(UDC_DWC3_DEPCMDPAR0_DEPXFERCFG_NUMXFERRES_MASK, 1);
-	sys_write32(reg, cfg->base + UDC_DWC3_DEPCMDPAR0(ep_data->epn));
+	sys_write32(reg, base + UDC_DWC3_DEPCMDPAR0(ep_data->epn));
 	udc_dwc3_depcmd(dev, UDC_DWC3_DEPCMD(ep_data->epn), UDC_DWC3_DEPCMD_DEPXFERCFG);
 }
 
@@ -816,20 +862,20 @@ static void udc_dwc3_depcmd_clear_stall(const struct device *const dev,
 static void udc_dwc3_depcmd_start_xfer(const struct device *const dev,
 				       struct udc_dwc3_ep_data *const ep_data)
 {
-	const struct udc_dwc3_config *cfg = dev->config;
+	mm_reg_t base = DEVICE_MMIO_NAMED_GET(dev, base);
 	uint32_t reg;
 
 	/* Make sure the device is in U0 state, assuming TX FIFO is empty */
-	reg = sys_read32(cfg->base + UDC_DWC3_DCTL);
+	reg = sys_read32(base + UDC_DWC3_DCTL);
 	reg &= ~UDC_DWC3_DCTL_ULSTCHNGREQ_MASK;
 	reg |= UDC_DWC3_DCTL_ULSTCHNGREQ_REMOTEWAKEUP;
-	sys_write32(reg, cfg->base + UDC_DWC3_DCTL);
+	sys_write32(reg, base + UDC_DWC3_DCTL);
 
 	sys_write32(HI32((uintptr_t)ep_data->trb_buf),
-		    cfg->base + UDC_DWC3_DEPCMDPAR0(ep_data->epn));
+		    base + UDC_DWC3_DEPCMDPAR0(ep_data->epn));
 
 	sys_write32(LO32((uintptr_t)ep_data->trb_buf),
-		    cfg->base + UDC_DWC3_DEPCMDPAR1(ep_data->epn));
+		    base + UDC_DWC3_DEPCMDPAR1(ep_data->epn));
 
 	ep_data->xferrscidx =
 		udc_dwc3_depcmd(dev, UDC_DWC3_DEPCMD(ep_data->epn), UDC_DWC3_DEPCMD_DEPSTRTXFER);
@@ -875,15 +921,16 @@ static int udc_dwc3_do_set_address(const struct device *const dev,
 				   const uint8_t addr)
 {
 	const struct udc_dwc3_config *cfg = dev->config;
+	mm_reg_t base = DEVICE_MMIO_NAMED_GET(dev, base);
 	uint32_t reg;
 
 	LOG_INF("addr: setting to %u", addr);
 
 	/* Configure the new address */
-	reg = sys_read32(cfg->base + UDC_DWC3_DCFG);
+	reg = sys_read32(base + UDC_DWC3_DCFG);
 	reg &= ~UDC_DWC3_DCFG_DEVADDR_MASK;
 	reg |= FIELD_PREP(UDC_DWC3_DCFG_DEVADDR_MASK, addr);
-	sys_write32(reg, cfg->base + UDC_DWC3_DCFG);
+	sys_write32(reg, base + UDC_DWC3_DCFG);
 
 	/* Re-apply the same endpoint configuration */
 	udc_dwc3_depcmd_ep_config(dev, &cfg->ep_data_in[0]);
@@ -1054,14 +1101,15 @@ static int udc_dwc3_trb_bulk(const struct device *const dev,
 static void udc_dwc3_on_soft_reset(const struct device *const dev)
 {
 	const struct udc_dwc3_config *cfg = dev->config;
+	mm_reg_t base = DEVICE_MMIO_NAMED_GET(dev, base);
 	uint32_t reg;
 
 	/* Configure and reset the Device Controller */
 	/* TODO confirm that DWC_USB3_EN_LPM_ERRATA == 1 */
 	reg = UDC_DWC3_DCTL_CSFTRST;
 	reg |= FIELD_PREP(UDC_DWC3_DCTL_LPM_NYET_THRES_MASK, 15);
-	sys_write32(reg, cfg->base + UDC_DWC3_DCTL);
-	while (sys_read32(cfg->base + UDC_DWC3_DCTL) & UDC_DWC3_DCTL_CSFTRST) {
+	sys_write32(reg, base + UDC_DWC3_DCTL);
+	while (sys_read32(base + UDC_DWC3_DCTL) & UDC_DWC3_DCTL_CSFTRST) {
 		continue;
 	}
 
@@ -1073,16 +1121,16 @@ static void udc_dwc3_on_soft_reset(const struct device *const dev)
 	reg |= UDC_DWC3_GSBUSCFG0_INCR16BRSTENA;
 	reg |= UDC_DWC3_GSBUSCFG0_INCR8BRSTENA;
 	reg |= UDC_DWC3_GSBUSCFG0_INCR4BRSTENA;
-	sys_set_bits(cfg->base + UDC_DWC3_GSBUSCFG0, reg);
+	sys_set_bits(base + UDC_DWC3_GSBUSCFG0, reg);
 
 	/* Letting GTXTHRCFG and GRXTHRCFG unchanged */
 	reg = UDC_DWC3_GTXTHRCFG_USBTXPKTCNTSEL;
 	reg |= FIELD_PREP(UDC_DWC3_GTXTHRCFG_USBTXPKTCNT_MASK, 1);
 	reg |= FIELD_PREP(UDC_DWC3_GTXTHRCFG_USBMAXTXBURSTSIZE_MASK, 2);
-	sys_write32(reg, cfg->base + UDC_DWC3_GTXTHRCFG);
+	sys_write32(reg, base + UDC_DWC3_GTXTHRCFG);
 
 	/* Read the chip identification */
-	reg = sys_read32(cfg->base + UDC_DWC3_GCOREID);
+	reg = sys_read32(base + UDC_DWC3_GCOREID);
 	LOG_INF("evt: coreid=0x%04lx rel=0x%04lx",
 		FIELD_GET(UDC_DWC3_GCOREID_CORE_MASK, reg),
 		FIELD_GET(UDC_DWC3_GCOREID_REL_MASK, reg));
@@ -1095,45 +1143,45 @@ static void udc_dwc3_on_soft_reset(const struct device *const dev)
 	 * GRXFIFOSIZ too far below or above  512 * 3 leads to errors
 	 */
 	reg = 512 * 3;
-	sys_write32(reg, cfg->base + UDC_DWC3_GTXFIFOSIZ(0));
-	sys_write32(reg, cfg->base + UDC_DWC3_GRXFIFOSIZ(0));
+	sys_write32(reg, base + UDC_DWC3_GTXFIFOSIZ(0));
+	sys_write32(reg, base + UDC_DWC3_GRXFIFOSIZ(0));
 
 	/* Setup the event buffer address, size and start event reception */
 	memset((void *)cfg->evt_buf, 0, CONFIG_UDC_DWC3_EVENTS_NUM * sizeof(uint32_t));
-	sys_write32(HI32((uintptr_t)cfg->evt_buf), cfg->base + UDC_DWC3_GEVNTADR_HI(0));
-	sys_write32(LO32((uintptr_t)cfg->evt_buf), cfg->base + UDC_DWC3_GEVNTADR_LO(0));
+	sys_write32(HI32((uintptr_t)cfg->evt_buf), base + UDC_DWC3_GEVNTADR_HI(0));
+	sys_write32(LO32((uintptr_t)cfg->evt_buf), base + UDC_DWC3_GEVNTADR_LO(0));
 	sys_write32(CONFIG_UDC_DWC3_EVENTS_NUM * sizeof(uint32_t),
-		    cfg->base + UDC_DWC3_GEVNTSIZ(0));
+		    base + UDC_DWC3_GEVNTSIZ(0));
 	LOG_INF("Event buffer size is %u bytes",
-		sys_read32(cfg->base + UDC_DWC3_GEVNTSIZ(0)));
-	sys_write32(0, cfg->base + UDC_DWC3_GEVNTCOUNT(0));
+		sys_read32(base + UDC_DWC3_GEVNTSIZ(0)));
+	sys_write32(0, base + UDC_DWC3_GEVNTCOUNT(0));
 
 	/* Letting GCTL unchanged */
 
 	/* Set the USB device configuration, including max supported speed */
-	sys_write32(UDC_DWC3_DCFG_PERFRINT_90, cfg->base + UDC_DWC3_DCFG);
+	sys_write32(UDC_DWC3_DCFG_PERFRINT_90, base + UDC_DWC3_DCFG);
 	switch (cfg->maximum_speed_idx) {
 	case UDC_DWC3_SPEED_IDX_SUPER_SPEED:
 		LOG_DBG("UDC_DWC3_SPEED_IDX_SUPER_SPEED");
-		sys_set_bits(cfg->base + UDC_DWC3_DCFG, UDC_DWC3_DCFG_DEVSPD_SUPER_SPEED);
+		sys_set_bits(base + UDC_DWC3_DCFG, UDC_DWC3_DCFG_DEVSPD_SUPER_SPEED);
 		break;
 	case UDC_DWC3_SPEED_IDX_HIGH_SPEED:
 		LOG_DBG("UDC_DWC3_SPEED_IDX_HIGH_SPEED");
-		sys_set_bits(cfg->base + UDC_DWC3_DCFG, UDC_DWC3_DCFG_DEVSPD_HIGH_SPEED);
+		sys_set_bits(base + UDC_DWC3_DCFG, UDC_DWC3_DCFG_DEVSPD_HIGH_SPEED);
 		break;
 	case UDC_DWC3_SPEED_IDX_FULL_SPEED:
 		LOG_DBG("UDC_DWC3_SPEED_IDX_FULL_SPEED");
-		sys_set_bits(cfg->base + UDC_DWC3_DCFG, UDC_DWC3_DCFG_DEVSPD_FULL_SPEED);
+		sys_set_bits(base + UDC_DWC3_DCFG, UDC_DWC3_DCFG_DEVSPD_FULL_SPEED);
 		break;
 	default:
 		CODE_UNREACHABLE;
 	}
 
 	/* Set the number of USB3 packets the device can receive at once */
-	reg = sys_read32(cfg->base + UDC_DWC3_DCFG);
+	reg = sys_read32(base + UDC_DWC3_DCFG);
 	reg &= ~UDC_DWC3_DCFG_NUMP_MASK;
 	reg |= FIELD_PREP(UDC_DWC3_DCFG_NUMP_MASK, 15);
-	sys_write32(reg, cfg->base + UDC_DWC3_DCFG);
+	sys_write32(reg, base + UDC_DWC3_DCFG);
 
 	/* Enable reception of all USB events except UDC_DWC3_DEVTEN_ULSTCNGEN */
 	reg = UDC_DWC3_DEVTEN_INACTTIMEOUTRCVEDEN;
@@ -1146,7 +1194,7 @@ static void udc_dwc3_on_soft_reset(const struct device *const dev)
 	reg |= UDC_DWC3_DEVTEN_CONNECTDONEEN;
 	reg |= UDC_DWC3_DEVTEN_USBRSTEN;
 	reg |= UDC_DWC3_DEVTEN_DISCONNEVTEN;
-	sys_write32(reg, cfg->base + UDC_DWC3_DEVTEN);
+	sys_write32(reg, base + UDC_DWC3_DEVTEN);
 
 	/* Configure endpoint 0x00 and 0x80 only for now */
 	udc_dwc3_depcmd_start_config(dev, &cfg->ep_data_in[0]);
@@ -1187,20 +1235,21 @@ static void udc_dwc3_on_usb_reset(const struct device *const dev)
 static void udc_dwc3_on_connect_done(const struct device *const dev)
 {
 	const struct udc_dwc3_config *cfg = dev->config;
+	mm_reg_t base = DEVICE_MMIO_NAMED_GET(dev, base);
 	int mps = 0;
 
 	/* Adjust parameters against the connection speed */
-	switch (sys_read32(cfg->base + UDC_DWC3_DSTS) & UDC_DWC3_DSTS_CONNECTSPD_MASK) {
+	switch (sys_read32(base + UDC_DWC3_DSTS) & UDC_DWC3_DSTS_CONNECTSPD_MASK) {
 	case UDC_DWC3_DSTS_CONNECTSPD_FS:
 	case UDC_DWC3_DSTS_CONNECTSPD_HS:
 		mps = 64;
 		/* TODO this is not suspending USB3, it enable suspend feature */
-		/* sys_set_bits(cfg->base + UDC_DWC3_GUSB3PIPECTL, */
+		/* sys_set_bits(base + UDC_DWC3_GUSB3PIPECTL, */
 		/*		UDC_DWC3_GUSB3PIPECTL_SUSPENDENABLE); */
 		break;
 	case UDC_DWC3_DSTS_CONNECTSPD_SS:
 		mps = 512;
-		/* sys_set_bits(cfg->base + UDC_DWC3_GUSB2PHYCFG, UDC_DWC3_GUSB2PHYCFG_SUSPHY); */
+		/* sys_set_bits(base + UDC_DWC3_GUSB2PHYCFG, UDC_DWC3_GUSB2PHYCFG_SUSPHY); */
 		break;
 	}
 	__ASSERT_NO_MSG(mps != 0);
@@ -1216,10 +1265,10 @@ static void udc_dwc3_on_connect_done(const struct device *const dev)
 
 static void udc_dwc3_on_link_state_event(const struct device *const dev)
 {
-	const struct udc_dwc3_config *cfg = dev->config;
+	mm_reg_t base = DEVICE_MMIO_NAMED_GET(dev, base);
 	uint32_t reg;
 
-	reg = sys_read32(cfg->base + UDC_DWC3_DSTS);
+	reg = sys_read32(base + UDC_DWC3_DSTS);
 
 	switch (reg & UDC_DWC3_DSTS_CONNECTSPD_MASK) {
 	case UDC_DWC3_DSTS_CONNECTSPD_SS:
@@ -1580,9 +1629,9 @@ void udc_dwc3_irq_handler(void *ptr)
 int udc_dwc3_ep_enqueue(const struct device *const dev, struct udc_ep_config *const ep_cfg,
 			 struct net_buf *buf)
 {
-	const struct udc_dwc3_config *cfg = dev->config;
 	struct udc_dwc3_ep_data *const ep_data = (void *)ep_cfg;
 	struct udc_buf_info *bi = udc_get_buf_info(buf);
+	mm_reg_t base = DEVICE_MMIO_NAMED_GET(dev, base);
 
 	LOG_DBG("Enqueued buffer to EP 0x%02x", ep_data->cfg.addr);
 
@@ -1612,7 +1661,7 @@ int udc_dwc3_ep_enqueue(const struct device *const dev, struct udc_ep_config *co
 		udc_buf_put(ep_cfg, buf);
 
 		/* Process this buffer along with other waiting */
-		if (sys_read32(cfg->base + UDC_DWC3_DCTL) & UDC_DWC3_DCTL_RUNSTOP) {
+		if (sys_read32(base + UDC_DWC3_DCTL) & UDC_DWC3_DCTL_RUNSTOP) {
 			LOG_DBG("submitting to EP 0x%02x", ep_data->cfg.addr);
 			k_work_submit(&ep_data->work);
 		}
@@ -1637,10 +1686,10 @@ int udc_dwc3_ep_dequeue(const struct device *const dev, struct udc_ep_config *co
 
 int udc_dwc3_ep_disable(const struct device *const dev, struct udc_ep_config *const ep_cfg)
 {
-	const struct udc_dwc3_config *cfg = dev->config;
 	struct udc_dwc3_ep_data *const ep_data = (void *)ep_cfg;
+	mm_reg_t base = DEVICE_MMIO_NAMED_GET(dev, base);
 
-	sys_clear_bit(cfg->base + UDC_DWC3_DALEPENA, ep_data->epn);
+	sys_clear_bit(base + UDC_DWC3_DALEPENA, ep_data->epn);
 	return 0;
 }
 
@@ -1698,13 +1747,13 @@ int udc_dwc3_ep_clear_halt(const struct device *const dev, struct udc_ep_config 
 
 int udc_dwc3_set_address(const struct device *const dev, const uint8_t addr)
 {
-	const struct udc_dwc3_config *cfg = dev->config;
+	mm_reg_t base = DEVICE_MMIO_NAMED_GET(dev, base);
 	uint32_t reg;
 
 	/* The address is set in the code earlier to improve latency, only
 	 * checking that it is still the value done for consistency.
 	 */
-	reg = sys_read32(cfg->base + UDC_DWC3_DCFG);
+	reg = sys_read32(base + UDC_DWC3_DCFG);
 	if (FIELD_GET(UDC_DWC3_DCFG_DEVADDR_MASK, reg) != addr) {
 		return -EPROTO;
 	}
@@ -1714,9 +1763,9 @@ int udc_dwc3_set_address(const struct device *const dev, const uint8_t addr)
 
 enum udc_bus_speed udc_dwc3_device_speed(const struct device *const dev)
 {
-	const struct udc_dwc3_config *cfg = dev->config;
+	mm_reg_t base = DEVICE_MMIO_NAMED_GET(dev, base);
 
-	switch (sys_read32(cfg->base + UDC_DWC3_DSTS) & UDC_DWC3_DSTS_CONNECTSPD_MASK) {
+	switch (sys_read32(base + UDC_DWC3_DSTS) & UDC_DWC3_DSTS_CONNECTSPD_MASK) {
 	case UDC_DWC3_DSTS_CONNECTSPD_FS:
 		return UDC_BUS_SPEED_FS;
 	case UDC_DWC3_DSTS_CONNECTSPD_HS:
@@ -1733,6 +1782,7 @@ int udc_dwc3_enable(const struct device *const dev)
 {
 	const struct udc_dwc3_config *cfg = dev->config;
 	struct udc_dwc3_data *priv = udc_get_private(dev);
+	mm_reg_t base = DEVICE_MMIO_NAMED_GET(dev, base);
 	int ret;
 
 	LOG_DBG("Enabling DWC3 driver");
@@ -1748,7 +1798,7 @@ int udc_dwc3_enable(const struct device *const dev)
 	udc_dwc3_trb_ctrl_setup_out(dev);
 
 	/* Enable the DWC3 events */
-	sys_set_bits(cfg->base + UDC_DWC3_DCTL, UDC_DWC3_DCTL_RUNSTOP);
+	sys_set_bits(base + UDC_DWC3_DCTL, UDC_DWC3_DCTL_RUNSTOP);
 
 	/* Enable the IRQ (for now, just schedule a first work queue job) */
 	cfg->irq_enable_func();
@@ -1759,11 +1809,11 @@ int udc_dwc3_enable(const struct device *const dev)
 
 int udc_dwc3_disable(const struct device *const dev)
 {
-	const struct udc_dwc3_config *cfg = dev->config;
+	mm_reg_t base = DEVICE_MMIO_NAMED_GET(dev, base);
 
 	LOG_DBG("Disabling DWC3 driver");
 
-	sys_clear_bits(cfg->base + UDC_DWC3_DCTL, UDC_DWC3_DCTL_RUNSTOP);
+	sys_clear_bits(base + UDC_DWC3_DCTL, UDC_DWC3_DCTL_RUNSTOP);
 
 	return 0;
 }
@@ -1778,7 +1828,7 @@ int udc_dwc3_disable(const struct device *const dev)
 int udc_dwc3_ep_enable(const struct device *const dev, struct udc_ep_config *const ep_cfg)
 {
 	struct udc_dwc3_ep_data *const ep_data = (struct udc_dwc3_ep_data *)ep_cfg;
-	const struct udc_dwc3_config *cfg = dev->config;
+	mm_reg_t base = DEVICE_MMIO_NAMED_GET(dev, base);
 
 	LOG_DBG("%s 0x%02x", __func__, ep_data->cfg.addr);
 
@@ -1791,7 +1841,7 @@ int udc_dwc3_ep_enable(const struct device *const dev, struct udc_ep_config *con
 	}
 
 	/* Starting from here, the endpoint can be used */
-	sys_set_bits(cfg->base + UDC_DWC3_DALEPENA, UDC_DWC3_DALEPENA_USBACTEP(ep_data->epn));
+	sys_set_bits(base + UDC_DWC3_DALEPENA, UDC_DWC3_DALEPENA_USBACTEP(ep_data->epn));
 
 	/* Walk through the list of buffer to enqueue we might have blocked */
 	k_work_submit(&ep_data->work);
@@ -1807,7 +1857,7 @@ int udc_dwc3_ep_enable(const struct device *const dev, struct udc_ep_config *con
 int udc_dwc3_init(const struct device *const dev)
 {
 	struct udc_dwc3_data *priv = udc_get_private(dev);
-	const struct udc_dwc3_config *cfg = dev->config;
+	mm_reg_t base = DEVICE_MMIO_NAMED_GET(dev, base);
 	int ret;
 
 	LOG_DBG("Initializing the DWC3 core");
@@ -1818,21 +1868,21 @@ int udc_dwc3_init(const struct device *const dev)
 	}
 
 	/* Issue a soft reset to the core and USB2 and USB3 PHY */
-	sys_set_bits(cfg->base + UDC_DWC3_GCTL, UDC_DWC3_GCTL_CORESOFTRESET);
-	sys_set_bits(cfg->base + UDC_DWC3_GUSB3PIPECTL, UDC_DWC3_GUSB3PIPECTL_PHYSOFTRST);
-	sys_set_bits(cfg->base + UDC_DWC3_GUSB2PHYCFG, UDC_DWC3_GUSB2PHYCFG_PHYSOFTRST);
+	sys_set_bits(base + UDC_DWC3_GCTL, UDC_DWC3_GCTL_CORESOFTRESET);
+	sys_set_bits(base + UDC_DWC3_GUSB3PIPECTL, UDC_DWC3_GUSB3PIPECTL_PHYSOFTRST);
+	sys_set_bits(base + UDC_DWC3_GUSB2PHYCFG, UDC_DWC3_GUSB2PHYCFG_PHYSOFTRST);
 	k_sleep(K_USEC(1000)); /* TODO: reduce amount of wait time */
 
 	/* Teriminate the reset of the USB2 and USB3 PHY first */
-	sys_clear_bits(cfg->base + UDC_DWC3_GUSB3PIPECTL, UDC_DWC3_GUSB3PIPECTL_PHYSOFTRST);
-	sys_clear_bits(cfg->base + UDC_DWC3_GUSB2PHYCFG, UDC_DWC3_GUSB2PHYCFG_PHYSOFTRST);
+	sys_clear_bits(base + UDC_DWC3_GUSB3PIPECTL, UDC_DWC3_GUSB3PIPECTL_PHYSOFTRST);
+	sys_clear_bits(base + UDC_DWC3_GUSB2PHYCFG, UDC_DWC3_GUSB2PHYCFG_PHYSOFTRST);
 
 	/* Teriminate the reset of the DWC3 core after it */
-	sys_clear_bits(cfg->base + UDC_DWC3_GCTL, UDC_DWC3_GCTL_CORESOFTRESET);
+	sys_clear_bits(base + UDC_DWC3_GCTL, UDC_DWC3_GCTL_CORESOFTRESET);
 
 	/* Initialize USB2 PHY vendor-specific wrappers */
-	sys_set_bits(cfg->base + UDC_DWC3_U2PHYCTRL1, UDC_DWC3_U2PHYCTRL1_SEL_INTERNALCLK);
-	sys_set_bits(cfg->base + UDC_DWC3_U2PHYCTRL2, UDC_DWC3_U2PHYCTRL2_REFCLK_SEL);
+	sys_set_bits(base + UDC_DWC3_U2PHYCTRL1, UDC_DWC3_U2PHYCTRL1_SEL_INTERNALCLK);
+	sys_set_bits(base + UDC_DWC3_U2PHYCTRL2, UDC_DWC3_U2PHYCTRL2_REFCLK_SEL);
 
 	/* The USB core was reset, configure it as documented */
 	udc_dwc3_on_soft_reset(dev);
@@ -1851,7 +1901,7 @@ int udc_dwc3_init(const struct device *const dev)
 		return ret;
 	}
 
-	LOG_INF("Event buffer size is %u bytes", sys_read32(cfg->base + UDC_DWC3_GEVNTSIZ(0)));
+	LOG_INF("Event buffer size is %u bytes", sys_read32(base + UDC_DWC3_GEVNTSIZ(0)));
 
 	atomic_set_bit(&priv->flags, UDC_DWC3_FLAG_INITIALIZED);
 	return 0;
@@ -1912,9 +1962,10 @@ static void udc_dwc3_event_worker(struct k_work *const work)
 	struct udc_dwc3_data *priv = CONTAINER_OF(dwork, struct udc_dwc3_data, dwork);
 	const struct device *const dev = priv->dev;
 	const struct udc_dwc3_config *cfg = dev->config;
+	mm_reg_t base = DEVICE_MMIO_NAMED_GET(dev, base);
 	uint32_t evt;
 
-	if (sys_read32(cfg->base + UDC_DWC3_GEVNTCOUNT(0)) == 0) {
+	if (sys_read32(base + UDC_DWC3_GEVNTCOUNT(0)) == 0) {
 		/* No more event to process */
 		return;
 	}
@@ -1981,7 +2032,7 @@ static void udc_dwc3_event_worker(struct k_work *const work)
 		CODE_UNREACHABLE;
 	}
 
-	sys_write32(sizeof(evt), cfg->base + UDC_DWC3_GEVNTCOUNT(0));
+	sys_write32(sizeof(evt), base + UDC_DWC3_GEVNTCOUNT(0));
 	udc_dwc3_ring_inc(&priv->evt_next, CONFIG_UDC_DWC3_EVENTS_NUM);
 
 	LOG_DBG("--- * ---");
@@ -2006,6 +2057,8 @@ int udc_dwc3_driver_preinit(const struct device *const dev)
 	if (ret != 0) {
 		return ret;
 	}
+
+	DEVICE_MMIO_NAMED_MAP(dev, base, K_MEM_CACHE_NONE);
 
 	k_mutex_init(&data->mutex);
 	k_work_init_delayable(&priv->dwork, &udc_dwc3_event_worker);
@@ -2137,7 +2190,7 @@ int udc_dwc3_driver_preinit(const struct device *const dev)
 		[DT_INST_PROP(n, num_out_endpoints)];				\
 										\
 	static const struct udc_dwc3_config udc_dwc3_config_##n = {		\
-		.base = DT_INST_REG_ADDR(n),					\
+		DEVICE_MMIO_NAMED_ROM_INIT_BY_NAME(base, DT_DRV_INST(n)),    \
 		.quirk_data = &udc_dwc3_quirk_data_##n,				\
 		.num_in_eps = DT_INST_PROP(n, num_in_endpoints),		\
 		.num_out_eps = DT_INST_PROP(n, num_out_endpoints),		\
