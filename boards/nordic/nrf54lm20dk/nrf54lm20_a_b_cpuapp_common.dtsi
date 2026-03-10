@@ -105,6 +105,10 @@
 	status = "okay";
 };
 
+zephyr_uhc0: &usbhs {
+	status = "okay";
+};
+
 zephyr_udc0: &usbhs {
 	status = "okay";
 };
