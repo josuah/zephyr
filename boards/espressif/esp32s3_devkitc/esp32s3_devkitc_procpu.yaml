@@ -19,5 +19,7 @@ supported:
   - input
   - video
   - crypto
+  - usbd
+  - usbh
   - retained_mem
 vendor: espressif
