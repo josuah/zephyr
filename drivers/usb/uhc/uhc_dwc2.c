@@ -502,7 +502,7 @@ static inline bool uhc_dwc2_channel_xfer_is_done(struct uhc_dwc2_channel *channe
 	return (channel->ctrl_stg == UHC_CONTROL_STAGE_STATUS);
 }
 
-static void IRAM_ATTR uhc_dwc2_channel_process_ctrl(struct uhc_dwc2_channel *channel)
+static void uhc_dwc2_channel_process_ctrl(struct uhc_dwc2_channel *channel)
 {
 	struct uhc_transfer *const xfer = channel->xfer;
 	bool next_dir_is_in;
