@@ -1201,6 +1201,7 @@ int video_transfer_buffer(const struct device *src, const struct device *sink,
  * @endcode
  */
 #define VIDEO_PIX_FMT_SBGGR8P16 VIDEO_FOURCC('p', 'B', '8', '2')
+#define VIDEO_PIX_FMT_SBGGR8P16_BITS_PER_PIXEL 16
 
 /**
  * 8-bit bayer format, split in two 4-bit blocks each zero-padded, little endian.
@@ -1211,6 +1212,7 @@ int video_transfer_buffer(const struct device *src, const struct device *sink,
  * @endcode
  */
 #define VIDEO_PIX_FMT_SGBRG8P16 VIDEO_FOURCC('p', 'G', '8', '2')
+#define VIDEO_PIX_FMT_SGBRG8P16_BITS_PER_PIXEL 16
 
 /**
  * 8-bit bayer format, split in two 4-bit blocks each zero-padded, little endian.
@@ -1221,6 +1223,7 @@ int video_transfer_buffer(const struct device *src, const struct device *sink,
  * @endcode
  */
 #define VIDEO_PIX_FMT_SGRBG8P16 VIDEO_FOURCC('p', 'g', '8', '2')
+#define VIDEO_PIX_FMT_SGRBG8P16_BITS_PER_PIXEL 16
 
 /**
  * 8-bit bayer format, split in two 4-bit blocks each zero-padded, little endian.
@@ -1231,6 +1234,7 @@ int video_transfer_buffer(const struct device *src, const struct device *sink,
  * @endcode
  */
 #define VIDEO_PIX_FMT_SRGGB8P16 VIDEO_FOURCC('p', 'R', '8', '2')
+#define VIDEO_PIX_FMT_SRGGB8P16_BITS_PER_PIXEL 16
 
 /**
  * @brief Repeat a macro for every Bayer MIPI-packed format, passed as first parameter
@@ -1262,6 +1266,7 @@ int video_transfer_buffer(const struct device *src, const struct device *sink,
  * @endcode
  */
 #define VIDEO_PIX_FMT_SBGGR10P VIDEO_FOURCC('p', 'B', 'A', 'A')
+#define VIDEO_PIX_FMT_SBGGR10P_BITS_PER_PIXEL 10
 
 /**
  * @code{.unparsed}
@@ -1271,6 +1276,7 @@ int video_transfer_buffer(const struct device *src, const struct device *sink,
  * @endcode
  */
 #define VIDEO_PIX_FMT_SGBRG10P VIDEO_FOURCC('p', 'G', 'A', 'A')
+#define VIDEO_PIX_FMT_SGBRG10P_BITS_PER_PIXEL 10
 
 /**
  * @code{.unparsed}
@@ -1280,6 +1286,7 @@ int video_transfer_buffer(const struct device *src, const struct device *sink,
  * @endcode
  */
 #define VIDEO_PIX_FMT_SGRBG10P VIDEO_FOURCC('p', 'g', 'A', 'A')
+#define VIDEO_PIX_FMT_SGRBG10P_BITS_PER_PIXEL 10
 
 /**
  * @code{.unparsed}
@@ -1289,6 +1296,7 @@ int video_transfer_buffer(const struct device *src, const struct device *sink,
  * @endcode
  */
 #define VIDEO_PIX_FMT_SRGGB10P VIDEO_FOURCC('p', 'R', 'A', 'A')
+#define VIDEO_PIX_FMT_SRGGB10P_BITS_PER_PIXEL 10
 
 /**
  * @code{.unparsed}
@@ -1298,6 +1306,7 @@ int video_transfer_buffer(const struct device *src, const struct device *sink,
  * @endcode
  */
 #define VIDEO_PIX_FMT_SBGGR12P VIDEO_FOURCC('p', 'B', 'C', 'C')
+#define VIDEO_PIX_FMT_SBGGR12P_BITS_PER_PIXEL 12
 
 /**
  * @code{.unparsed}
@@ -1307,6 +1316,7 @@ int video_transfer_buffer(const struct device *src, const struct device *sink,
  * @endcode
  */
 #define VIDEO_PIX_FMT_SGBRG12P VIDEO_FOURCC('p', 'G', 'C', 'C')
+#define VIDEO_PIX_FMT_SGBRG12P_BITS_PER_PIXEL 12
 
 /**
  * @code{.unparsed}
@@ -1316,6 +1326,7 @@ int video_transfer_buffer(const struct device *src, const struct device *sink,
  * @endcode
  */
 #define VIDEO_PIX_FMT_SGRBG12P VIDEO_FOURCC('p', 'g', 'C', 'C')
+#define VIDEO_PIX_FMT_SGRBG12P_BITS_PER_PIXEL 12
 
 /**
  * @code{.unparsed}
@@ -1325,6 +1336,7 @@ int video_transfer_buffer(const struct device *src, const struct device *sink,
  * @endcode
  */
 #define VIDEO_PIX_FMT_SRGGB12P VIDEO_FOURCC('p', 'R', 'C', 'C')
+#define VIDEO_PIX_FMT_SRGGB12P_BITS_PER_PIXEL 12
 
 /**
  * @code{.unparsed}
@@ -1334,6 +1346,7 @@ int video_transfer_buffer(const struct device *src, const struct device *sink,
  * @endcode
  */
 #define VIDEO_PIX_FMT_SBGGR14P VIDEO_FOURCC('p', 'B', 'E', 'E')
+#define VIDEO_PIX_FMT_SBGGR14P_BITS_PER_PIXEL 14
 
 /**
  * @code{.unparsed}
@@ -1343,6 +1356,7 @@ int video_transfer_buffer(const struct device *src, const struct device *sink,
  * @endcode
  */
 #define VIDEO_PIX_FMT_SGBRG14P VIDEO_FOURCC('p', 'G', 'E', 'E')
+#define VIDEO_PIX_FMT_SGBRG14P_BITS_PER_PIXEL 14
 
 /**
  * @code{.unparsed}
@@ -1352,6 +1366,7 @@ int video_transfer_buffer(const struct device *src, const struct device *sink,
  * @endcode
  */
 #define VIDEO_PIX_FMT_SGRBG14P VIDEO_FOURCC('p', 'g', 'E', 'E')
+#define VIDEO_PIX_FMT_SGRBG14P_BITS_PER_PIXEL 14
 
 /**
  * @code{.unparsed}
@@ -1361,6 +1376,7 @@ int video_transfer_buffer(const struct device *src, const struct device *sink,
  * @endcode
  */
 #define VIDEO_PIX_FMT_SRGGB14P VIDEO_FOURCC('p', 'R', 'E', 'E')
+#define VIDEO_PIX_FMT_SRGGB14P_BITS_PER_PIXEL 14
 
 /**
  * @brief Repeat a macro for every Bayer non-packed format, passed as first parameter
@@ -1399,6 +1415,7 @@ int video_transfer_buffer(const struct device *src, const struct device *sink,
  * @endcode
  */
 #define VIDEO_PIX_FMT_SBGGR8 VIDEO_FOURCC('B', 'A', '8', '1')
+#define VIDEO_PIX_FMT_SBGGR8_BITS_PER_PIXEL 8
 
 /**
  * @code{.unparsed}
@@ -1408,6 +1425,7 @@ int video_transfer_buffer(const struct device *src, const struct device *sink,
  * @endcode
  */
 #define VIDEO_PIX_FMT_SGBRG8 VIDEO_FOURCC('G', 'B', 'R', 'G')
+#define VIDEO_PIX_FMT_SGBRG8_BITS_PER_PIXEL 8
 
 /**
  * @code{.unparsed}
@@ -1417,6 +1435,7 @@ int video_transfer_buffer(const struct device *src, const struct device *sink,
  * @endcode
  */
 #define VIDEO_PIX_FMT_SGRBG8 VIDEO_FOURCC('G', 'R', 'B', 'G')
+#define VIDEO_PIX_FMT_SGRBG8_BITS_PER_PIXEL 8
 
 /**
  * @code{.unparsed}
@@ -1426,6 +1445,7 @@ int video_transfer_buffer(const struct device *src, const struct device *sink,
  * @endcode
  */
 #define VIDEO_PIX_FMT_SRGGB8 VIDEO_FOURCC('R', 'G', 'G', 'B')
+#define VIDEO_PIX_FMT_SRGGB8_BITS_PER_PIXEL 8
 
 /**
  * @code{.unparsed}
@@ -1434,6 +1454,7 @@ int video_transfer_buffer(const struct device *src, const struct device *sink,
  * @endcode
  */
 #define VIDEO_PIX_FMT_SBGGR10 VIDEO_FOURCC('B', 'G', '1', '0')
+#define VIDEO_PIX_FMT_SBGGR10_BITS_PER_PIXEL 16
 
 /**
  * @code{.unparsed}
@@ -1442,6 +1463,7 @@ int video_transfer_buffer(const struct device *src, const struct device *sink,
  * @endcode
  */
 #define VIDEO_PIX_FMT_SGBRG10 VIDEO_FOURCC('G', 'B', '1', '0')
+#define VIDEO_PIX_FMT_SGBRG10_BITS_PER_PIXEL 16
 
 /**
  * @code{.unparsed}
@@ -1450,6 +1472,7 @@ int video_transfer_buffer(const struct device *src, const struct device *sink,
  * @endcode
  */
 #define VIDEO_PIX_FMT_SGRBG10 VIDEO_FOURCC('B', 'A', '1', '0')
+#define VIDEO_PIX_FMT_SGRBG10_BITS_PER_PIXEL 16
 
 /**
  * @code{.unparsed}
@@ -1458,6 +1481,7 @@ int video_transfer_buffer(const struct device *src, const struct device *sink,
  * @endcode
  */
 #define VIDEO_PIX_FMT_SRGGB10 VIDEO_FOURCC('R', 'G', '1', '0')
+#define VIDEO_PIX_FMT_SRGGB10_BITS_PER_PIXEL 16
 
 /**
  * @code{.unparsed}
@@ -1466,6 +1490,7 @@ int video_transfer_buffer(const struct device *src, const struct device *sink,
  * @endcode
  */
 #define VIDEO_PIX_FMT_SBGGR12 VIDEO_FOURCC('B', 'G', '1', '2')
+#define VIDEO_PIX_FMT_SBGGR12_BITS_PER_PIXEL 16
 
 /**
  * @code{.unparsed}
@@ -1474,6 +1499,7 @@ int video_transfer_buffer(const struct device *src, const struct device *sink,
  * @endcode
  */
 #define VIDEO_PIX_FMT_SGBRG12 VIDEO_FOURCC('G', 'B', '1', '2')
+#define VIDEO_PIX_FMT_SGBRG12_BITS_PER_PIXEL 16
 
 /**
  * @code{.unparsed}
@@ -1482,6 +1508,7 @@ int video_transfer_buffer(const struct device *src, const struct device *sink,
  * @endcode
  */
 #define VIDEO_PIX_FMT_SGRBG12 VIDEO_FOURCC('B', 'A', '1', '2')
+#define VIDEO_PIX_FMT_SGRBG12_BITS_PER_PIXEL 16
 
 /**
  * @code{.unparsed}
@@ -1490,6 +1517,7 @@ int video_transfer_buffer(const struct device *src, const struct device *sink,
  * @endcode
  */
 #define VIDEO_PIX_FMT_SRGGB12 VIDEO_FOURCC('R', 'G', '1', '2')
+#define VIDEO_PIX_FMT_SRGGB12_BITS_PER_PIXEL 16
 
 /**
  * @code{.unparsed}
@@ -1498,6 +1526,7 @@ int video_transfer_buffer(const struct device *src, const struct device *sink,
  * @endcode
  */
 #define VIDEO_PIX_FMT_SBGGR14 VIDEO_FOURCC('B', 'G', '1', '4')
+#define VIDEO_PIX_FMT_SBGGR14_BITS_PER_PIXEL 16
 
 /**
  * @code{.unparsed}
@@ -1506,6 +1535,7 @@ int video_transfer_buffer(const struct device *src, const struct device *sink,
  * @endcode
  */
 #define VIDEO_PIX_FMT_SGBRG14 VIDEO_FOURCC('G', 'B', '1', '4')
+#define VIDEO_PIX_FMT_SGBRG14_BITS_PER_PIXEL 16
 
 /**
  * @code{.unparsed}
@@ -1514,6 +1544,7 @@ int video_transfer_buffer(const struct device *src, const struct device *sink,
  * @endcode
  */
 #define VIDEO_PIX_FMT_SGRBG14 VIDEO_FOURCC('G', 'R', '1', '4')
+#define VIDEO_PIX_FMT_SGRBG14_BITS_PER_PIXEL 16
 
 /**
  * @code{.unparsed}
@@ -1522,6 +1553,7 @@ int video_transfer_buffer(const struct device *src, const struct device *sink,
  * @endcode
  */
 #define VIDEO_PIX_FMT_SRGGB14 VIDEO_FOURCC('R', 'G', '1', '4')
+#define VIDEO_PIX_FMT_SRGGB14_BITS_PER_PIXEL 16
 
 /**
  * @code{.unparsed}
@@ -1530,6 +1562,7 @@ int video_transfer_buffer(const struct device *src, const struct device *sink,
  * @endcode
  */
 #define VIDEO_PIX_FMT_SBGGR16 VIDEO_FOURCC('B', 'Y', 'R', '2')
+#define VIDEO_PIX_FMT_SBGGR16_BITS_PER_PIXEL 16
 
 /**
  * @code{.unparsed}
@@ -1538,6 +1571,7 @@ int video_transfer_buffer(const struct device *src, const struct device *sink,
  * @endcode
  */
 #define VIDEO_PIX_FMT_SGBRG16 VIDEO_FOURCC('G', 'B', '1', '6')
+#define VIDEO_PIX_FMT_SGBRG16_BITS_PER_PIXEL 16
 
 /**
  * @code{.unparsed}
@@ -1546,6 +1580,7 @@ int video_transfer_buffer(const struct device *src, const struct device *sink,
  * @endcode
  */
 #define VIDEO_PIX_FMT_SGRBG16 VIDEO_FOURCC('G', 'R', '1', '6')
+#define VIDEO_PIX_FMT_SGRBG16_BITS_PER_PIXEL 16
 
 /**
  * @code{.unparsed}
@@ -1554,6 +1589,7 @@ int video_transfer_buffer(const struct device *src, const struct device *sink,
  * @endcode
  */
 #define VIDEO_PIX_FMT_SRGGB16 VIDEO_FOURCC('R', 'G', '1', '6')
+#define VIDEO_PIX_FMT_SRGGB16_BITS_PER_PIXEL 16
 
 /**
  * @}
@@ -1607,6 +1643,7 @@ int video_transfer_buffer(const struct device *src, const struct device *sink,
  * @endcode
  */
 #define VIDEO_PIX_FMT_GREY VIDEO_FOURCC('G', 'R', 'E', 'Y')
+#define VIDEO_PIX_FMT_GREY_BITS_PER_PIXEL 8
 
 /**
  * Little endian, with the 6 most significant bits set to Zero.
@@ -1617,6 +1654,7 @@ int video_transfer_buffer(const struct device *src, const struct device *sink,
  * @endcode
  */
 #define VIDEO_PIX_FMT_Y10 VIDEO_FOURCC('Y', '1', '0', ' ')
+#define VIDEO_PIX_FMT_Y10_BITS_PER_PIXEL 16
 
 /**
  * Little endian, with the 4 most significant bits set to Zero.
@@ -1627,6 +1665,7 @@ int video_transfer_buffer(const struct device *src, const struct device *sink,
  * @endcode
  */
 #define VIDEO_PIX_FMT_Y12 VIDEO_FOURCC('Y', '1', '2', ' ')
+#define VIDEO_PIX_FMT_Y12_BITS_PER_PIXEL 16
 
 /**
  * Little endian, with the 2 most significant bits set to Zero.
@@ -1637,6 +1676,7 @@ int video_transfer_buffer(const struct device *src, const struct device *sink,
  * @endcode
  */
 #define VIDEO_PIX_FMT_Y14 VIDEO_FOURCC('Y', '1', '4', ' ')
+#define VIDEO_PIX_FMT_Y14_BITS_PER_PIXEL 16
 
 /**
  * Little endian.
@@ -1647,6 +1687,7 @@ int video_transfer_buffer(const struct device *src, const struct device *sink,
  * @endcode
  */
 #define VIDEO_PIX_FMT_Y16 VIDEO_FOURCC('Y', '1', '6', ' ')
+#define VIDEO_PIX_FMT_Y16_BITS_PER_PIXEL 16
 
 /**
  * @brief Repeat a macro for every grayscale padded format, passed as first parameter
@@ -1666,6 +1707,7 @@ int video_transfer_buffer(const struct device *src, const struct device *sink,
  * @endcode
  */
 #define VIDEO_PIX_FMT_Y8P16 VIDEO_FOURCC('Y', '8', 'P', '2')
+#define VIDEO_PIX_FMT_Y8P16_BITS_PER_PIXEL 16
 
 /**
  * @brief Repeat a macro for every grayscale MIPI-packed format, passed as first parameter
@@ -1685,6 +1727,7 @@ int video_transfer_buffer(const struct device *src, const struct device *sink,
  * @endcode
  */
 #define VIDEO_PIX_FMT_Y10P VIDEO_FOURCC('Y', '1', '0', 'P')
+#define VIDEO_PIX_FMT_Y10P_BITS_PER_PIXEL 10
 
 /**
  * @code{.unparsed}
@@ -1694,6 +1737,7 @@ int video_transfer_buffer(const struct device *src, const struct device *sink,
  * @endcode
  */
 #define VIDEO_PIX_FMT_Y12P VIDEO_FOURCC('Y', '1', '2', 'P')
+#define VIDEO_PIX_FMT_Y12P_BITS_PER_PIXEL 12
 
 /**
  * @code{.unparsed}
@@ -1703,6 +1747,7 @@ int video_transfer_buffer(const struct device *src, const struct device *sink,
  * @endcode
  */
 #define VIDEO_PIX_FMT_Y14P VIDEO_FOURCC('Y', '1', '4', 'P')
+#define VIDEO_PIX_FMT_Y14P_BITS_PER_PIXEL 14
 
 /**
  * @}
@@ -1748,6 +1793,7 @@ int video_transfer_buffer(const struct device *src, const struct device *sink,
  * @endcode
  */
 #define VIDEO_PIX_FMT_RGB565X VIDEO_FOURCC('R', 'G', 'B', 'R')
+#define VIDEO_PIX_FMT_RGB565X_VIDEO_BITS_PER_PIXEL 16
 
 /**
  * 5 red bits [15:11], 6 green bits [10:5], 5 blue bits [4:0].
@@ -1759,6 +1805,7 @@ int video_transfer_buffer(const struct device *src, const struct device *sink,
  * @endcode
  */
 #define VIDEO_PIX_FMT_RGB565 VIDEO_FOURCC('R', 'G', 'B', 'P')
+#define VIDEO_PIX_FMT_RGB565_VIDEO_BITS_PER_PIXEL 16
 
 /**
  * @brief Repeat a macro for every RGB non-packed format, passed as first parameter
@@ -1780,6 +1827,7 @@ int video_transfer_buffer(const struct device *src, const struct device *sink,
  * @endcode
  */
 #define VIDEO_PIX_FMT_BGR24 VIDEO_FOURCC('B', 'G', 'R', '3')
+#define VIDEO_PIX_FMT_BGR24_VIDEO_BITS_PER_PIXEL 24
 
 /**
  * 24 bit RGB format with 8 bit per component
@@ -1789,6 +1837,7 @@ int video_transfer_buffer(const struct device *src, const struct device *sink,
  * @endcode
  */
 #define VIDEO_PIX_FMT_RGB24 VIDEO_FOURCC('R', 'G', 'B', '3')
+#define VIDEO_PIX_FMT_RGB24_VIDEO_BITS_PER_PIXEL 24
 
 /**
  * @brief Repeat a macro for every RGB alpha format, passed as first parameter
@@ -1812,6 +1861,7 @@ int video_transfer_buffer(const struct device *src, const struct device *sink,
  * @endcode
  */
 #define VIDEO_PIX_FMT_ARGB32 VIDEO_FOURCC('B', 'A', '2', '4')
+#define VIDEO_PIX_FMT_ARGB32_BITS_PER_PIXEL 32
 
 /**
  * The last byte is alpha (A) for each pixel.
@@ -1823,6 +1873,7 @@ int video_transfer_buffer(const struct device *src, const struct device *sink,
  * @endcode
  */
 #define VIDEO_PIX_FMT_BGRA32 VIDEO_FOURCC('A', 'R', '2', '4')
+#define VIDEO_PIX_FMT_BGRA32_BITS_PER_PIXEL 32
 
 /**
  * The last byte is alpha (A) for each pixel.
@@ -1832,6 +1883,7 @@ int video_transfer_buffer(const struct device *src, const struct device *sink,
  * @endcode
  */
 #define VIDEO_PIX_FMT_RGBA32 VIDEO_FOURCC('A', 'B', '2', '4')
+#define VIDEO_PIX_FMT_RGBA32_BITS_PER_PIXEL 32
 
 /**
  * The first byte is alpha (A) for each pixel.
@@ -1843,6 +1895,7 @@ int video_transfer_buffer(const struct device *src, const struct device *sink,
  * @endcode
  */
 #define VIDEO_PIX_FMT_ABGR32 VIDEO_FOURCC('R', 'A', '2', '4')
+#define VIDEO_PIX_FMT_ABGR32_BITS_PER_PIXEL 32
 
 /**
  * @brief Repeat a macro for every RGB padded format, passed as first parameter
@@ -1853,7 +1906,10 @@ int video_transfer_buffer(const struct device *src, const struct device *sink,
  * @param ... extra parameters
  */
 #define VIDEO_FOREACH_RGB_PADDED(X, ...)					\
-	X(VIDEO_PIX_FMT_XRGB32, __VA_ARGS__)
+	X(VIDEO_PIX_FMT_XRGB32, __VA_ARGS__)					\
+	X(VIDEO_PIX_FMT_XBGR32, __VA_ARGS__)					\
+	X(VIDEO_PIX_FMT_RGBX32, __VA_ARGS__)					\
+	X(VIDEO_PIX_FMT_BGRX32, __VA_ARGS__)
 
 /**
  * The first byte is empty (X) for each pixel.
@@ -1863,6 +1919,7 @@ int video_transfer_buffer(const struct device *src, const struct device *sink,
  * @endcode
  */
 #define VIDEO_PIX_FMT_XRGB32 VIDEO_FOURCC('B', 'X', '2', '4')
+#define VIDEO_PIX_FMT_XRGB32_BITS_PER_PIXEL 32
 
 /**
  * The first byte is empty (X) for each pixel.
@@ -1874,6 +1931,7 @@ int video_transfer_buffer(const struct device *src, const struct device *sink,
  * @endcode
  */
 #define VIDEO_PIX_FMT_XBGR32 VIDEO_FOURCC('R', 'X', '2', '4')
+#define VIDEO_PIX_FMT_XBGR32_BITS_PER_PIXEL 32
 
 /**
  * The last byte is empty (X) for each pixel.
@@ -1885,6 +1943,7 @@ int video_transfer_buffer(const struct device *src, const struct device *sink,
  * @endcode
  */
 #define VIDEO_PIX_FMT_BGRX32 VIDEO_FOURCC('X', 'R', '2', '4')
+#define VIDEO_PIX_FMT_BGRX32_BITS_PER_PIXEL 32
 
 /**
  * The last byte is empty (X) for each pixel.
@@ -1894,6 +1953,7 @@ int video_transfer_buffer(const struct device *src, const struct device *sink,
  * @endcode
  */
 #define VIDEO_PIX_FMT_RGBX32 VIDEO_FOURCC('X', 'B', '2', '4')
+#define VIDEO_PIX_FMT_RGBX32_BITS_PER_PIXEL 32
 
 /**
  * @}
@@ -1939,6 +1999,7 @@ int video_transfer_buffer(const struct device *src, const struct device *sink,
  * @endcode
  */
 #define VIDEO_PIX_FMT_YUYV VIDEO_FOURCC('Y', 'U', 'Y', 'V')
+#define VIDEO_PIX_FMT_YUYV_BITS_PER_PIXEL 16
 
 /**
  * @code{.unparsed}
@@ -1946,6 +2007,7 @@ int video_transfer_buffer(const struct device *src, const struct device *sink,
  * @endcode
  */
 #define VIDEO_PIX_FMT_YVYU VIDEO_FOURCC('Y', 'V', 'Y', 'U')
+#define VIDEO_PIX_FMT_YVYU_BITS_PER_PIXEL 16
 
 /**
  * @code{.unparsed}
@@ -1953,6 +2015,7 @@ int video_transfer_buffer(const struct device *src, const struct device *sink,
  * @endcode
  */
 #define VIDEO_PIX_FMT_VYUY VIDEO_FOURCC('V', 'Y', 'U', 'Y')
+#define VIDEO_PIX_FMT_VYUY_BITS_PER_PIXEL 16
 
 /**
  * @code{.unparsed}
@@ -1960,6 +2023,7 @@ int video_transfer_buffer(const struct device *src, const struct device *sink,
  * @endcode
  */
 #define VIDEO_PIX_FMT_UYVY VIDEO_FOURCC('U', 'Y', 'V', 'Y')
+#define VIDEO_PIX_FMT_UYVY_BITS_PER_PIXEL 16
 
 /**
  * The first byte is empty (X) for each pixel.
@@ -1969,6 +2033,7 @@ int video_transfer_buffer(const struct device *src, const struct device *sink,
  * @endcode
  */
 #define VIDEO_PIX_FMT_XYUV32 VIDEO_FOURCC('X', 'Y', 'U', 'V')
+#define VIDEO_PIX_FMT_XYUV32_BITS_PER_PIXEL 32
 
 /**
  * 24 bit YUV format with 8 bit per component
@@ -1978,6 +2043,7 @@ int video_transfer_buffer(const struct device *src, const struct device *sink,
  * @endcode
  */
 #define VIDEO_PIX_FMT_YUV24 VIDEO_FOURCC('Y', 'U', 'V', '3')
+#define VIDEO_PIX_FMT_YUV24_BITS_PER_PIXEL 24
 
 /**
  * @brief Repeat a macro for every YUV Semi-Planar format, passed as first parameter
@@ -2016,6 +2082,7 @@ int video_transfer_buffer(const struct device *src, const struct device *sink,
  * @endcode
  */
 #define VIDEO_PIX_FMT_NV12 VIDEO_FOURCC('N', 'V', '1', '2')
+#define VIDEO_PIX_FMT_NV12_BITS_PER_PIXEL 12
 
 /**
  * Chroma (U/V) are subsampled horizontaly and vertically
@@ -2040,6 +2107,7 @@ int video_transfer_buffer(const struct device *src, const struct device *sink,
  * @endcode
  */
 #define VIDEO_PIX_FMT_NV21 VIDEO_FOURCC('N', 'V', '2', '1')
+#define VIDEO_PIX_FMT_NV21_BITS_PER_PIXEL 12
 
 /**
  * Chroma (U/V) are subsampled horizontaly
@@ -2066,6 +2134,7 @@ int video_transfer_buffer(const struct device *src, const struct device *sink,
  * @endcode
  */
 #define VIDEO_PIX_FMT_NV16 VIDEO_FOURCC('N', 'V', '1', '6')
+#define VIDEO_PIX_FMT_NV16_BITS_PER_PIXEL 16
 
 /**
  * Chroma (U/V) are subsampled horizontaly
@@ -2091,8 +2160,8 @@ int video_transfer_buffer(const struct device *src, const struct device *sink,
  *  ...
  * @endcode
  */
-
 #define VIDEO_PIX_FMT_NV61 VIDEO_FOURCC('N', 'V', '6', '1')
+#define VIDEO_PIX_FMT_NV61_BITS_PER_PIXEL 16
 
 /**
  * Chroma (U/V) are not subsampled
@@ -2119,6 +2188,7 @@ int video_transfer_buffer(const struct device *src, const struct device *sink,
  * @endcode
  */
 #define VIDEO_PIX_FMT_NV24 VIDEO_FOURCC('N', 'V', '2', '4')
+#define VIDEO_PIX_FMT_NV24_BITS_PER_PIXEL 24
 
 /**
  * Chroma (U/V) are not subsampled
@@ -2145,6 +2215,7 @@ int video_transfer_buffer(const struct device *src, const struct device *sink,
  * @endcode
  */
 #define VIDEO_PIX_FMT_NV42 VIDEO_FOURCC('N', 'V', '4', '2')
+#define VIDEO_PIX_FMT_NV42_BITS_PER_PIXEL 24
 
 /**
  * @brief Repeat a macro for every YUV Full-Planar format, passed as first parameter
@@ -2184,6 +2255,7 @@ int video_transfer_buffer(const struct device *src, const struct device *sink,
  * @endcode
  */
 #define VIDEO_PIX_FMT_YUV420 VIDEO_FOURCC('Y', 'U', '1', '2')
+#define VIDEO_PIX_FMT_YUV420_BITS_PER_PIXEL 12
 
 /**
  * Chroma (U/V) are subsampled horizontaly and vertically
@@ -2213,6 +2285,7 @@ int video_transfer_buffer(const struct device *src, const struct device *sink,
  * @endcode
  */
 #define VIDEO_PIX_FMT_YVU420 VIDEO_FOURCC('Y', 'V', '1', '2')
+#define VIDEO_PIX_FMT_YVU420_BITS_PER_PIXEL 12
 
 /**
  * @}
@@ -2239,25 +2312,42 @@ int video_transfer_buffer(const struct device *src, const struct device *sink,
  * Both JPEG (single frame) and Motion-JPEG (MJPEG, multiple JPEG frames concatenated)
  */
 #define VIDEO_PIX_FMT_JPEG VIDEO_FOURCC('J', 'P', 'E', 'G')
+#define VIDEO_PIX_FMT_JPEG_BITS_PER_PIXEL 0
 
 /**
  * H264 with start code
  */
 #define VIDEO_PIX_FMT_H264 VIDEO_FOURCC('H', '2', '6', '4')
+#define VIDEO_PIX_FMT_H264_BITS_PER_PIXEL 0
 
 /**
  * H264 without start code
  */
 #define VIDEO_PIX_FMT_H264_NO_SC VIDEO_FOURCC('A', 'V', 'C', '1')
+#define VIDEO_PIX_FMT_H264_NO_SC_BITS_PER_PIXEL 0
 
 /**
  * PNG
  */
 #define VIDEO_PIX_FMT_PNG VIDEO_FOURCC('P', 'N', 'G', ' ')
+#define VIDEO_PIX_FMT_PNG_BITS_PER_PIXEL 0
 
 /**
  * @}
  */
+
+/**
+ * @brief Repeat a macro for every pixel format, passed as first parameter
+ *
+ * @param X macro to replicate
+ * @param ... extra parameters
+ */
+#define VIDEO_FOREACH_PIX_FMT(X, ...)						\
+	VIDEO_FOREACH_BAYER(X, __VA_ARGS__)					\
+	VIDEO_FOREACH_GRAYSCALE(X, __VA_ARGS__)					\
+	VIDEO_FOREACH_RGB(X, __VA_ARGS__)					\
+	VIDEO_FOREACH_YUV(X, __VA_ARGS__)					\
+	VIDEO_FOREACH_COMPRESSED(X, __VA_ARGS__)
 
 /** @cond INTERNAL_HIDDEN */
 #define _VIDEO_FMT_OR_EQ(pixfmt_a, pixfmt_b) || ((pixfmt_a) == (pixfmt_b))
@@ -2337,6 +2427,10 @@ int video_transfer_buffer(const struct device *src, const struct device *sink,
 #define VIDEO_FMT_IS_FULL_PLANAR(pixfmt)					\
 	(0 VIDEO_FOREACH_YUV_FULL_PLANAR(_VIDEO_FMT_OR_EQ, pixfmt))
 
+/** @cond INTERNAL_HIDDEN */
+#define _VIDEO_CASE_BITS_PER_PIXEL(pixfmt) case pixfmt: return base_name ## _BITS_PER_PIXEL;
+/** @endcond */
+
 /**
  * @brief Get number of bits per pixel of a pixel format
  *
@@ -2348,83 +2442,7 @@ int video_transfer_buffer(const struct device *src, const struct device *sink,
 static inline unsigned int video_bits_per_pixel(uint32_t pixfmt)
 {
 	switch (pixfmt) {
-	case VIDEO_PIX_FMT_SBGGR8:
-	case VIDEO_PIX_FMT_SGBRG8:
-	case VIDEO_PIX_FMT_SGRBG8:
-	case VIDEO_PIX_FMT_SRGGB8:
-	case VIDEO_PIX_FMT_GREY:
-		return 8;
-	case VIDEO_PIX_FMT_SBGGR10P:
-	case VIDEO_PIX_FMT_SGBRG10P:
-	case VIDEO_PIX_FMT_SGRBG10P:
-	case VIDEO_PIX_FMT_SRGGB10P:
-	case VIDEO_PIX_FMT_Y10P:
-		return 10;
-	case VIDEO_PIX_FMT_SBGGR12P:
-	case VIDEO_PIX_FMT_SGBRG12P:
-	case VIDEO_PIX_FMT_SGRBG12P:
-	case VIDEO_PIX_FMT_SRGGB12P:
-	case VIDEO_PIX_FMT_Y12P:
-	case VIDEO_PIX_FMT_NV12:
-	case VIDEO_PIX_FMT_NV21:
-	case VIDEO_PIX_FMT_YUV420:
-	case VIDEO_PIX_FMT_YVU420:
-		return 12;
-	case VIDEO_PIX_FMT_SBGGR14P:
-	case VIDEO_PIX_FMT_SGBRG14P:
-	case VIDEO_PIX_FMT_SGRBG14P:
-	case VIDEO_PIX_FMT_SRGGB14P:
-	case VIDEO_PIX_FMT_Y14P:
-		return 14;
-	case VIDEO_PIX_FMT_RGB565:
-	case VIDEO_PIX_FMT_YUYV:
-	case VIDEO_PIX_FMT_YVYU:
-	case VIDEO_PIX_FMT_UYVY:
-	case VIDEO_PIX_FMT_VYUY:
-	case VIDEO_PIX_FMT_SBGGR8P16:
-	case VIDEO_PIX_FMT_SGBRG8P16:
-	case VIDEO_PIX_FMT_SGRBG8P16:
-	case VIDEO_PIX_FMT_SRGGB8P16:
-	case VIDEO_PIX_FMT_SBGGR10:
-	case VIDEO_PIX_FMT_SGBRG10:
-	case VIDEO_PIX_FMT_SGRBG10:
-	case VIDEO_PIX_FMT_SRGGB10:
-	case VIDEO_PIX_FMT_SBGGR12:
-	case VIDEO_PIX_FMT_SGBRG12:
-	case VIDEO_PIX_FMT_SGRBG12:
-	case VIDEO_PIX_FMT_SRGGB12:
-	case VIDEO_PIX_FMT_SBGGR14:
-	case VIDEO_PIX_FMT_SGBRG14:
-	case VIDEO_PIX_FMT_SGRBG14:
-	case VIDEO_PIX_FMT_SRGGB14:
-	case VIDEO_PIX_FMT_SBGGR16:
-	case VIDEO_PIX_FMT_SGBRG16:
-	case VIDEO_PIX_FMT_SGRBG16:
-	case VIDEO_PIX_FMT_SRGGB16:
-	case VIDEO_PIX_FMT_Y8P16:
-	case VIDEO_PIX_FMT_Y10:
-	case VIDEO_PIX_FMT_Y12:
-	case VIDEO_PIX_FMT_Y14:
-	case VIDEO_PIX_FMT_Y16:
-	case VIDEO_PIX_FMT_NV16:
-	case VIDEO_PIX_FMT_NV61:
-		return 16;
-	case VIDEO_PIX_FMT_BGR24:
-	case VIDEO_PIX_FMT_RGB24:
-	case VIDEO_PIX_FMT_NV24:
-	case VIDEO_PIX_FMT_NV42:
-	case VIDEO_PIX_FMT_YUV24:
-		return 24;
-	case VIDEO_PIX_FMT_XYUV32:
-	case VIDEO_PIX_FMT_ARGB32:
-	case VIDEO_PIX_FMT_ABGR32:
-	case VIDEO_PIX_FMT_RGBA32:
-	case VIDEO_PIX_FMT_BGRA32:
-	case VIDEO_PIX_FMT_XRGB32:
-	case VIDEO_PIX_FMT_XBGR32:
-	case VIDEO_PIX_FMT_RGBX32:
-	case VIDEO_PIX_FMT_BGRX32:
-		return 32;
+    	VIDEO_FOREOACH_PIX_FMT(_VIDEO_CASE_BITS_PER_PIXEL)
 	default:
 		/* Variable number of bits per pixel or unknown format */
 		return 0;
