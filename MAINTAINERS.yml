@@ -778,7 +778,7 @@ Bouffalolab Platforms:
     - josuah
     - will-tm
   files:
-    - boards/aithinker/ai_*/
+    - boards/aithinker/ai*/
     - boards/bflb/
     - boards/doiting/
     - boards/sipeed/maix_m0s_dock/
