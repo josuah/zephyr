@@ -164,8 +164,10 @@ struct uhc_dwc2_data {
 	uint8_t has_device: 1;
 };
 
+static int uhc_dwc2_soft_reset(const struct device *dev);
+
 /* TODO: search in case of present helper function like this */
-static inline uint16_t calc_packet_count(const uint16_t size, const uint8_t mps)
+static uint16_t calc_packet_count(const uint16_t size, const uint8_t mps)
 {
 	if (size == 0) {
 		return 1; /* in Buffer DMA mode Zero Length Packet still counts as 1 packet */
@@ -174,7 +176,7 @@ static inline uint16_t calc_packet_count(const uint16_t size, const uint8_t mps)
 	}
 }
 
-static inline void dwc2_hal_toggle_reset(struct usb_dwc2_reg *const dwc2, const bool reset_on)
+static void dwc2_hal_toggle_reset(struct usb_dwc2_reg *const dwc2, const bool reset_on)
 {
 	uint32_t hprt;
 
@@ -187,7 +189,7 @@ static inline void dwc2_hal_toggle_reset(struct usb_dwc2_reg *const dwc2, const 
 	sys_write32(hprt & (~USB_DWC2_HPRT_W1C_MSK), (mem_addr_t)&dwc2->hprt);
 }
 
-static inline void dwc2_hal_set_power(struct usb_dwc2_reg *const dwc2, const bool power_on)
+static void dwc2_hal_set_power(struct usb_dwc2_reg *const dwc2, const bool power_on)
 {
 	uint32_t hprt;
 
@@ -200,7 +202,7 @@ static inline void dwc2_hal_set_power(struct usb_dwc2_reg *const dwc2, const boo
 	sys_write32(hprt & (~USB_DWC2_HPRT_W1C_MSK), (mem_addr_t)&dwc2->hprt);
 }
 
-static inline enum uhc_dwc2_speed dwc2_hal_get_speed(struct usb_dwc2_reg *const dwc2)
+static enum uhc_dwc2_speed dwc2_hal_get_speed(struct usb_dwc2_reg *const dwc2)
 {
 	uint32_t hprt = sys_read32((mem_addr_t)&dwc2->hprt);
 	uint8_t speed = usb_dwc2_get_hprt_prtspd(hprt);
@@ -241,7 +243,7 @@ static void dwc2_hal_flush_tx_fifo(struct usb_dwc2_reg *const dwc2, const uint8_
 	}
 }
 
-static inline void dwc2_hal_enable_port(struct usb_dwc2_reg *const dwc2,
+static void dwc2_hal_enable_port(struct usb_dwc2_reg *const dwc2,
 					const enum uhc_dwc2_speed speed)
 {
 	uint32_t hcfg = sys_read32((mem_addr_t)&dwc2->hcfg);
@@ -282,7 +284,7 @@ static inline void dwc2_hal_enable_port(struct usb_dwc2_reg *const dwc2,
 	}
 }
 
-static inline void dwc2_hal_init_gusbcfg(struct usb_dwc2_reg *const dwc2)
+static void dwc2_hal_init_gusbcfg(struct usb_dwc2_reg *const dwc2)
 {
 	uint32_t gusbcfg = sys_read32((mem_addr_t)&dwc2->gusbcfg);
 	uint32_t ghwcfg2 = sys_read32((mem_addr_t)&dwc2->ghwcfg2);
@@ -327,7 +329,7 @@ static inline void dwc2_hal_init_gusbcfg(struct usb_dwc2_reg *const dwc2)
 		sys_set_bits((mem_addr_t)&dwc2->gusbcfg, USB_DWC2_GUSBCFG_PHYSEL_USB11);
 	}
 }
-static inline int dwc2_hal_init_gahbcfg(struct usb_dwc2_reg *const dwc2)
+static int dwc2_hal_init_gahbcfg(struct usb_dwc2_reg *const dwc2)
 
 {
 	uint32_t ghwcfg2 = sys_read32((mem_addr_t)&dwc2->ghwcfg2);
@@ -491,7 +493,7 @@ static void uhc_dwc2_port_debounce_unlock(const struct device *dev)
 						USB_DWC2_GINTSTS_DISCONNINT);
 }
 
-static inline bool uhc_dwc2_channel_xfer_is_done(struct uhc_dwc2_channel *channel)
+static bool uhc_dwc2_channel_xfer_is_done(struct uhc_dwc2_channel *channel)
 {
 	/* Only control transfers need to be handled in stages */
 	if (channel->type != UHC_DWC2_XFER_TYPE_CTRL) {
@@ -691,7 +693,7 @@ static enum uhc_dwc2_event uhc_dwc2_port_get_event(const struct device *dev)
 	return UHC_DWC2_EVENT_NONE;
 }
 
-static inline bool uhc_dwc2_port_debounce(const struct device *dev,
+static bool uhc_dwc2_port_debounce(const struct device *dev,
 					enum uhc_dwc2_event event)
 {
 	const struct uhc_dwc2_config *config = dev->config;
@@ -715,7 +717,7 @@ static inline bool uhc_dwc2_port_debounce(const struct device *dev,
 	return connected == want_connected;
 }
 
-static inline void uhc_dwc2_port_power_on(const struct device *dev)
+static void uhc_dwc2_port_power_on(const struct device *dev)
 {
 	const struct uhc_dwc2_config *const config = dev->config;
 	struct usb_dwc2_reg *const dwc2 = config->base;
@@ -725,7 +727,7 @@ static inline void uhc_dwc2_port_power_on(const struct device *dev)
 	dwc2_hal_set_power(dwc2, true);
 }
 
-static inline void uhc_dwc2_port_reset(const struct device *dev)
+static void uhc_dwc2_port_reset(const struct device *dev)
 {
 	const struct uhc_dwc2_config *const config = dev->config;
 	struct uhc_dwc2_data *priv = uhc_get_private(dev);
@@ -753,36 +755,6 @@ static inline void uhc_dwc2_port_reset(const struct device *dev)
 				priv->fifo_rxfsiz);
 	/* TODO: set frame list for the ISOC/INTR xfer */
 	/* TODO: enable periodic transfer */
-}
-
-static inline int uhc_dwc2_soft_reset(const struct device *dev)
-{
-	const struct uhc_dwc2_config *const config = dev->config;
-	struct usb_dwc2_reg *const dwc2 = config->base;
-	int ret;
-
-	/* TODO: Check that port has no ongoing transfers */
-
-	/* Disable Global IRQ */
-	config->irq_disable_func(dev);
-
-	/* Reset the core */
-	ret = dwc2_hal_core_reset(dwc2, K_MSEC(10));
-	if (ret) {
-		LOG_ERR("Failed to perform soft reset: %d", ret);
-		return ret;
-	}
-
-	/* Re-config after reset */
-	dwc2_hal_init_gahbcfg(dwc2);
-
-	/* Enable Global IRQ */
-	config->irq_enable_func(dev);
-
-	/* Prepare for device connection */
-	uhc_dwc2_port_power_on(dev);
-
-	return ret;
 }
 
 static void uhc_dwc2_port_fifo_precalc_dma(const struct device *dev)
@@ -981,7 +953,7 @@ struct uhc_dwc2_channel *uhc_dwc2_channel_get_pending(const struct device *dev)
 	}
 }
 
-static inline void uhc_dwc2_submit_new_device(const struct device *dev, enum uhc_dwc2_speed speed)
+static void uhc_dwc2_submit_new_device(const struct device *dev, enum uhc_dwc2_speed speed)
 {
 	static const char *const uhc_dwc2_speed_str[] = {"High", "Full", "Low"};
 	enum uhc_event_type type;
@@ -1006,7 +978,7 @@ static inline void uhc_dwc2_submit_new_device(const struct device *dev, enum uhc
 	uhc_submit_event(dev, type, 0);
 }
 
-static inline void uhc_dwc2_submit_dev_gone(const struct device *dev)
+static void uhc_dwc2_submit_dev_gone(const struct device *dev)
 {
 	LOG_DBG("Device removed");
 
@@ -1455,22 +1427,71 @@ static int uhc_dwc2_enable(const struct device *const dev)
 
 static int uhc_dwc2_disable(const struct device *const dev)
 {
-	LOG_WRN("%s has not been implemented", __func__);
+	const struct uhc_dwc2_config *const config = dev->config;
+	struct usb_dwc2_reg *const dwc2 = config->base;
+	int ret;
 
-	/* 0. TODO: Check ongoing transfer? */
+	return 0;
 
-	/* 1. Disable IRQ */
+	/* TODO: Check ongoing transfer? */
 
-	/* 2. Power down root port */
+	config->irq_disable_func(dev);
+	sys_clear_bits((mem_addr_t)&dwc2->gahbcfg, USB_DWC2_GAHBCFG_GLBINTRMASK);
 
-	return -ENOSYS;
+	/* Power down root port */
+	dwc2_hal_set_power(dwc2, false);
+
+	ret = uhc_dwc2_quirk_disable(dev);
+	if (ret != 0) {
+		LOG_ERR("Quirk init failed: %d", ret);
+		return ret;
+	}
+
+	return 0;
 }
 
 static int uhc_dwc2_shutdown(const struct device *const dev)
 {
-	LOG_WRN("%s has not been implemented", __func__);
+	int ret;
 
-	return -ENOSYS;
+	return 0;
+
+	ret = uhc_dwc2_quirk_shutdown(dev);
+	if (ret != 0) {
+		LOG_ERR("Quirk shutdown failed: %d", ret);
+		return ret;
+	}
+
+	return 0;
+}
+
+static int uhc_dwc2_soft_reset(const struct device *const dev)
+{
+	int ret;
+
+	LOG_DBG("Applying soft reset");
+
+	ret = uhc_dwc2_disable(dev);
+	if (ret != 0) {
+		return ret;
+	}
+
+	ret = uhc_dwc2_shutdown(dev);
+	if (ret != 0) {
+		return ret;
+	}
+
+	ret = uhc_dwc2_init(dev);
+	if (ret != 0) {
+		return ret;
+	}
+
+	ret = uhc_dwc2_enable(dev);
+	if (ret != 0) {
+		return ret;
+	}
+
+	return ret;
 }
 
 /*
