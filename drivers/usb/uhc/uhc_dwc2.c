@@ -6,16 +6,20 @@
 
 #define DT_DRV_COMPAT snps_dwc2
 
-#include "uhc_common.h"
-#include "uhc_dwc2.h"
+#include <stdint.h>
 
-#include <zephyr/kernel.h>
+#include <zephyr/device.h>
 #include <zephyr/devicetree.h>
-#include <zephyr/sys/byteorder.h>
 #include <zephyr/drivers/usb/uhc.h>
+#include <zephyr/kernel.h>
+#include <zephyr/logging/log.h>
+#include <zephyr/sys/byteorder.h>
 #include <zephyr/usb/usb_ch9.h>
 
-#include <zephyr/logging/log.h>
+#include <usb_dwc2_hw.h>
+
+#include "uhc_common.h"
+
 LOG_MODULE_REGISTER(uhc_dwc2, CONFIG_UHC_DRIVER_LOG_LEVEL);
 
 #define DEBOUNCE_DELAY_MS	CONFIG_UHC_DWC2_DEBOUNCE_DELAY_MS
@@ -164,7 +168,101 @@ struct uhc_dwc2_data {
 	uint8_t has_device: 1;
 };
 
+/* Vendor quirks per driver instance */
+struct uhc_dwc2_vendor_quirks {
+	/* Called at the beginning of uhc_dwc2_init() */
+	int (*init)(const struct device *dev);
+	/* Called on uhc_dwc2_enable() before the controller is initialized */
+	int (*pre_enable)(const struct device *dev);
+	/* Called on uhc_dwc2_enable() after the controller is initialized */
+	int (*post_enable)(const struct device *dev);
+	/* Called at the end of uhc_dwc2_disable() */
+	int (*disable)(const struct device *dev);
+	/* Called at the end of uhc_dwc2_shutdown() */
+	int (*shutdown)(const struct device *dev);
+	/* Called at the end of IRQ handling */
+	int (*irq_clear)(const struct device *dev);
+	/* Called on driver pre-init */
+	int (*caps)(const struct device *dev);
+	/* Called on PHY pre-select */
+	int (*phy_pre_select)(const struct device *dev);
+	/* Called on PHY post-select and core reset */
+	int (*phy_post_select)(const struct device *dev);
+	/* Called while waiting for bits that require PHY to be clocked */
+	int (*is_phy_clk_off)(const struct device *dev);
+	/* PHY get clock */
+	int (*get_phy_clk)(const struct device *dev);
+	/* Called after hibernation entry sequence */
+	int (*post_hibernation_entry)(const struct device *dev);
+	/* Called before hibernation exit sequence */
+	int (*pre_hibernation_exit)(const struct device *dev);
+};
+
+/* Driver configuration per instance */
+struct uhc_dwc2_config {
+	/* Pointer to base address of DWC_OTG registers */
+	struct usb_dwc2_reg *const base;
+	/* Pointer to vendor quirks or NULL */
+	const struct uhc_dwc2_vendor_quirks *const quirks;
+	/* Pointer to the stack used by the driver thread */
+	k_thread_stack_t *stack;
+	/* Size of the stack used by the driver thread */
+	size_t stack_size;
+
+	void (*irq_enable_func)(const struct device *dev);
+	void (*irq_disable_func)(const struct device *dev);
+
+	/* Hardware configuration registers */
+	uint32_t gsnpsid;
+	uint32_t ghwcfg1;
+	uint32_t ghwcfg2;
+	uint32_t ghwcfg3;
+	uint32_t ghwcfg4;
+};
+
+static void uhc_dwc2_isr_handler(const struct device *dev);
 static int uhc_dwc2_soft_reset(const struct device *dev);
+
+#if DT_HAS_COMPAT_STATUS_OKAY(espressif_esp32_usb_otg)
+#include "uhc_dwc2_esp32_usb_otg.h"
+#endif
+
+#if DT_HAS_COMPAT_STATUS_OKAY(nordic_nrf_usbhs_nrf54l)
+#include "uhc_dwc2_nrf_usbhs_nrf54l.h"
+#endif
+
+#define UHC_DWC2_VENDOR_QUIRK_GET(n)						\
+	COND_CODE_1(DT_NODE_VENDOR_HAS_IDX(DT_DRV_INST(n), 1),			\
+			(&uhc_dwc2_vendor_quirks_##n),				\
+			(NULL))
+
+#define DWC2_QUIRK_FUNC_DEFINE(fname)						\
+static inline int uhc_dwc2_quirk_##fname(const struct device *dev)		\
+{										\
+	const struct uhc_dwc2_config *const config = dev->config;		\
+	const struct uhc_dwc2_vendor_quirks *const quirks =			\
+		COND_CODE_1(IS_EQ(DT_NUM_INST_STATUS_OKAY(snps_dwc2), 1),	\
+		(UHC_DWC2_VENDOR_QUIRK_GET(0); ARG_UNUSED(config);),		\
+		(config->quirks;))						\
+	if (quirks != NULL && quirks->fname != NULL) {				\
+		return quirks->fname(dev);					\
+	}									\
+	return 0;								\
+}
+
+DWC2_QUIRK_FUNC_DEFINE(init)
+DWC2_QUIRK_FUNC_DEFINE(pre_enable)
+DWC2_QUIRK_FUNC_DEFINE(post_enable)
+DWC2_QUIRK_FUNC_DEFINE(disable)
+DWC2_QUIRK_FUNC_DEFINE(shutdown)
+DWC2_QUIRK_FUNC_DEFINE(irq_clear)
+DWC2_QUIRK_FUNC_DEFINE(caps)
+DWC2_QUIRK_FUNC_DEFINE(phy_pre_select)
+DWC2_QUIRK_FUNC_DEFINE(phy_post_select)
+DWC2_QUIRK_FUNC_DEFINE(is_phy_clk_off)
+DWC2_QUIRK_FUNC_DEFINE(get_phy_clk)
+DWC2_QUIRK_FUNC_DEFINE(post_hibernation_entry)
+DWC2_QUIRK_FUNC_DEFINE(pre_hibernation_exit)
 
 /* TODO: search in case of present helper function like this */
 static uint16_t calc_packet_count(const uint16_t size, const uint8_t mps)
@@ -1508,6 +1606,7 @@ static int uhc_dwc2_preinit(const struct device *const dev)
 		K_PRIO_COOP(CONFIG_UHC_DWC2_THREAD_PRIORITY),
 		K_ESSENTIAL,
 		K_NO_WAIT);
+
 	k_thread_name_set(&priv->thread, dev->name);
 
 	return 0;
