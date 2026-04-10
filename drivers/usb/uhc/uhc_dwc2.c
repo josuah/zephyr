@@ -114,7 +114,7 @@ struct uhc_dwc2_channel {
 	/* Index of the channel */
 	uint8_t index;
 	/* Cached pointer to channel registers */
-	const struct usb_dwc2_host_chan *regs;
+	const struct usb_dwc2_host_chan *base;
 	/* Pointer to the transfer */
 	struct uhc_transfer *xfer;
 	/* Channel events */
@@ -547,7 +547,7 @@ static void uhc_dwc2_channel_process_ctrl(struct uhc_dwc2_channel *channel)
 		}
 	} else {
 		/* Just finished UHC_CONTROL_STAGE_DATA */
-		hctsiz = sys_read32((mem_addr_t)&channel->regs->hctsiz);
+		hctsiz = sys_read32((mem_addr_t)&channel->base->hctsiz);
 		/* Actual is requested minus remaining */
 		size_t actual = xfer->buf->size - usb_dwc2_get_hctsiz_xfersize(hctsiz);
 		/* Increase the net_buf for the actual transferred len */
@@ -563,36 +563,36 @@ static void uhc_dwc2_channel_process_ctrl(struct uhc_dwc2_channel *channel)
 	const uint16_t pkt_cnt = calc_packet_count(size, channel->ep_mps);
 
 	if (next_dir_is_in) {
-		sys_set_bits((mem_addr_t)&channel->regs->hcchar, USB_DWC2_HCCHAR_EPDIR);
+		sys_set_bits((mem_addr_t)&channel->base->hcchar, USB_DWC2_HCCHAR_EPDIR);
 	} else {
-		sys_clear_bits((mem_addr_t)&channel->regs->hcchar, USB_DWC2_HCCHAR_EPDIR);
+		sys_clear_bits((mem_addr_t)&channel->base->hcchar, USB_DWC2_HCCHAR_EPDIR);
 	}
 
 	hctsiz = usb_dwc2_set_hctsiz_pid(next_pid) |
 		usb_dwc2_set_hctsiz_pktcnt(pkt_cnt) |
 		usb_dwc2_set_hctsiz_xfersize(size);
 
-	sys_write32(hctsiz, (mem_addr_t)&channel->regs->hctsiz);
-	sys_write32((uint32_t)dma_addr, (mem_addr_t)&channel->regs->hcdma);
+	sys_write32(hctsiz, (mem_addr_t)&channel->base->hctsiz);
+	sys_write32((uint32_t)dma_addr, (mem_addr_t)&channel->base->hcdma);
 
 	/* TODO: Configure split transaction if needed */
 
 	/* TODO: sync CACHE */
 
-	uint32_t hcchar = sys_read32((mem_addr_t)&channel->regs->hcchar);
+	uint32_t hcchar = sys_read32((mem_addr_t)&channel->base->hcchar);
 
 	hcchar |= USB_DWC2_HCCHAR_CHENA;
 	hcchar &= ~USB_DWC2_HCCHAR_CHDIS;
-	sys_write32(hcchar, (mem_addr_t)&channel->regs->hcchar);
+	sys_write32(hcchar, (mem_addr_t)&channel->base->hcchar);
 }
 
 static uint32_t uhc_dwc2_channel_irq_handle_events(struct uhc_dwc2_channel *channel)
 {
-	uint32_t hcint = sys_read32((mem_addr_t)&channel->regs->hcint);
+	uint32_t hcint = sys_read32((mem_addr_t)&channel->base->hcint);
 	uint32_t channel_events = 0;
 
 	/* Clear the interrupt bits by writing them back */
-	sys_write32(hcint, (mem_addr_t)&channel->regs->hcint);
+	sys_write32(hcint, (mem_addr_t)&channel->base->hcint);
 
 	/* TODO: Read hcchar and split paths for EP IN and OUT? */
 
@@ -614,7 +614,7 @@ static uint32_t uhc_dwc2_channel_irq_handle_events(struct uhc_dwc2_channel *chan
 			/* TODO: channel error count = 0 */
 
 			/* Expecting ACK interrupt next */
-			sys_set_bits((mem_addr_t)&channel->regs->hcintmsk, USB_DWC2_HCINT_ACK);
+			sys_set_bits((mem_addr_t)&channel->base->hcintmsk, USB_DWC2_HCINT_ACK);
 
 			/* Notify thread */
 			channel_events |= BIT(UHC_DWC2_CHANNEL_DO_RELEASE);
@@ -624,7 +624,7 @@ static uint32_t uhc_dwc2_channel_irq_handle_events(struct uhc_dwc2_channel *chan
 		/* TODO: channel error count = 1 */
 
 		/* Not expecting ACK interrupt anymore */
-		sys_clear_bits((mem_addr_t)&channel->regs->hcintmsk, USB_DWC2_HCINT_ACK);
+		sys_clear_bits((mem_addr_t)&channel->base->hcintmsk, USB_DWC2_HCINT_ACK);
 	} else {
 		LOG_WRN("Channel has not been handled: HCINT=0x%08x", hcint);
 	}
@@ -823,15 +823,15 @@ static int uhc_dwc2_channel_claim(const struct device *dev,
 	/* Init underlying channel registers */
 
 	/* Clear the interrupt bits by writing them back */
-	uint32_t hcint = sys_read32((mem_addr_t)&channel->regs->hcint);
+	uint32_t hcint = sys_read32((mem_addr_t)&channel->base->hcint);
 
-	sys_write32(hcint, (mem_addr_t)&channel->regs->hcint);
+	sys_write32(hcint, (mem_addr_t)&channel->base->hcint);
 
 	/* Enable channel interrupt in the core */
 	sys_set_bits((mem_addr_t)&dwc2->haintmsk, (1 << idx));
 
 	/* Enable transfer complete and channel halted interrupts */
-	sys_set_bits((mem_addr_t)&channel->regs->hcintmsk, USB_DWC2_HCINT_XFERCOMPL |
+	sys_set_bits((mem_addr_t)&channel->base->hcintmsk, USB_DWC2_HCINT_XFERCOMPL |
 							USB_DWC2_HCINT_CHHLTD);
 
 	uint32_t hcchar = usb_dwc2_set_hcchar_mps(channel->ep_mps) |
@@ -852,7 +852,7 @@ static int uhc_dwc2_channel_claim(const struct device *dev,
 		hcchar |= USB_DWC2_HCCHAR_ODDFRM;
 	}
 
-	sys_write32(hcchar, (mem_addr_t)&channel->regs->hcchar);
+	sys_write32(hcchar, (mem_addr_t)&channel->base->hcchar);
 
 	LOG_DBG("Claimed channel%d", idx);
 
@@ -896,7 +896,7 @@ static int uhc_dwc2_channel_start_transfer_ctrl(struct uhc_dwc2_channel *channel
 
 	if (USB_EP_GET_IDX(xfer->ep) == 0) {
 		/* Control stage is always OUT */
-		sys_clear_bits((mem_addr_t)&channel->regs->hcchar, USB_DWC2_HCCHAR_EPDIR);
+		sys_clear_bits((mem_addr_t)&channel->base->hcchar, USB_DWC2_HCCHAR_EPDIR);
 	}
 
 	if (xfer->interval != 0) {
@@ -910,22 +910,22 @@ static int uhc_dwc2_channel_start_transfer_ctrl(struct uhc_dwc2_channel *channel
 		usb_dwc2_set_hctsiz_pktcnt(pkt_cnt) |
 		usb_dwc2_set_hctsiz_xfersize(sizeof(struct usb_setup_packet));
 
-	sys_write32(hctsiz, (mem_addr_t)&channel->regs->hctsiz);
-	sys_write32((uint32_t)xfer->setup_pkt, (mem_addr_t)&channel->regs->hcdma);
+	sys_write32(hctsiz, (mem_addr_t)&channel->base->hctsiz);
+	sys_write32((uint32_t)xfer->setup_pkt, (mem_addr_t)&channel->base->hcdma);
 
 	/* TODO: Configure split transaction if needed */
 
-	uint32_t hcint = sys_read32((mem_addr_t)&channel->regs->hcint);
+	uint32_t hcint = sys_read32((mem_addr_t)&channel->base->hcint);
 
-	sys_write32(hcint, (mem_addr_t)&channel->regs->hcint);
+	sys_write32(hcint, (mem_addr_t)&channel->base->hcint);
 
 	/* TODO: sync CACHE */
 
-	uint32_t hcchar = sys_read32((mem_addr_t)&channel->regs->hcchar);
+	uint32_t hcchar = sys_read32((mem_addr_t)&channel->base->hcchar);
 
 	hcchar |= USB_DWC2_HCCHAR_CHENA;
 	hcchar &= ~USB_DWC2_HCCHAR_CHDIS;
-	sys_write32(hcchar, (mem_addr_t)&channel->regs->hcchar);
+	sys_write32(hcchar, (mem_addr_t)&channel->base->hcchar);
 
 	channel->executing = 1;
 
@@ -1280,32 +1280,6 @@ static int uhc_dwc2_dequeue(const struct device *const dev, struct uhc_transfer 
 	return -ENOSYS;
 }
 
-static int uhc_dwc2_preinit(const struct device *const dev)
-{
-	const struct uhc_dwc2_config *const config = dev->config;
-	struct uhc_dwc2_data *const priv = uhc_get_private(dev);
-	struct uhc_data *const data = dev->data;
-
-	/* Initialize the private data structure */
-	memset(priv, 0, sizeof(struct uhc_dwc2_data));
-	k_mutex_init(&data->mutex);
-	k_event_init(&priv->event);
-
-	uhc_dwc2_quirk_caps(dev);
-
-	k_thread_create(&priv->thread,
-		config->stack,
-		config->stack_size,
-		uhc_dwc2_thread,
-		(void *)dev, NULL, NULL,
-		K_PRIO_COOP(CONFIG_UHC_DWC2_THREAD_PRIORITY),
-		K_ESSENTIAL,
-		K_NO_WAIT);
-	k_thread_name_set(&priv->thread, dev->name);
-
-	return 0;
-}
-
 static int uhc_dwc2_init(const struct device *const dev)
 {
 	struct uhc_dwc2_data *priv = uhc_get_private(dev);
@@ -1391,7 +1365,7 @@ static int uhc_dwc2_init(const struct device *const dev)
 
 	/* 6. Init channels list */
 	for (uint32_t idx = 0; idx < MAX_CHANNELS; idx++) {
-		priv->channel[idx].regs = UHC_DWC2_CHANNEL_REGS(dwc2, idx);
+		priv->channel[idx].base = UHC_DWC2_CHANNEL_REGS(dwc2, idx);
 		priv->channel[idx].index = idx;
 	}
 
@@ -1515,6 +1489,30 @@ static const struct uhc_api uhc_dwc2_api = {
 	.ep_dequeue = uhc_dwc2_dequeue,
 };
 
+static int uhc_dwc2_preinit(const struct device *const dev)
+{
+	const struct uhc_dwc2_config *const config = dev->config;
+	struct uhc_dwc2_data *const priv = uhc_get_private(dev);
+	struct uhc_data *const data = dev->data;
+
+	k_mutex_init(&data->mutex);
+	k_event_init(&priv->event);
+
+	uhc_dwc2_quirk_caps(dev);
+
+	k_thread_create(&priv->thread,
+		config->stack,
+		config->stack_size,
+		uhc_dwc2_thread,
+		(void *)dev, NULL, NULL,
+		K_PRIO_COOP(CONFIG_UHC_DWC2_THREAD_PRIORITY),
+		K_ESSENTIAL,
+		K_NO_WAIT);
+	k_thread_name_set(&priv->thread, dev->name);
+
+	return 0;
+}
+
 #define UHC_DWC2_DT_INST_REG_ADDR(n)						\
 	COND_CODE_1(DT_NUM_REGS(DT_DRV_INST(n)),				\
 			(DT_INST_REG_ADDR(n)),					\
@@ -1552,10 +1550,9 @@ static const struct uhc_api uhc_dwc2_api = {
 										\
 	UHC_DWC2_IRQ_DT_INST_DEFINE(n)						\
 										\
-	static struct uhc_dwc2_data uhc_dwc2_priv_##n = { 0 };			\
+	static struct uhc_dwc2_data uhc_dwc2_priv_##n;				\
 										\
 	static struct uhc_data uhc_data_##n = {					\
-		.mutex = Z_MUTEX_INITIALIZER(uhc_data_##n.mutex),		\
 		.priv = &uhc_dwc2_priv_##n,					\
 	};									\
 										\
