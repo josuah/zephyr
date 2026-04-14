@@ -202,8 +202,10 @@ struct uhc_dwc2_vendor_quirks {
 struct uhc_dwc2_config {
 	/* Pointer to base address of DWC_OTG registers */
 	struct usb_dwc2_reg *const base;
-	/* Pointer to vendor quirks or NULL */
-	const struct uhc_dwc2_vendor_quirks *const quirks;
+	/* Vendor-specific implementation */
+	const struct uhc_dwc2_vendor_quirks *quirk_api;
+	void *quirk_data;
+	const void *quirk_config;
 	/* Pointer to the stack used by the driver thread */
 	k_thread_stack_t *stack;
 	/* Size of the stack used by the driver thread */
@@ -231,28 +233,21 @@ static int uhc_dwc2_soft_reset(const struct device *dev);
 #include "uhc_dwc2_nrf_usbhs_nrf54l.h"
 #endif
 
-#define UHC_DWC2_VENDOR_QUIRK_GET(n)						\
-	COND_CODE_1(DT_NODE_VENDOR_HAS_IDX(DT_DRV_INST(n), 1),			\
-			(&uhc_dwc2_vendor_quirks_##n),				\
-			(NULL))
-
-#define DWC2_QUIRK_FUNC_DEFINE(fname)						\
-static inline int uhc_dwc2_quirk_##fname(const struct device *dev)		\
-{										\
-	const struct uhc_dwc2_config *const config = dev->config;		\
-	const struct uhc_dwc2_vendor_quirks *const quirks =			\
-		COND_CODE_1(IS_EQ(DT_NUM_INST_STATUS_OKAY(snps_dwc2), 1),	\
-		(UHC_DWC2_VENDOR_QUIRK_GET(0); ARG_UNUSED(config);),		\
-		(config->quirks;))						\
-	if (quirks != NULL && quirks->fname != NULL) {				\
-		return quirks->fname(dev);					\
-	}									\
-	return 0;								\
-}
+/* Wrapper functions that fallback to returning 0 if no quirk is needed */
+#define DWC2_QUIRK_FUNC_DEFINE(fn)						\
+	static int uhc_dwc2_quirk_##fn(const struct device *const dev)		\
+	{									\
+		const struct uhc_dwc2_config *const config = dev->config;	\
+										\
+		if (config->quirk_api->fn != NULL) {				\
+			return config->quirk_api->fn(dev);			\
+		}								\
+										\
+		return 0;							\
+	}
 
 DWC2_QUIRK_FUNC_DEFINE(init)
 DWC2_QUIRK_FUNC_DEFINE(pre_enable)
-DWC2_QUIRK_FUNC_DEFINE(post_enable)
 DWC2_QUIRK_FUNC_DEFINE(disable)
 DWC2_QUIRK_FUNC_DEFINE(shutdown)
 DWC2_QUIRK_FUNC_DEFINE(irq_clear)
@@ -260,9 +255,6 @@ DWC2_QUIRK_FUNC_DEFINE(caps)
 DWC2_QUIRK_FUNC_DEFINE(phy_pre_select)
 DWC2_QUIRK_FUNC_DEFINE(phy_post_select)
 DWC2_QUIRK_FUNC_DEFINE(is_phy_clk_off)
-DWC2_QUIRK_FUNC_DEFINE(get_phy_clk)
-DWC2_QUIRK_FUNC_DEFINE(post_hibernation_entry)
-DWC2_QUIRK_FUNC_DEFINE(pre_hibernation_exit)
 
 /* TODO: search in case of present helper function like this */
 static uint16_t calc_packet_count(const uint16_t size, const uint8_t mps)
@@ -1657,7 +1649,9 @@ static int uhc_dwc2_preinit(const struct device *const dev)
 										\
 	static const struct uhc_dwc2_config uhc_dwc2_config_##n = {		\
 		.base = (struct usb_dwc2_reg *)UHC_DWC2_DT_INST_REG_ADDR(n),	\
-		.quirks = UHC_DWC2_VENDOR_QUIRK_GET(n),				\
+		.quirk_data = &uhc_dwc2_quirk_data_##n,				\
+		.quirk_config = &uhc_dwc2_quirk_config_##n,			\
+		.quirk_api = &uhc_dwc2_vendor_quirks_##n,			\
 		.stack = uhc_dwc2_stack_##n,					\
 		.stack_size = K_THREAD_STACK_SIZEOF(uhc_dwc2_stack_##n),	\
 		.irq_enable_func = uhc_dwc2_irq_enable_func_##n,		\

@@ -6,6 +6,7 @@ config UHC_DWC2
 	depends on DT_HAS_SNPS_DWC2_ENABLED
 	default y
 	select EVENTS
+	select REGULATOR
 	help
 	  DWC2 USB host controller driver.
 
@@ -22,6 +23,15 @@ config UHC_DWC2_THREAD_PRIORITY
 	default 8
 	help
 	  DWC2 driver thread priority.
+
+config UHC_DWC2_MAX_CHANNELS
+	int "UHC DWC2 driver maximum supported number of channels"
+	default 16
+	range 1 16
+	help
+	  Number of channels  this driver can support.
+	  Reducing this value helps with saving memory.
+	  The recommended value is the hardware max supported number of channels.
 
 config UHC_DWC2_DEBOUNCE_DELAY_MS
 	int "Debounce delay in ms"
@@ -57,7 +67,6 @@ config UHC_DWC2_RESET_RECOVERY_MS
 
 	  The default value is set to 30 ms to be safe.
 
-
 config UHC_DWC2_SET_ADDR_DELAY_MS
 	int "Delay after set device address"
 	default 10
@@ -70,5 +79,15 @@ config UHC_DWC2_SET_ADDR_DELAY_MS
 
 	  The default value is set to 10 ms to be safe.
 
+config UHC_DWC2_USBHS_VBUS_READY_TIMEOUT
+	int "UHC DWC2 USBHS VBUS ready event timeout in ms"
+	depends on SOC_SERIES_NRF54L
+	default 0
+	help
+	  UHC DWC2 USBHS VBUS ready event timeout. If the VBUS is not ready
+	  and the Nordic USBHS controller is used, the udc_enable() is
+	  blocked for this amount of time. Set it to zero to wait forever.
+
+config UHC_DWC2_USBHS_VBUS_READY_TIMEOUT
 
 endif # UHC_DWC2
