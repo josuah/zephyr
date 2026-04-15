@@ -44,7 +44,7 @@ enum uhc_dwc2_event {
 	UHC_DWC2_EVENT_PORT_ERROR,
 	/* Overcurrent detected */
 	UHC_DWC2_EVENT_PORT_OVERCURRENT,
-	/* Port has pending channel event, one bit per pixel */
+	/* Port has pending channel event, one bit per channel */
 	UHC_DWC2_EVENT_PORT_PEND_CHANNEL
 };
 
@@ -108,6 +108,47 @@ enum {
 				USB_DWC2_HPRT_PRTENCHNG |			\
 				USB_DWC2_HPRT_PRTOVRCURRCHNG)
 
+/* Vendor quirks per driver instance */
+struct uhc_dwc2_vendor_quirks {
+	int (*init)(const struct device *const dev);
+	int (*pre_enable)(const struct device *const dev);
+	int (*post_enable)(const struct device *const dev);
+	int (*disable)(const struct device *const dev);
+	int (*shutdown)(const struct device *const dev);
+	int (*irq_clear)(const struct device *const dev);
+	int (*caps)(const struct device *const dev);
+	int (*phy_pre_select)(const struct device *const dev);
+	int (*phy_post_select)(const struct device *const dev);
+	int (*is_phy_clk_off)(const struct device *const dev);
+	int (*get_phy_clk)(const struct device *const dev);
+	int (*post_hibernation_entry)(const struct device *const dev);
+	int (*pre_hibernation_exit)(const struct device *const dev);
+};
+
+/* Driver configuration per instance */
+struct uhc_dwc2_config {
+	/* Pointer to base address of DWC_OTG registers */
+	struct usb_dwc2_reg *const base;
+	/* Vendor-specific implementation */
+	const struct uhc_dwc2_vendor_quirks *quirk_api;
+	void *quirk_data;
+	const void *quirk_config;
+	/* Pointer to the stack used by the driver thread */
+	k_thread_stack_t *stack;
+	/* Size of the stack used by the driver thread */
+	size_t stack_size;
+
+	void (*irq_enable_func)(const struct device *const dev);
+	void (*irq_disable_func)(const struct device *const dev);
+
+	/* Hardware configuration registers */
+	uint32_t gsnpsid;
+	uint32_t ghwcfg1;
+	uint32_t ghwcfg2;
+	uint32_t ghwcfg3;
+	uint32_t ghwcfg4;
+};
+
 struct uhc_dwc2_channel {
 	/* Index of the channel */
 	uint8_t index;
@@ -164,49 +205,14 @@ struct uhc_dwc2_data {
 	uint8_t has_device: 1;
 };
 
-/* Vendor quirks per driver instance */
-struct uhc_dwc2_vendor_quirks {
-	int (*init)(const struct device *const dev);
-	int (*pre_enable)(const struct device *const dev);
-	int (*post_enable)(const struct device *const dev);
-	int (*disable)(const struct device *const dev);
-	int (*shutdown)(const struct device *const dev);
-	int (*irq_clear)(const struct device *const dev);
-	int (*caps)(const struct device *const dev);
-	int (*phy_pre_select)(const struct device *const dev);
-	int (*phy_post_select)(const struct device *const dev);
-	int (*is_phy_clk_off)(const struct device *const dev);
-	int (*get_phy_clk)(const struct device *const dev);
-	int (*post_hibernation_entry)(const struct device *const dev);
-	int (*pre_hibernation_exit)(const struct device *const dev);
-};
-
-/* Driver configuration per instance */
-struct uhc_dwc2_config {
-	/* Pointer to base address of DWC_OTG registers */
-	struct usb_dwc2_reg *const base;
-	/* Vendor-specific implementation */
-	const struct uhc_dwc2_vendor_quirks *quirk_api;
-	void *quirk_data;
-	const void *quirk_config;
-	/* Pointer to the stack used by the driver thread */
-	k_thread_stack_t *stack;
-	/* Size of the stack used by the driver thread */
-	size_t stack_size;
-
-	void (*irq_enable_func)(const struct device *const dev);
-	void (*irq_disable_func)(const struct device *const dev);
-
-	/* Hardware configuration registers */
-	uint32_t gsnpsid;
-	uint32_t ghwcfg1;
-	uint32_t ghwcfg2;
-	uint32_t ghwcfg3;
-	uint32_t ghwcfg4;
-};
-
-static void uhc_dwc2_isr_handler(const struct device *const dev);
 static int uhc_dwc2_soft_reset(const struct device *const dev);
+static void uhc_dwc2_isr_handler(const struct device *const dev);
+
+/*
+ * Vendor quirks handling
+ *
+ * Definition of vendor-specific functions that can be overwritten on a per-SoC basis.
+ */
 
 #if DT_HAS_COMPAT_STATUS_OKAY(espressif_esp32_usb_otg)
 #include "uhc_dwc2_esp32_usb_otg.h"
