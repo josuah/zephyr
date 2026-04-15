@@ -307,28 +307,6 @@ static void uhc_dwc2_hal_init_hcfg(struct usb_dwc2_reg *const dwc2)
 	sys_write32(hcfg, (mem_addr_t)&dwc2->hcfg);
 }
 
-static void uhc_dwc2_hal_flush_rx_fifo(struct usb_dwc2_reg *const dwc2)
-{
-	sys_write32(USB_DWC2_GRSTCTL_RXFFLSH, (mem_addr_t)&dwc2->grstctl);
-
-	while (sys_read32((mem_addr_t)&dwc2->grstctl) & USB_DWC2_GRSTCTL_RXFFLSH) {
-		continue;
-	}
-}
-
-static void uhc_dwc2_hal_flush_tx_fifo(struct usb_dwc2_reg *const dwc2, const uint8_t fnum)
-{
-	uint32_t grstctl;
-
-	grstctl = usb_dwc2_set_grstctl_txfnum(fnum) | USB_DWC2_GRSTCTL_TXFFLSH;
-	sys_write32(grstctl, (mem_addr_t)&dwc2->grstctl);
-
-	/* TODO: add counter? */
-	while (sys_read32((mem_addr_t)&dwc2->grstctl) & USB_DWC2_GRSTCTL_TXFFLSH) {
-		continue;
-	}
-}
-
 static void uhc_dwc2_hal_init_gusbcfg(struct usb_dwc2_reg *const dwc2)
 {
 	uint32_t gusbcfg = sys_read32((mem_addr_t)&dwc2->gusbcfg);
@@ -469,40 +447,61 @@ static void uhc_dwc2_hal_port_set_bus_reset(struct usb_dwc2_reg *const dwc2, con
 	sys_write32(hprt & (~USB_DWC2_HPRT_W1C_MSK), (mem_addr_t)&dwc2->hprt);
 }
 
-static void uhc_dwc2_hal_config_fifo(struct usb_dwc2_reg *const dwc2, uint16_t top,
-				uint16_t nptxfsiz, uint8_t ptxfsiz, uint16_t rxfsiz)
+static void uhc_dwc2_hal_set_fifo_sizes(struct usb_dwc2_reg *const dwc2, uint32_t ghwcfg2, uint32_t ghwcfg3)
 {
-	uint16_t fifo_available = top;
+	const uint32_t nptx_largest = EPSIZE_BULK_FS / 4;
+	const uint32_t ptx_largest = 256 / 4;
+	const uint32_t dfifodepth = FIELD_GET(USB_DWC2_GHWCFG3_DFIFODEPTH_MASK, ghwcfg3);
+	const uint32_t numhstchnl = FIELD_GET(USB_DWC2_GHWCFG2_NUMHSTCHNL_MASK, ghwcfg2);
+	uint32_t fifo_available = dfifodepth - (numhstchnl + 1);
+	/* TODO: support HS */
+	const uint16_t fifo_nptxfdep = 2 * nptx_largest;
+	const uint16_t fifo_rxfsiz = 2 * (ptx_largest + 2) + numhstchnl + 1;
+	const uint16_t fifo_ptxfsiz = fifo_available - (fifo_nptxfdep + fifo_rxfsiz);
+	uint32_t gdfifocfg;
+	uint32_t grxfsiz;
+	uint32_t gnptxfsiz;
+	uint32_t hptxfsiz;
+	uint32_t grstctl;
 
-	const uint32_t gdfifocfg = usb_dwc2_set_gdfifocfg_epinfobaseaddr(fifo_available) |
-					usb_dwc2_set_gdfifocfg_gdfifocfg(fifo_available);
+	LOG_DBG("Setting FIFO sizes: top=%u, nptx=%u, rx=%u, ptx=%u",
+		fifo_available * 4, fifo_nptxfdep * 4, fifo_rxfsiz * 4, fifo_ptxfsiz * 4);
 
+	/* FIFO config */
+	gdfifocfg = usb_dwc2_set_gdfifocfg_epinfobaseaddr(fifo_available) |
+		    usb_dwc2_set_gdfifocfg_gdfifocfg(fifo_available);
 	sys_write32(gdfifocfg, (mem_addr_t)&dwc2->gdfifocfg);
 
-	fifo_available -= rxfsiz;
-
-	const uint32_t grxfsiz = usb_dwc2_set_grxfsiz(rxfsiz);
-
+	/* RX FIFO size */
+	fifo_available -= fifo_rxfsiz;
+	grxfsiz = usb_dwc2_set_grxfsiz(fifo_rxfsiz);
 	sys_write32(grxfsiz, (mem_addr_t)&dwc2->grxfsiz);
 
-	fifo_available -= nptxfsiz;
-
-	const uint32_t gnptxfsiz = usb_dwc2_set_gnptxfsiz_nptxfdep(nptxfsiz) |
-				usb_dwc2_set_gnptxfsiz_nptxfstaddr(fifo_available);
-
+	/* Non-periodic TX FIFO size */
+	fifo_available -= fifo_nptxfdep;
+	gnptxfsiz = usb_dwc2_set_gnptxfsiz_nptxfdep(fifo_nptxfdep);
+	gnptxfsiz |= usb_dwc2_set_gnptxfsiz_nptxfstaddr(fifo_available);
 	sys_write32(gnptxfsiz, (mem_addr_t)&dwc2->gnptxfsiz);
 
-	fifo_available -= ptxfsiz;
-
-	uint32_t hptxfsiz = usb_dwc2_set_hptxfsiz_ptxfsize(ptxfsiz) | fifo_available;
-
+	/* Periodic TX FIFO size */
+	fifo_available -= fifo_ptxfsiz;
+	hptxfsiz = usb_dwc2_set_hptxfsiz_ptxfsize(fifo_ptxfsiz);
+	hptxfsiz |= fifo_available;
 	sys_write32(hptxfsiz, (mem_addr_t)&dwc2->hptxfsiz);
 
-	uhc_dwc2_hal_flush_tx_fifo(dwc2, 0x10UL);
-	uhc_dwc2_hal_flush_rx_fifo(dwc2);
+	/* Flush TX FIFO and set number of TX FIFO */
+	grstctl = usb_dwc2_set_grstctl_txfnum(CONFIG_UHC_DWC2_MAX_CHANNELS) |
+		  USB_DWC2_GRSTCTL_TXFFLSH;
+	sys_write32(grstctl, (mem_addr_t)&dwc2->grstctl);
+	while (sys_read32((mem_addr_t)&dwc2->grstctl) & USB_DWC2_GRSTCTL_TXFFLSH) {
+		continue;
+	}
 
-	LOG_DBG("FIFO configured: nptx=%u, rx=%u, ptx=%u, available=%u",
-		nptxfsiz * 4, rxfsiz * 4, ptxfsiz * 4, fifo_available * 4);
+	/* Flush RX FIFO */
+	sys_write32(USB_DWC2_GRSTCTL_RXFFLSH, (mem_addr_t)&dwc2->grstctl);
+	while (sys_read32((mem_addr_t)&dwc2->grstctl) & USB_DWC2_GRSTCTL_RXFFLSH) {
+		continue;
+	}
 }
 
 static int uhc_dwc2_hal_init_host(struct usb_dwc2_reg *const dwc2)
@@ -838,36 +837,6 @@ static void uhc_dwc2_port_power_on(const struct device *const dev)
 	uhc_dwc2_hal_port_set_power(dwc2, true);
 }
 
-static void uhc_dwc2_port_reset(const struct device *const dev)
-{
-	const struct uhc_dwc2_config *const config = dev->config;
-	struct uhc_dwc2_data *priv = uhc_get_private(dev);
-	struct usb_dwc2_reg *const dwc2 = config->base;
-
-	/* Reset the port */
-	uhc_dwc2_hal_port_set_bus_reset(dwc2, true);
-
-	/* Hold the bus in the reset state */
-	k_msleep(CONFIG_UHC_DWC2_RESET_HOLD_MS);
-
-	/* Return the bus to the idle state. Port enabled event should occur */
-	uhc_dwc2_hal_port_set_bus_reset(dwc2, false);
-
-	/* Give the port time to recover */
-	k_msleep(CONFIG_UHC_DWC2_RESET_RECOVERY_MS);
-
-	/* TODO: verify the port state after reset */
-
-	/* Finish the port config for the appeared device */
-	/* TODO: apply FIFO settings */
-	uhc_dwc2_hal_config_fifo(dwc2, priv->fifo_top,
-				priv->fifo_nptxfsiz,
-				priv->fifo_ptxfsiz,
-				priv->fifo_rxfsiz);
-	/* TODO: set frame list for the ISOC/INTR xfer */
-	/* TODO: enable periodic transfer */
-}
-
 static void uhc_dwc2_port_fifo_precalc_dma(const struct device *const dev)
 {
 	const struct uhc_dwc2_config *const config = dev->config;
@@ -1049,13 +1018,6 @@ static int uhc_dwc2_channel_start_transfer_ctrl(struct uhc_dwc2_channel *channel
 	return 0;
 }
 
-static int uhc_dwc2_channel_start_transfer(struct uhc_dwc2_channel *channel)
-{
-	LOG_WRN("Submit channel type: %d has not implemented yet", channel->type);
-	return -EINVAL;
-}
-
-
 struct uhc_dwc2_channel *uhc_dwc2_channel_get_pending(const struct device *const dev)
 {
 	struct uhc_dwc2_data *priv = uhc_get_private(dev);
@@ -1105,11 +1067,8 @@ static int uhc_dwc2_submit_xfer(const struct device *const dev, struct uhc_trans
 
 	switch (xfer->type) {
 	case USB_EP_TYPE_CONTROL:
-		ret = uhc_dwc2_channel_start_transfer_ctrl(channel);
-		break;
+		return uhc_dwc2_channel_start_transfer_ctrl(channel);
 	case USB_EP_TYPE_BULK:
-		ret = uhc_dwc2_channel_start_transfer(channel);
-		break;
 	case USB_EP_TYPE_INTERRUPT:
 	case USB_EP_TYPE_ISO:
 	default:
@@ -1351,10 +1310,7 @@ static int uhc_dwc2_bus_reset(const struct device *const dev)
 	k_sem_take(&priv->sem_port_en, K_FOREVER);
 
 	/* Finish the port config for the appeared device */
-	uhc_dwc2_hal_config_fifo(dwc2, priv->fifo_top,
-				priv->fifo_nptxfsiz,
-				priv->fifo_ptxfsiz,
-				priv->fifo_rxfsiz);
+	uhc_dwc2_hal_set_fifo_sizes(dwc2, config->ghwcfg2, config->ghwcfg3);
 	/* TODO: set frame list for the ISOC/INTR xfer */
 	/* TODO: enable periodic transfer */
 
@@ -1395,10 +1351,8 @@ static int uhc_dwc2_init(const struct device *const dev)
 	struct uhc_dwc2_data *priv = uhc_get_private(dev);
 	const struct uhc_dwc2_config *const config = dev->config;
 	struct usb_dwc2_reg *const dwc2 = config->base;
-	uint32_t reg;
+	uint32_t val;
 	int ret;
-
-	/* 1. Power-up dwc2 hardware controller */
 
 	ret = uhc_dwc2_quirk_init(dev);
 	if (ret != 0) {
@@ -1406,35 +1360,35 @@ static int uhc_dwc2_init(const struct device *const dev)
 		return ret;
 	}
 
-	/* 2. Read hardware configuration registers */
+	/* Read hardware configuration registers */
 
-	reg = sys_read32((mem_addr_t)&dwc2->gsnpsid);
-	if (reg != config->gsnpsid) {
-		LOG_ERR("Unexpected GSNPSID 0x%08x instead of 0x%08x", reg, config->gsnpsid);
+	val = sys_read32((mem_addr_t)&dwc2->gsnpsid);
+	if (val != config->gsnpsid) {
+		LOG_ERR("Unexpected GSNPSID 0x%08x instead of 0x%08x", val, config->gsnpsid);
 		return -ENOTSUP;
 	}
 
-	reg = sys_read32((mem_addr_t)&dwc2->ghwcfg1);
-	if (reg != config->ghwcfg1) {
-		LOG_ERR("Unexpected GHWCFG1 0x%08x instead of 0x%08x", reg, config->ghwcfg1);
+	val = sys_read32((mem_addr_t)&dwc2->ghwcfg1);
+	if (val != config->ghwcfg1) {
+		LOG_ERR("Unexpected GHWCFG1 0x%08x instead of 0x%08x", val, config->ghwcfg1);
 		return -ENOTSUP;
 	}
 
-	reg = sys_read32((mem_addr_t)&dwc2->ghwcfg2);
-	if (reg != config->ghwcfg2) {
-		LOG_ERR("Unexpected GHWCFG2 0x%08x instead of 0x%08x", reg, config->ghwcfg2);
+	val = sys_read32((mem_addr_t)&dwc2->ghwcfg2);
+	if (val != config->ghwcfg2) {
+		LOG_ERR("Unexpected GHWCFG2 0x%08x instead of 0x%08x", val, config->ghwcfg2);
 		return -ENOTSUP;
 	}
 
-	reg = sys_read32((mem_addr_t)&dwc2->ghwcfg3);
-	if (reg != config->ghwcfg3) {
-		LOG_ERR("Unexpected GHWCFG3 0x%08x instead of 0x%08x", reg, config->ghwcfg3);
+	val = sys_read32((mem_addr_t)&dwc2->ghwcfg3);
+	if (val != config->ghwcfg3) {
+		LOG_ERR("Unexpected GHWCFG3 0x%08x instead of 0x%08x", val, config->ghwcfg3);
 		return -ENOTSUP;
 	}
 
-	reg = sys_read32((mem_addr_t)&dwc2->ghwcfg4);
-	if (reg != config->ghwcfg4) {
-		LOG_ERR("Unexpected GHWCFG4 0x%08x instead of 0x%08x", reg, config->ghwcfg4);
+	val = sys_read32((mem_addr_t)&dwc2->ghwcfg4);
+	if (val != config->ghwcfg4) {
+		LOG_ERR("Unexpected GHWCFG4 0x%08x instead of 0x%08x", val, config->ghwcfg4);
 		return -ENOTSUP;
 	}
 
