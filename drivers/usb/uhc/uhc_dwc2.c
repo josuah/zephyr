@@ -22,12 +22,8 @@
 
 LOG_MODULE_REGISTER(uhc_dwc2, CONFIG_UHC_DRIVER_LOG_LEVEL);
 
-#define DEBOUNCE_DELAY_MS	CONFIG_UHC_DWC2_DEBOUNCE_DELAY_MS
-#define RESET_HOLD_MS		CONFIG_UHC_DWC2_RESET_HOLD_MS
-#define RESET_RECOVERY_MS	CONFIG_UHC_DWC2_RESET_RECOVERY_MS
-#define SET_ADDR_DELAY_MS	CONFIG_UHC_DWC2_SET_ADDR_DELAY_MS
 /* TODO: Configurable? */
-#define MAX_CHANNELS		16
+#define CONFIG_UHC_DWC2_MAX_CHANNELS		16
 
 #define UHC_DWC2_QUIRK_CONFIG(dev)						\
 	(((const struct uhc_dwc2_config *)dev->config)->quirk_config)
@@ -161,7 +157,7 @@ struct uhc_dwc2_data {
 	/* Event bitmask the driver thread waits for */
 	struct k_event event;
 	/* Port channels */
-	struct uhc_dwc2_channel channel[MAX_CHANNELS];
+	struct uhc_dwc2_channel channel[CONFIG_UHC_DWC2_MAX_CHANNELS];
 	/* Bit mask of channels with pending interrupts */
 	uint32_t pending_channels_msk;
 	/* Port FIFO configuration */
@@ -801,7 +797,7 @@ static bool uhc_dwc2_port_debounce(const struct device *dev,
 	 */
 	uhc_unlock_internal(dev);
 
-	k_msleep(DEBOUNCE_DELAY_MS);
+	k_msleep(CONFIG_UHC_DWC2_DEBOUNCE_DELAY_MS);
 
 	uhc_lock_internal(dev, K_FOREVER);
 
@@ -834,13 +830,13 @@ static void uhc_dwc2_port_reset(const struct device *dev)
 	dwc2_hal_toggle_reset(dwc2, true);
 
 	/* Hold the bus in the reset state */
-	k_msleep(RESET_HOLD_MS);
+	k_msleep(CONFIG_UHC_DWC2_RESET_HOLD_MS);
 
 	/* Return the bus to the idle state. Port enabled event should occur */
 	dwc2_hal_toggle_reset(dwc2, false);
 
 	/* Give the port time to recover */
-	k_msleep(RESET_RECOVERY_MS);
+	k_msleep(CONFIG_UHC_DWC2_RESET_RECOVERY_MS);
 
 	/* TODO: verify the port state after reset */
 
@@ -1219,7 +1215,7 @@ static void uhc_dwc2_channel_handle_events(const struct device *dev,
 		 * HINT: When device is processing SetAddress(), delay should be applied
 		 */
 		if (channel->set_address) {
-			k_msleep(SET_ADDR_DELAY_MS);
+			k_msleep(CONFIG_UHC_DWC2_SET_ADDR_DELAY_MS);
 		}
 		/* No error */
 		err = 0;
@@ -1302,7 +1298,7 @@ static void uhc_dwc2_thread(void *arg0, void *arg1, void *arg2)
 		uhc_dwc2_port_handle_events(dev, event_mask);
 
 		/* Interate channels events */
-		for (uint32_t index = 0; index < MAX_CHANNELS; index++) {
+		for (uint32_t index = 0; index < CONFIG_UHC_DWC2_MAX_CHANNELS; index++) {
 			if (event_mask & BIT(UHC_DWC2_EVENT_PORT_PEND_CHANNEL + index)) {
 				uhc_dwc2_channel_handle_events(dev, &priv->channel[index]);
 			}
@@ -1461,7 +1457,7 @@ static int uhc_dwc2_init(const struct device *const dev)
 	}
 
 	/* 6. Init channels list */
-	for (uint32_t idx = 0; idx < MAX_CHANNELS; idx++) {
+	for (uint32_t idx = 0; idx < CONFIG_UHC_DWC2_MAX_CHANNELS; idx++) {
 		priv->channel[idx].base = UHC_DWC2_CHANNEL_REGS(dwc2, idx);
 		priv->channel[idx].index = idx;
 	}
