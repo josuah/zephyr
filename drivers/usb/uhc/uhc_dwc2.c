@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2026 Roman Leonov <jam_roma@yahoo.com>
- *
+ * SPDX-FileCopyrightText: Copyright (c) 2026 Roman Leonov <jam_roma@yahoo.com>
+ * SPDX-FileCopyrightText: Copyright Nordic Semiconductor ASA.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -28,6 +28,12 @@ LOG_MODULE_REGISTER(uhc_dwc2, CONFIG_UHC_DRIVER_LOG_LEVEL);
 #define SET_ADDR_DELAY_MS	CONFIG_UHC_DWC2_SET_ADDR_DELAY_MS
 /* TODO: Configurable? */
 #define MAX_CHANNELS		16
+
+#define UHC_DWC2_QUIRK_CONFIG(dev)						\
+	(((const struct uhc_dwc2_config *)dev->config)->quirk_config)
+
+#define UHC_DWC2_QUIRK_DATA(dev)						\
+	(((const struct uhc_dwc2_config *)dev->config)->quirk_data)
 
 enum uhc_dwc2_event {
 	/* No event has occurred or the event is no longer valid */
@@ -248,6 +254,7 @@ static int uhc_dwc2_soft_reset(const struct device *dev);
 
 DWC2_QUIRK_FUNC_DEFINE(init)
 DWC2_QUIRK_FUNC_DEFINE(pre_enable)
+DWC2_QUIRK_FUNC_DEFINE(post_enable)
 DWC2_QUIRK_FUNC_DEFINE(disable)
 DWC2_QUIRK_FUNC_DEFINE(shutdown)
 DWC2_QUIRK_FUNC_DEFINE(irq_clear)
@@ -1485,6 +1492,12 @@ static int uhc_dwc2_enable(const struct device *const dev)
 
 	/* 3. Prepare for device connection */
 	uhc_dwc2_port_power_on(dev);
+
+	ret = uhc_dwc2_quirk_post_enable(dev);
+	if (ret) {
+		LOG_ERR("Quirk post enable failed %d", ret);
+		return ret;
+	}
 
 	return 0;
 }

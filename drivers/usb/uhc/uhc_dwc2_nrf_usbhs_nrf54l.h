@@ -12,12 +12,6 @@
 #include <zephyr/drivers/clock_control/nrf_clock_control.h>
 #include <zephyr/drivers/regulator.h>
 
-#define UHC_DWC2_QUIRK_CONFIG(dev)						\
-	(((const struct uhc_dwc2_config *)dev->config)->quirk_config)
-
-#define UHC_DWC2_QUIRK_DATA(dev)						\
-	(((const struct uhc_dwc2_config *)dev->config)->quirk_data)
-
 struct nrf_usbhs_nrf54l_config {
 	NRF_USBHS_Type *wrapper_base;
 	const struct device *vregusb_dev;
@@ -44,43 +38,42 @@ static void vregusb_event_cb(const struct device *dev,
 			     const void *const user_data)
 {
 	const struct device *const dwc2_dev = user_data;
-	const struct nrf_usbhs_nrf54l_config *const quirk_cfg = UHC_DWC2_QUIRK_DATA(dwc2_dev);
-	struct nrf_usbhs_nrf54l_data *const quirk_data = UHC_DWC2_QUIRK_DATA(dwc2_dev);
+	struct nrf_usbhs_nrf54l_data *const data = UHC_DWC2_QUIRK_DATA(dwc2_dev);
 
 	if (evt->type == REGULATOR_VOLTAGE_DETECTED) {
-		k_event_post(&quirk_data->events, USBHS_VBUS_READY);
+		k_event_post(&data->events, USBHS_VBUS_READY);
 	}
 
 	if (evt->type == REGULATOR_VOLTAGE_REMOVED) {
-		k_event_set_masked(&quirk_data->events, 0, USBHS_VBUS_READY);
+		k_event_set_masked(&data->events, 0, USBHS_VBUS_READY);
 	}
 }
 
 static inline int usbhs_enable_core(const struct device *dev)
 {
-	const struct nrf_usbhs_nrf54l_config *const quirk_cfg = UHC_DWC2_QUIRK_CONFIG(dev);
-	struct nrf_usbhs_nrf54l_data *const quirk_data = UHC_DWC2_QUIRK_DATA(dev);
-	NRF_USBHS_Type *wrapper = quirk_cfg->wrapper_base;
+	const struct nrf_usbhs_nrf54l_config *const cfg = UHC_DWC2_QUIRK_CONFIG(dev);
+	struct nrf_usbhs_nrf54l_data *const data = UHC_DWC2_QUIRK_DATA(dev);
+	NRF_USBHS_Type *wrapper = cfg->wrapper_base;
 	k_timeout_t timeout = K_FOREVER;
 	int err;
 
-	quirk_data->pclk24m_mgr = z_nrf_clock_control_get_onoff(CLOCK_CONTROL_NRF_SUBSYS_HF24M);
+	data->pclk24m_mgr = z_nrf_clock_control_get_onoff(CLOCK_CONTROL_NRF_SUBSYS_HF24M);
 
 	if (CONFIG_UHC_DWC2_USBHS_VBUS_READY_TIMEOUT) {
 		timeout = K_MSEC(CONFIG_UHC_DWC2_USBHS_VBUS_READY_TIMEOUT);
 	}
 
-	if (!k_event_wait(&quirk_data->events, USBHS_VBUS_READY, false, K_NO_WAIT)) {
-		LOG_WRN("VBUS is not ready, block udc_enable()");
-		if (!k_event_wait(&quirk_data->events, USBHS_VBUS_READY, false, timeout)) {
+	if (!k_event_wait(&data->events, USBHS_VBUS_READY, false, K_NO_WAIT)) {
+		LOG_INF("VBUS is not ready, block udc_enable()");
+		if (!k_event_wait(&data->events, USBHS_VBUS_READY, false, timeout)) {
 			LOG_ERR("Timed out while waiting VBUS to be ready");
 			return -ETIMEDOUT;
 		}
 	}
 
 	/* Request PCLK24M using clock control driver */
-	sys_notify_init_spinwait(&quirk_data->pclk24m_cli.notify);
-	err = onoff_request(quirk_data->pclk24m_mgr, &quirk_data->pclk24m_cli);
+	sys_notify_init_spinwait(&data->pclk24m_cli.notify);
+	err = onoff_request(data->pclk24m_mgr, &data->pclk24m_cli);
 	if (err != 0) {
 		LOG_ERR("Failed to start PCLK24M %d", err);
 		return err;
@@ -115,23 +108,23 @@ static inline int usbhs_enable_core(const struct device *dev)
 
 static inline int usbhs_init_vreg_and_clock(const struct device *dev)
 {
-	const struct nrf_usbhs_nrf54l_config *const quirk_cfg = UHC_DWC2_QUIRK_CONFIG(dev);
+	const struct nrf_usbhs_nrf54l_config *const cfg = UHC_DWC2_QUIRK_CONFIG(dev);
 	int err;
 
-	if (!device_is_ready(quirk_cfg->vregusb_dev)) {
-		LOG_ERR("%s is not ready", quirk_cfg->vregusb_dev->name);
+	if (!device_is_ready(cfg->vregusb_dev)) {
+		LOG_ERR("%s is not ready", cfg->vregusb_dev->name);
 		return -ENODEV;
 	}
 
-	err = regulator_set_callback(quirk_cfg->vregusb_dev, vregusb_event_cb, dev);
+	err = regulator_set_callback(cfg->vregusb_dev, vregusb_event_cb, dev);
 	if (err != 0) {
 		LOG_ERR("Failed to set regulator callback");
 		return err;
 	}
 
-	err = regulator_enable(quirk_cfg->vregusb_dev);
+	err = regulator_enable(cfg->vregusb_dev);
 	if (err != 0) {
-		LOG_ERR("Failed to enable %s", quirk_cfg->vregusb_dev->name);
+		LOG_ERR("Failed to enable %s", cfg->vregusb_dev->name);
 		return err;
 	}
 
@@ -146,19 +139,19 @@ static inline int usbhs_init_vreg_and_clock(const struct device *dev)
 
 static inline int usbhs_disable_core(const struct device *dev)
 {
-	const struct nrf_usbhs_nrf54l_config *const quirk_cfg = UHC_DWC2_QUIRK_CONFIG(dev);
-	struct nrf_usbhs_nrf54l_data *const quirk_data = UHC_DWC2_QUIRK_DATA(dev);
-	NRF_USBHS_Type *wrapper = quirk_cfg->wrapper_base;
+	const struct nrf_usbhs_nrf54l_config *const cfg = UHC_DWC2_QUIRK_CONFIG(dev);
+	struct nrf_usbhs_nrf54l_data *const data = UHC_DWC2_QUIRK_DATA(dev);
+	NRF_USBHS_Type *wrapper = cfg->wrapper_base;
 	int err;
 
-	/* Set ID to Device and forcefully disable D+ pull-up */
-	wrapper->PHY.OVERRIDEVALUES = (1 << 31);
-	wrapper->PHY.INPUTOVERRIDE = (1 << 31) | USBHS_PHY_INPUTOVERRIDE_VBUSVALID_Msk;
+	/* Set ID to Host and forcefully disable D+ pull-up */
+	wrapper->PHY.OVERRIDEVALUES = (1 << 24) | (1 << 23);
+	wrapper->PHY.INPUTOVERRIDE = (1 << 31) | (1 << 30) | (1 << 24) | (1 << 23);
 
 	wrapper->ENABLE = 0UL;
 
 	/* Release PCLK24M using clock control driver */
-	err = onoff_cancel_or_release(quirk_data->pclk24m_mgr, &quirk_data->pclk24m_cli);
+	err = onoff_cancel_or_release(data->pclk24m_mgr, &data->pclk24m_cli);
 	if (err != 0) {
 		LOG_ERR("Failed to stop PCLK24M %d", err);
 		return err;
@@ -169,9 +162,9 @@ static inline int usbhs_disable_core(const struct device *dev)
 
 static inline int usbhs_disable_vreg(const struct device *dev)
 {
-	const struct nrf_usbhs_nrf54l_config *const quirk_cfg = UHC_DWC2_QUIRK_CONFIG(dev);
+	const struct nrf_usbhs_nrf54l_config *const cfg = UHC_DWC2_QUIRK_CONFIG(dev);
 
-	return regulator_disable(quirk_cfg->vregusb_dev);
+	return regulator_disable(cfg->vregusb_dev);
 }
 
 #define QUIRK_NRF_USBHS_DEFINE(n)						\
