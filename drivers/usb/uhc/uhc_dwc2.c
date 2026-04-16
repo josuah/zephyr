@@ -1380,26 +1380,21 @@ static int uhc_dwc2_init(const struct device *const dev)
 	/* 4. Pre-calculate FIFO settings */
 	uhc_dwc2_port_fifo_precalc_dma(dev);
 
-	/* 5. Init DWC2 controller as a host */
-
-	/* Init GAHBCFG */
 	ret = uhc_dwc2_hal_init_gahbcfg(dwc2);
 	if (ret != 0) {
-		/* TODO: Implement Slave Mode */
-		LOG_WRN("DMA isn't supported, but Slave Mode isn't implemented yet");
 		return ret;
 	}
 
-	/* Init GUSBCFG */
 	uhc_dwc2_hal_init_gusbcfg(dwc2);
 
-	/* Clear interrupts */
-	sys_clear_bits((mem_addr_t)&dwc2->gintmsk, 0xFFFFFFFFUL);
-	sys_set_bits((mem_addr_t)&dwc2->gintmsk, USB_DWC2_GINTSTS_DISCONNINT);
+	/* Configure DWC2 in host mode */
+
+	/* Enable port interrupt */
+	sys_set_bits((mem_addr_t)&dwc2->gintmsk, USB_DWC2_GINTSTS_PRTINT);
 
 	uhc_dwc2_hal_init_hcfg(dwc2);
 
-	/* Clear status */
+	/* Clear interrupts */
 	gintsts = sys_read32((mem_addr_t)&dwc2->gintsts);
 	sys_write32(gintsts, (mem_addr_t)&dwc2->gintsts);
 
@@ -1419,18 +1414,13 @@ static int uhc_dwc2_enable(const struct device *const dev)
 		return ret;
 	}
 
-	/* 1. Flush root port config */
-
 	/* TODO: Pre-calculate FIFO configuration */
 
 	/* TODO: Flush channels */
 
-	/* 2. Enable IRQ */
-	config->irq_enable_func(dev);
-
-	/* 3. Prepare for device connection */
-
 	uhc_dwc2_hal_port_set_power(dwc2, true);
+
+	config->irq_enable_func(dev);
 
 	sys_clear_bits((mem_addr_t)&dwc2->haintmsk, 0xFFFFFFFFUL);
 	sys_set_bits((mem_addr_t)&dwc2->gintmsk, USB_DWC2_GINTSTS_PRTINT | USB_DWC2_GINTSTS_HCHINT);
