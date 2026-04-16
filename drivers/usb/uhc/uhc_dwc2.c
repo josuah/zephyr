@@ -491,33 +491,6 @@ static void uhc_dwc2_hal_set_fifo_sizes(struct usb_dwc2_reg *const dwc2, uint32_
 	}
 }
 
-static int uhc_dwc2_hal_init_host(struct usb_dwc2_reg *const dwc2)
-{
-	uint32_t gintsts;
-	int ret;
-
-	/* Init GUSBCFG */
-	uhc_dwc2_hal_init_gusbcfg(dwc2);
-
-	/* Init GAHBCFG */
-	ret = uhc_dwc2_hal_init_gahbcfg(dwc2);
-	if (ret != 0) {
-		/* TODO: Implement Slave Mode */
-		LOG_WRN("DMA isn't supported, but Slave Mode isn't implemented yet");
-		return ret;
-	}
-
-	/* Clear interrupts */
-	sys_clear_bits((mem_addr_t)&dwc2->gintmsk, 0xFFFFFFFFUL);
-	sys_set_bits((mem_addr_t)&dwc2->gintmsk, USB_DWC2_GINTSTS_DISCONNINT);
-
-	/* Clear status */
-	gintsts = sys_read32((mem_addr_t)&dwc2->gintsts);
-	sys_write32(gintsts, (mem_addr_t)&dwc2->gintsts);
-
-	return ret;
-}
-
 /*
  * Port
  *
@@ -1337,6 +1310,7 @@ static int uhc_dwc2_init(const struct device *const dev)
 {
 	const struct uhc_dwc2_config *const config = dev->config;
 	struct usb_dwc2_reg *const dwc2 = config->base;
+	uint32_t gintsts;
 	uint32_t val;
 	int ret;
 
@@ -1408,10 +1382,26 @@ static int uhc_dwc2_init(const struct device *const dev)
 
 	/* 5. Init DWC2 controller as a host */
 
-	ret = uhc_dwc2_hal_init_host(dwc2);
+	/* Init GAHBCFG */
+	ret = uhc_dwc2_hal_init_gahbcfg(dwc2);
 	if (ret != 0) {
+		/* TODO: Implement Slave Mode */
+		LOG_WRN("DMA isn't supported, but Slave Mode isn't implemented yet");
 		return ret;
 	}
+
+	/* Init GUSBCFG */
+	uhc_dwc2_hal_init_gusbcfg(dwc2);
+
+	/* Clear interrupts */
+	sys_clear_bits((mem_addr_t)&dwc2->gintmsk, 0xFFFFFFFFUL);
+	sys_set_bits((mem_addr_t)&dwc2->gintmsk, USB_DWC2_GINTSTS_DISCONNINT);
+
+	uhc_dwc2_hal_init_hcfg(dwc2);
+
+	/* Clear status */
+	gintsts = sys_read32((mem_addr_t)&dwc2->gintsts);
+	sys_write32(gintsts, (mem_addr_t)&dwc2->gintsts);
 
 	/* Reset of the initialization in uhc_dwc2_enable() */
 	return 0;
