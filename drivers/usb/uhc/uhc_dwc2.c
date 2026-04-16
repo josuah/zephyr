@@ -33,9 +33,6 @@ LOG_MODULE_REGISTER(uhc_dwc2, CONFIG_UHC_DRIVER_LOG_LEVEL);
 #define EPSIZE_ISO_FS_MAX	1023
 #define EPSIZE_ISO_HS_MAX	1024
 
-/* TODO: Configurable? */
-#define CONFIG_UHC_DWC2_MAX_CHANNELS		16
-
 #define UHC_DWC2_QUIRK_CONFIG(dev)						\
 	(((const struct uhc_dwc2_config *)dev->config)->quirk_config)
 
@@ -83,27 +80,6 @@ enum uhc_dwc2_channel_pid {
 	UHC_DWC2_PID_DATA1 = 2,
 	UHC_DWC2_PID_MDATA_SETUP = 3,
 };
-
-#define UHC_DWC2_CHANNEL_REGS(base, chan_idx)					\
-	((struct usb_dwc2_host_chan *)(((mem_addr_t)(base)) + USB_DWC2_HCCHAR(chan_idx)))
-
-#define UHC_DWC2_FIFODEPTH(config)						\
-	((uint32_t)(((config)->ghwcfg3 & USB_DWC2_GHWCFG3_DFIFODEPTH_MASK) >>	\
-		    USB_DWC2_GHWCFG3_DFIFODEPTH_POS))
-
-#define UHC_DWC2_NUMHSTCHNL(config)						\
-	((uint32_t)(((config)->ghwcfg2 & USB_DWC2_GHWCFG2_NUMHSTCHNL_MASK) >>	\
-		    USB_DWC2_GHWCFG2_NUMHSTCHNL_POS))
-
-
-/* Interrupts that pertain to core events */
-#define CORE_EVENTS_INTRS_MSK	(USB_DWC2_GINTSTS_DISCONNINT |			\
-				USB_DWC2_GINTSTS_HCHINT)
-
-/* Interrupt that pertain to host port events */
-#define PORT_EVENTS_INTRS_MSK	(USB_DWC2_HPRT_PRTCONNDET |			\
-				USB_DWC2_HPRT_PRTENCHNG |			\
-				USB_DWC2_HPRT_PRTOVRCURRCHNG)
 
 struct uhc_dwc2_vendor_quirks {
 	int (*preinit)(const struct device *const dev);
@@ -171,11 +147,6 @@ struct uhc_dwc2_data {
 	struct uhc_dwc2_channel channels[CONFIG_UHC_DWC2_MAX_CHANNELS];
 	/* Bit mask of channels with pending interrupts */
 	uint32_t pending_channels_msk;
-	/* Port FIFO configuration */
-	uint16_t fifo_top;
-	uint16_t fifo_nptxfsiz;
-	uint16_t fifo_rxfsiz;
-	uint16_t fifo_ptxfsiz;
 	/* Root Port flags */
 	uint8_t debouncing : 1;
 	uint8_t has_device : 1;
