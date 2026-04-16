@@ -979,12 +979,11 @@ static int uhc_dwc2_channel_start_xfer_ctrl(struct uhc_dwc2_channel *channel)
 		LOG_WRN("Periodic transfer is not supported");
 	}
 
-	hctsiz = usb_dwc2_set_hctsiz_pid(UHC_DWC2_PID_MDATA_SETUP);
-	hctsiz |= usb_dwc2_set_hctsiz_pktcnt(packet_count(sizeof(*setup_pkt),
-	                                                  channel->ep_mps));
-	hctsiz |= usb_dwc2_set_hctsiz_xfersize(sizeof(struct usb_setup_packet));
-
+	hctsiz = usb_dwc2_set_hctsiz_pid(USB_DWC2_HCTSIZ_PID_MDATA);
+	hctsiz |= usb_dwc2_set_hctsiz_pktcnt(packet_count(sizeof(*setup_pkt), xfer->mps));
+	hctsiz |= usb_dwc2_set_hctsiz_xfersize(sizeof(*setup_pkt));
 	sys_write32(hctsiz, (mem_addr_t)&channel->base->hctsiz);
+
 	sys_write32((uintptr_t)setup_pkt, (mem_addr_t)&channel->base->hcdma);
 
 	/* TODO: Configure split transaction if needed */
