@@ -895,9 +895,18 @@ static int uhc_dwc2_channel_claim(const struct device *const dev,
 
 	*channel_p = channel;
 
-	/* Claim channel */
+	return 0;
+}
 
-	/* Init underlying channel registers */
+static int uhc_dwc2_channel_configure(const struct device *const dev,
+				      struct uhc_dwc2_channel *const channel)
+{
+	const struct uhc_dwc2_config *const config = dev->config;
+	struct usb_dwc2_reg *const dwc2 = config->base;
+	struct uhc_transfer *const xfer = channel->xfer;
+	struct usb_device *const udev = xfer->udev;
+	uint32_t hcint;
+	uint32_t hcchar;
 
 	/* Clear the interrupt bits by writing them back */
 	hcint = sys_read32((mem_addr_t)&channel->base->hcint);
@@ -1053,6 +1062,9 @@ static int uhc_dwc2_submit_xfer(const struct device *const dev, struct uhc_trans
 		LOG_ERR("Failed to claim channel: %d", ret);
 		return ret;
 	}
+
+	/* Init underlying channel registers */
+	uhc_dwc2_channel_configure(dev, channel);
 
 	switch (xfer->type) {
 	case USB_EP_TYPE_CONTROL:
