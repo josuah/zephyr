@@ -28,7 +28,7 @@ ZTEST(usbh_test, test_device)
 	LOG_INF("Host controller enabled");
 
 	/* Give time for any USB Host stack operation to complete */
-	k_sleep(K_MSEC(500));
+	k_sleep(K_MSEC(1000));
 
 	udev = usbh_device_get_any(&uhs_ctx);
 	zassert_not_null(udev, "Expecting a device to be connected and detected");

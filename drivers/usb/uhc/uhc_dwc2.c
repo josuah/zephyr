@@ -114,9 +114,6 @@ struct uhc_dwc2_vendor_quirks {
 	int (*shutdown)(const struct device *const dev);
 	int (*irq_clear)(const struct device *const dev);
 	int (*phy_pre_select)(const struct device *const dev);
-	int (*phy_post_select)(const struct device *const dev);
-	int (*is_phy_clk_off)(const struct device *const dev);
-	int (*get_phy_clk)(const struct device *const dev);
 	int (*post_hibernation_entry)(const struct device *const dev);
 	int (*pre_hibernation_exit)(const struct device *const dev);
 };
@@ -156,21 +153,12 @@ struct uhc_dwc2_channel {
 	/* Associated endpoint characteristics */
 	/* Type of endpoint */
 	enum uhc_dwc2_xfer_type type;
-	/* Address */
-	uint8_t ep_addr;
-	/* Device Address */
-	uint8_t dev_addr;
-	/* Maximum Packet Size */
-	uint16_t ep_mps;
-	/* Channel flags */
 	/* Transfer stage is IN */
 	uint8_t data_stg_in: 1;
 	/* Transfer has no data stage */
 	uint8_t data_stg_skip: 1;
 	/* Transfer will change the device address */
 	uint8_t set_address : 1;
-	/* Channel executing transfer */
-	uint8_t executing: 1;
 };
 
 struct uhc_dwc2_data {
@@ -232,9 +220,6 @@ DWC2_QUIRK_FUNC_DEFINE(disable);
 DWC2_QUIRK_FUNC_DEFINE(shutdown);
 DWC2_QUIRK_FUNC_DEFINE(irq_clear);
 DWC2_QUIRK_FUNC_DEFINE(preinit);
-DWC2_QUIRK_FUNC_DEFINE(phy_pre_select);
-DWC2_QUIRK_FUNC_DEFINE(phy_post_select);
-DWC2_QUIRK_FUNC_DEFINE(is_phy_clk_off);
 
 /*
  * Hardware Abstraction Layer
@@ -793,29 +778,6 @@ static void uhc_dwc2_port_handle_events(const struct device *const dev, uint32_t
 	}
 }
 
-static void uhc_dwc2_port_fifo_precalc_dma(const struct device *const dev)
-{
-	const struct uhc_dwc2_config *const config = dev->config;
-	struct uhc_dwc2_data *const priv = uhc_get_private(dev);
-
-	const uint32_t nptx_largest = EPSIZE_BULK_FS / 4;
-	const uint32_t ptx_largest = 256 / 4;
-
-	LOG_DBG("Init FIFO sizes");
-
-	/* TODO: support HS */
-
-	priv->fifo_top = UHC_DWC2_FIFODEPTH(config) - (UHC_DWC2_NUMHSTCHNL(config) + 1);
-	priv->fifo_nptxfsiz = 2 * nptx_largest;
-	priv->fifo_rxfsiz = 2 * (ptx_largest + 2) + UHC_DWC2_NUMHSTCHNL(config) + 1;
-	priv->fifo_ptxfsiz = priv->fifo_top - (priv->fifo_nptxfsiz + priv->fifo_rxfsiz);
-
-	/* TODO: verify ptxfsiz is overflowed */
-
-	LOG_DBG("FIFO sizes: top=%u, nptx=%u, rx=%u, ptx=%u", priv->fifo_top * 4,
-		priv->fifo_nptxfsiz * 4, priv->fifo_rxfsiz * 4, priv->fifo_ptxfsiz * 4);
-}
-
 /*
  * Channel
  *
@@ -851,9 +813,6 @@ static int uhc_dwc2_channel_claim(const struct device *const dev,
 
 	/* Save channel characteristics of the underlying channel */
 	channel->xfer = xfer;
-	channel->ep_addr = xfer->ep;
-	channel->dev_addr = udev->addr;
-	channel->ep_mps = xfer->mps;
 
 	*channel_p = channel;
 
@@ -971,8 +930,6 @@ static int uhc_dwc2_channel_start_xfer_ctrl(struct uhc_dwc2_channel *const chann
 	hcchar &= ~USB_DWC2_HCCHAR_CHDIS;
 	sys_write32(hcchar, (mem_addr_t)&channel->base->hcchar);
 
-	channel->executing = 1;
-
 	return 0;
 }
 
@@ -1050,10 +1007,8 @@ static void uhc_dwc2_channel_handle_events(const struct device *const dev,
 
 	LOG_DBG("Thread channel%d events: 0x%08X", channel->index, events);
 
-	channel->executing = 0;
-
 	if (events & BIT(UHC_DWC2_CHANNEL_EVENT_CPLT)) {
-		/* When device is processing SetAddress(), delay should be applied */
+		/* When the device is processing SetAddress(), delay should be applied */
 		if (channel->set_address) {
 			k_msleep(CONFIG_UHC_DWC2_SET_ADDR_DELAY_MS);
 		}
@@ -1206,10 +1161,13 @@ static void uhc_dwc2_thread(void *arg0, void *arg1, void *arg2)
 		/* Handle port events */
 		uhc_dwc2_port_handle_events(dev, event_mask);
 
-		/* Interate channels events */
-		for (uint32_t index = 0; index < CONFIG_UHC_DWC2_MAX_CHANNELS; index++) {
-			if (event_mask & BIT(UHC_DWC2_EVENT_PORT_PEND_CHANNEL + index)) {
-				uhc_dwc2_channel_handle_events(dev, &priv->channels[index]);
+		/* Integrate channels events */
+		for (uint32_t i = 0; i < CONFIG_UHC_DWC2_MAX_CHANNELS; i++) {
+			LOG_DBG("comparing events 0x%02x with 0x%02lx",
+				event_mask, BIT(UHC_DWC2_EVENT_PORT_PEND_CHANNEL + i));
+
+			if (event_mask & BIT(UHC_DWC2_EVENT_PORT_PEND_CHANNEL + i)) {
+				uhc_dwc2_channel_handle_events(dev, &priv->channels[i]);
 			}
 		}
 
@@ -1352,33 +1310,13 @@ static int uhc_dwc2_init(const struct device *const dev)
 		return -ENOTSUP;
 	}
 
-	/* Select PHY */
-
-	ret = uhc_dwc2_quirk_phy_pre_select(dev);
-	if (ret != 0) {
-		LOG_ERR("Quirk PHY pre select failed %d", ret);
-		return ret;
-	}
-
-	if (uhc_dwc2_quirk_is_phy_clk_off(dev)) {
-		LOG_ERR("PHY clock is  turned off, cannot reset");
-		return -EIO;
-	}
+	/* Init DWC2 controller */
 
 	ret = uhc_dwc2_hal_core_reset(dwc2, K_MSEC(10));
 	if (ret != 0) {
 		LOG_ERR("DWC2 core reset failed after PHY init: %d", ret);
 		return ret;
 	}
-
-	ret = uhc_dwc2_quirk_phy_post_select(dev);
-	if (ret != 0) {
-		LOG_ERR("Quirk PHY post select failed %d", ret);
-		return ret;
-	}
-
-	/* 4. Pre-calculate FIFO settings */
-	uhc_dwc2_port_fifo_precalc_dma(dev);
 
 	ret = uhc_dwc2_hal_init_gahbcfg(dwc2);
 	if (ret != 0) {
@@ -1535,12 +1473,12 @@ static int uhc_dwc2_preinit(const struct device *const dev)
 	struct uhc_dwc2_data *const priv = uhc_get_private(dev);
 	struct uhc_data *const data = dev->data;
 	struct usb_dwc2_reg *const dwc2 = config->base;
+	int ret;
 
-	k_mutex_init(&data->mutex);
-	k_event_init(&priv->events);
-	k_sem_init(&priv->sem_port_en, 0, 1);
-
-	uhc_dwc2_quirk_preinit(dev);
+	ret = uhc_dwc2_quirk_preinit(dev);
+	if (ret != 0) {
+		return ret;
+	}
 
 	k_thread_create(&priv->thread,
 			config->stack,
@@ -1558,6 +1496,31 @@ static int uhc_dwc2_preinit(const struct device *const dev)
 		priv->channels[i].base =
 			(struct usb_dwc2_host_chan *)((mem_addr_t)dwc2 + USB_DWC2_HCCHAR(i));
 	}
+
+	__asm__ volatile ("nop; nop; nop; nop; nop; nop; nop; nop;");
+	__asm__ volatile ("nop; nop; nop; nop; nop; nop; nop; nop;");
+	__asm__ volatile ("nop; nop; nop; nop; nop; nop; nop; nop;");
+	__asm__ volatile ("nop; nop; nop; nop; nop; nop; nop; nop;");
+	__asm__ volatile ("nop; nop; nop; nop; nop; nop; nop; nop;");
+	__asm__ volatile ("nop; nop; nop; nop; nop; nop; nop; nop;");
+	__asm__ volatile ("nop; nop; nop; nop; nop; nop; nop; nop;");
+	__asm__ volatile ("nop; nop; nop; nop; nop; nop; nop; nop;");
+	__asm__ volatile ("nop; nop; nop; nop; nop; nop; nop; nop;");
+	__asm__ volatile ("nop; nop; nop; nop; nop; nop; nop; nop;");
+	__asm__ volatile ("nop; nop; nop; nop; nop; nop; nop; nop;");
+	__asm__ volatile ("nop; nop; nop; nop; nop; nop; nop; nop;");
+	__asm__ volatile ("nop; nop; nop; nop; nop; nop; nop; nop;");
+	__asm__ volatile ("nop; nop; nop; nop; nop; nop; nop; nop;");
+	__asm__ volatile ("nop; nop; nop; nop; nop; nop; nop; nop;");
+	__asm__ volatile ("nop; nop; nop; nop; nop; nop; nop; nop;");
+	__asm__ volatile ("nop; nop; nop; nop; nop; nop; nop; nop;");
+	__asm__ volatile ("nop; nop; nop; nop; nop; nop; nop; nop;");
+	__asm__ volatile ("nop; nop; nop; nop; nop; nop; nop; nop;");
+	__asm__ volatile ("nop; nop; nop; nop; nop; nop; nop; nop;");
+	__asm__ volatile ("nop; nop; nop; nop; nop; nop; nop; nop;");
+	__asm__ volatile ("nop; nop; nop; nop; nop; nop; nop; nop;");
+	__asm__ volatile ("nop; nop; nop; nop; nop; nop; nop; nop;");
+	__asm__ volatile ("nop; nop; nop; nop; nop; nop; nop; nop;");
 
 	return 0;
 }
