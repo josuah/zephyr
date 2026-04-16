@@ -127,20 +127,18 @@ struct uhc_dwc2_vendor_quirks {
 
 /* Driver configuration per instance */
 struct uhc_dwc2_config {
-	/* Pointer to base address of DWC_OTG registers */
+	/* Pointer to base address of DWC2 registers */
 	struct usb_dwc2_reg *const base;
+	/* Thread stack */
+	k_thread_stack_t *stack;
+	size_t stack_size;
 	/* Vendor-specific implementation */
 	const struct uhc_dwc2_vendor_quirks *quirk_api;
 	void *quirk_data;
 	const void *quirk_config;
-	/* Pointer to the stack used by the driver thread */
-	k_thread_stack_t *stack;
-	/* Size of the stack used by the driver thread */
-	size_t stack_size;
-
+	/* IRQ configuration */
 	void (*irq_enable_func)(const struct device *const dev);
 	void (*irq_disable_func)(const struct device *const dev);
-
 	/* Hardware configuration registers */
 	uint32_t gsnpsid;
 	uint32_t ghwcfg1;
@@ -1575,30 +1573,20 @@ static int uhc_dwc2_preinit(const struct device *const dev)
 	uhc_dwc2_quirk_caps(dev);
 
 	k_thread_create(&priv->thread,
-		config->stack,
-		config->stack_size,
-		uhc_dwc2_thread,
-		(void *)dev, NULL, NULL,
-		K_PRIO_COOP(CONFIG_UHC_DWC2_THREAD_PRIORITY),
-		K_ESSENTIAL,
-		K_NO_WAIT);
+			config->stack,
+			config->stack_size,
+			uhc_dwc2_thread,
+			(void *)dev, NULL, NULL,
+			K_PRIO_COOP(CONFIG_UHC_DWC2_THREAD_PRIORITY),
+			K_ESSENTIAL,
+			K_NO_WAIT);
 
 	k_thread_name_set(&priv->thread, dev->name);
 
 	return 0;
 }
 
-#define UHC_DWC2_DT_INST_REG_ADDR(n)						\
-	COND_CODE_1(DT_NUM_REGS(DT_DRV_INST(n)),				\
-			(DT_INST_REG_ADDR(n)),					\
-			(DT_INST_REG_ADDR_BY_NAME(n, core)))
-
-#if !defined(UHC_DWC2_IRQ_DT_INST_DEFINE)
-#define UHC_DWC2_IRQ_FLAGS_TYPE0(n)	0
-#define UHC_DWC2_IRQ_FLAGS_TYPE1(n)	DT_INST_IRQ(n, type)
-#define DW_IRQ_FLAGS(n)								\
-	_CONCAT(UHC_DWC2_IRQ_FLAGS_TYPE, DT_INST_IRQ_HAS_CELL(n, type))(n)
-
+#ifndef UHC_DWC2_IRQ_DT_INST_DEFINE
 #define UHC_DWC2_IRQ_DT_INST_DEFINE(n)						\
 	static void uhc_dwc2_irq_enable_func_##n(const struct device *const dev)\
 	{									\
@@ -1606,7 +1594,7 @@ static int uhc_dwc2_preinit(const struct device *const dev)
 			    DT_INST_IRQ(n, priority),				\
 			    uhc_dwc2_isr_handler,				\
 			    DEVICE_DT_INST_GET(n),				\
-			    DW_IRQ_FLAGS(n));					\
+			    0);							\
 										\
 		irq_enable(DT_INST_IRQN(n));					\
 	}									\
@@ -1617,11 +1605,8 @@ static int uhc_dwc2_preinit(const struct device *const dev)
 	}
 #endif
 
-/* Multi-instance device definition for DWC2 host controller */
 #define UHC_DWC2_DEVICE_DEFINE(n)						\
-										\
-	K_THREAD_STACK_DEFINE(uhc_dwc2_stack_##n,				\
-		CONFIG_UHC_DWC2_STACK_SIZE);					\
+	K_THREAD_STACK_DEFINE(uhc_dwc2_stack_##n, CONFIG_UHC_DWC2_STACK_SIZE);	\
 										\
 	UHC_DWC2_IRQ_DT_INST_DEFINE(n)						\
 										\
@@ -1632,16 +1617,17 @@ static int uhc_dwc2_preinit(const struct device *const dev)
 	};									\
 										\
 	static struct uhc_data uhc_data_##n = {					\
+		.mutex = Z_MUTEX_INITIALIZER(uhc_data_##n.mutex),		\
 		.priv = &uhc_dwc2_priv_##n,					\
 	};									\
 										\
 	static const struct uhc_dwc2_config uhc_dwc2_config_##n = {		\
-		.base = (struct usb_dwc2_reg *)UHC_DWC2_DT_INST_REG_ADDR(n),	\
-		.quirk_data = &uhc_dwc2_quirk_data_##n,				\
-		.quirk_config = &uhc_dwc2_quirk_config_##n,			\
-		.quirk_api = &uhc_dwc2_vendor_quirks_##n,			\
+		.base = (struct usb_dwc2_reg *)DT_INST_REG_ADDR(n),		\
 		.stack = uhc_dwc2_stack_##n,					\
 		.stack_size = K_THREAD_STACK_SIZEOF(uhc_dwc2_stack_##n),	\
+		.quirk_api = &uhc_dwc2_vendor_quirks_##n,			\
+		.quirk_config = &uhc_dwc2_quirk_config_##n,			\
+		.quirk_data = &uhc_dwc2_quirk_data_##n,				\
 		.irq_enable_func = uhc_dwc2_irq_enable_func_##n,		\
 		.irq_disable_func = uhc_dwc2_irq_disable_func_##n,		\
 		.gsnpsid = DT_INST_PROP(n, gsnpsid),				\
