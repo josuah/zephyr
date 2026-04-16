@@ -518,7 +518,7 @@ static void uhc_dwc2_port_debounce_unlock(const struct device *const dev)
 static bool uhc_dwc2_channel_xfer_is_done(struct uhc_dwc2_channel *const channel)
 {
 	/* Only control transfers need to be handled in stages */
-	if (channel->type != UHC_DWC2_XFER_TYPE_CTRL) {
+	if (channel->xfer->type != USB_EP_TYPE_CONTROL) {
 		return true;
 	}
 
@@ -793,23 +793,6 @@ static int uhc_dwc2_channel_claim(const struct device *const dev,
 	/* TODO: select non-claimed channel, use channel 0 for now */
 	uint8_t idx = 0;
 	struct uhc_dwc2_channel *const channel = &priv->channels[idx];
-
-	switch (xfer->type) {
-	case USB_EP_TYPE_CONTROL:
-		channel->type = UHC_DWC2_XFER_TYPE_CTRL;
-		break;
-	case USB_EP_TYPE_BULK:
-		channel->type = UHC_DWC2_XFER_TYPE_BULK;
-		break;
-	case USB_EP_TYPE_INTERRUPT:
-		channel->type = UHC_DWC2_XFER_TYPE_INTR;
-		break;
-	case USB_EP_TYPE_ISO:
-		channel->type = UHC_DWC2_XFER_TYPE_ISOCHRONOUS;
-		break;
-	default:
-		return -EINVAL;
-	}
 
 	/* Save channel characteristics of the underlying channel */
 	channel->xfer = xfer;
