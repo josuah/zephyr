@@ -89,9 +89,6 @@ struct uhc_dwc2_vendor_quirks {
 	int (*disable)(const struct device *const dev);
 	int (*shutdown)(const struct device *const dev);
 	int (*irq_clear)(const struct device *const dev);
-	int (*phy_pre_select)(const struct device *const dev);
-	int (*post_hibernation_entry)(const struct device *const dev);
-	int (*pre_hibernation_exit)(const struct device *const dev);
 };
 
 struct uhc_dwc2_config {
@@ -374,7 +371,7 @@ static void uhc_dwc2_hal_port_set_power(struct usb_dwc2_reg *const dwc2, const b
 	} else {
 		hprt &= ~USB_DWC2_HPRT_PRTPWR;
 	}
-	sys_write32(hprt & (~USB_DWC2_HPRT_W1C_MSK), (mem_addr_t)&dwc2->hprt);
+	sys_write32(hprt & ~USB_DWC2_HPRT_W1C_MSK, (mem_addr_t)&dwc2->hprt);
 }
 
 static void uhc_dwc2_hal_port_set_bus_reset(struct usb_dwc2_reg *const dwc2, const bool bus_reset)
@@ -387,7 +384,7 @@ static void uhc_dwc2_hal_port_set_bus_reset(struct usb_dwc2_reg *const dwc2, con
 	} else {
 		hprt &= ~USB_DWC2_HPRT_PRTRST;
 	}
-	sys_write32(hprt & (~USB_DWC2_HPRT_W1C_MSK), (mem_addr_t)&dwc2->hprt);
+	sys_write32(hprt & ~USB_DWC2_HPRT_W1C_MSK, (mem_addr_t)&dwc2->hprt);
 }
 
 static void uhc_dwc2_hal_set_fifo_sizes(struct usb_dwc2_reg *const dwc2, uint32_t ghwcfg2, uint32_t ghwcfg3)
@@ -759,11 +756,13 @@ static int uhc_dwc2_channel_claim(const struct device *const dev,
 				  struct uhc_transfer *const xfer,
 				  struct uhc_dwc2_channel **const channel_p)
 {
-	struct uhc_dwc2_data *priv = uhc_get_private(dev);
-	const struct usb_device *udev = xfer->udev;
+	struct uhc_dwc2_data *const priv = uhc_get_private(dev);
+	const struct usb_device *const udev = xfer->udev;
 	/* TODO: select non-claimed channel, use channel 0 for now */
 	uint8_t idx = 0;
 	struct uhc_dwc2_channel *const channel = &priv->channels[idx];
+
+	LOG_DBG("Claimed channel%d, configuring it with xfer %p, channel %p", idx, (void *)xfer, (void *)channel);
 
 	/* Save channel characteristics of the underlying channel */
 	channel->xfer = xfer;
@@ -837,7 +836,6 @@ static int uhc_dwc2_channel_release(const struct device *const dev,
 
 static int uhc_dwc2_channel_start_xfer_ctrl(struct uhc_dwc2_channel *const channel)
 {
-	/* Get information about the control transfer by analyzing the setup packet */
 	struct uhc_transfer *const xfer = channel->xfer;
 	const struct usb_setup_packet *const setup_pkt = (const struct usb_setup_packet *)xfer->setup_pkt;
 	uint32_t hctsiz;
@@ -849,6 +847,8 @@ static int uhc_dwc2_channel_start_xfer_ctrl(struct uhc_dwc2_channel *const chann
 		(setup_pkt->wLength == 0) ? "true" : "false");
 	LOG_HEXDUMP_DBG(xfer->setup_pkt, 8, "setup_pkt");
 
+	/* Get information about the control transfer by analyzing the setup packet */
+	/* TODO: something the host stack should do? */
 	channel->set_address = (setup_pkt->bRequest == USB_SREQ_SET_ADDRESS);
 	channel->ctrl_stg = UHC_CONTROL_STAGE_SETUP;
 	channel->data_stg_in = usb_reqtype_is_to_host(setup_pkt);
