@@ -236,16 +236,6 @@ DWC2_QUIRK_FUNC_DEFINE(phy_pre_select);
 DWC2_QUIRK_FUNC_DEFINE(phy_post_select);
 DWC2_QUIRK_FUNC_DEFINE(is_phy_clk_off);
 
-/* TODO: search in case of present helper function like this */
-static uint16_t packet_count(const uint16_t size, const uint8_t mps)
-{
-	if (size == 0) {
-		return 1; /* in Buffer DMA mode Zero Length Packet still counts as 1 packet */
-	} else {
-		return DIV_ROUND_UP(size, mps);
-	}
-}
-
 /*
  * Hardware Abstraction Layer
  *
@@ -578,7 +568,12 @@ static bool uhc_dwc2_channel_xfer_is_done(struct uhc_dwc2_channel *const channel
 	return (channel->ctrl_stg == UHC_CONTROL_STAGE_STATUS);
 }
 
-static void uhc_dwc2_channel_process_ctrl(struct uhc_dwc2_channel *channel)
+static uint16_t packet_count(const uint16_t size, const uint16_t mps)
+{
+	return max(1, DIV_ROUND_UP(size, mps));
+}
+
+static void uhc_dwc2_channel_process_ctrl(struct uhc_dwc2_channel *const channel)
 {
 	struct uhc_transfer *const xfer = channel->xfer;
 	bool next_dir_is_in;
@@ -661,7 +656,7 @@ static void uhc_dwc2_channel_process_ctrl(struct uhc_dwc2_channel *channel)
 	sys_write32(hcchar, (mem_addr_t)&channel->base->hcchar);
 }
 
-static uint32_t uhc_dwc2_channel_irq_handle_events(struct uhc_dwc2_channel *channel)
+static uint32_t uhc_dwc2_channel_irq_handle_events(struct uhc_dwc2_channel *const channel)
 {
 	uint32_t hcint = sys_read32((mem_addr_t)&channel->base->hcint);
 	uint32_t channel_events = 0;
@@ -858,17 +853,11 @@ static int uhc_dwc2_channel_claim(const struct device *const dev,
 				  struct uhc_transfer *const xfer,
 				  struct uhc_dwc2_channel **const channel_p)
 {
-	const struct uhc_dwc2_config *const config = dev->config;
 	struct uhc_dwc2_data *priv = uhc_get_private(dev);
-	struct usb_dwc2_reg *const dwc2 = config->base;
 	const struct usb_device *udev = xfer->udev;
-	uint32_t hcchar;
-	uint32_t hcint;
-
 	/* TODO: select non-claimed channel, use channel 0 for now */
 	uint8_t idx = 0;
-
-	struct uhc_dwc2_channel *channel = &priv->channels[idx];
+	struct uhc_dwc2_channel *const channel = &priv->channels[idx];
 
 	switch (xfer->type) {
 	case USB_EP_TYPE_CONTROL:
@@ -945,7 +934,7 @@ static int uhc_dwc2_channel_configure(const struct device *const dev,
 }
 
 static int uhc_dwc2_channel_release(const struct device *const dev,
-				struct uhc_dwc2_channel *channel)
+				    struct uhc_dwc2_channel *const channel)
 {
 	const struct uhc_dwc2_config *const config = dev->config;
 	struct usb_dwc2_reg *const dwc2 = config->base;
@@ -960,7 +949,7 @@ static int uhc_dwc2_channel_release(const struct device *const dev,
 	return 0;
 }
 
-static int uhc_dwc2_channel_start_xfer_ctrl(struct uhc_dwc2_channel *channel)
+static int uhc_dwc2_channel_start_xfer_ctrl(struct uhc_dwc2_channel *const channel)
 {
 	/* Get information about the control transfer by analyzing the setup packet */
 	struct uhc_transfer *const xfer = channel->xfer;
@@ -1080,7 +1069,7 @@ static int uhc_dwc2_submit_xfer(const struct device *const dev, struct uhc_trans
 }
 
 static void uhc_dwc2_channel_handle_events(const struct device *const dev,
-					   struct uhc_dwc2_channel *channel)
+					   struct uhc_dwc2_channel *const channel)
 {
 	struct uhc_transfer *const xfer = channel->xfer;
 	uint32_t events = (uint32_t)atomic_set(&channel->events, 0);
