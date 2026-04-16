@@ -503,6 +503,7 @@ static void uhc_dwc2_hal_set_fifo_sizes(struct usb_dwc2_reg *const dwc2, uint32_
 
 static int uhc_dwc2_hal_init_host(struct usb_dwc2_reg *const dwc2)
 {
+	uint32_t gintsts;
 	int ret;
 
 	/* Init GUSBCFG */
@@ -510,7 +511,6 @@ static int uhc_dwc2_hal_init_host(struct usb_dwc2_reg *const dwc2)
 
 	/* Init GAHBCFG */
 	ret = uhc_dwc2_hal_init_gahbcfg(dwc2);
-
 	if (ret != 0) {
 		/* TODO: Implement Slave Mode */
 		LOG_WRN("DMA isn't supported, but Slave Mode isn't implemented yet");
@@ -522,9 +522,8 @@ static int uhc_dwc2_hal_init_host(struct usb_dwc2_reg *const dwc2)
 	sys_set_bits((mem_addr_t)&dwc2->gintmsk, USB_DWC2_GINTSTS_DISCONNINT);
 
 	/* Clear status */
-	uint32_t core_intrs = sys_read32((mem_addr_t)&dwc2->gintsts);
-
-	sys_write32(core_intrs, (mem_addr_t)&dwc2->gintsts);
+	gintsts = sys_read32((mem_addr_t)&dwc2->gintsts);
+	sys_write32(gintsts, (mem_addr_t)&dwc2->gintsts);
 
 	return ret;
 }
@@ -568,7 +567,7 @@ static void uhc_dwc2_port_debounce_unlock(const struct device *const dev)
 						 USB_DWC2_GINTSTS_DISCONNINT);
 }
 
-static bool uhc_dwc2_channel_xfer_is_done(struct uhc_dwc2_channel *channel)
+static bool uhc_dwc2_channel_xfer_is_done(struct uhc_dwc2_channel *const channel)
 {
 	/* Only control transfers need to be handled in stages */
 	if (channel->type != UHC_DWC2_XFER_TYPE_CTRL) {
@@ -867,7 +866,7 @@ static void uhc_dwc2_port_fifo_precalc_dma(const struct device *const dev)
 
 static int uhc_dwc2_channel_claim(const struct device *const dev,
 				  struct uhc_transfer *const xfer,
-				  struct uhc_dwc2_channel **channel_hdl)
+				  struct uhc_dwc2_channel **const channel_p)
 {
 	const struct uhc_dwc2_config *const config = dev->config;
 	struct uhc_dwc2_data *priv = uhc_get_private(dev);
@@ -898,11 +897,13 @@ static int uhc_dwc2_channel_claim(const struct device *const dev,
 		return -EINVAL;
 	}
 
-	/* Save channel characteristics underlying channel */
+	/* Save channel characteristics of the underlying channel */
 	channel->xfer = xfer;
 	channel->ep_addr = xfer->ep;
 	channel->dev_addr = udev->addr;
 	channel->ep_mps = xfer->mps;
+
+	*channel_p = channel;
 
 	/* Claim channel */
 
@@ -941,7 +942,6 @@ static int uhc_dwc2_channel_claim(const struct device *const dev,
 
 	sys_write32(hcchar, (mem_addr_t)&channel->base->hcchar);
 
-	*channel_hdl = channel;
 	return 0;
 }
 
@@ -961,7 +961,7 @@ static int uhc_dwc2_channel_release(const struct device *const dev,
 	return 0;
 }
 
-static int uhc_dwc2_channel_start_transfer_ctrl(struct uhc_dwc2_channel *channel)
+static int uhc_dwc2_channel_start_xfer_ctrl(struct uhc_dwc2_channel *channel)
 {
 	/* Get information about the control transfer by analyzing the setup packet */
 	struct uhc_transfer *const xfer = channel->xfer;
@@ -970,16 +970,15 @@ static int uhc_dwc2_channel_start_transfer_ctrl(struct uhc_dwc2_channel *channel
 	uint32_t hcint;
 	uint32_t hcchar;
 
+	LOG_DBG("data_in: %s, data_skip: %s",
+		usb_reqtype_is_to_host(setup_pkt) ? "true" : "false",
+		(setup_pkt->wLength == 0) ? "true" : "false");
 	LOG_HEXDUMP_DBG(xfer->setup_pkt, 8, "setup_pkt");
 
 	channel->set_address = (setup_pkt->bRequest == USB_SREQ_SET_ADDRESS);
 	channel->ctrl_stg = UHC_CONTROL_STAGE_SETUP;
 	channel->data_stg_in = usb_reqtype_is_to_host(setup_pkt);
 	channel->data_stg_skip = (setup_pkt->wLength == 0);
-
-	LOG_DBG("data_in: %s, data_skip: %s",
-			channel->data_stg_in ? "true" : "false",
-			channel->data_stg_skip ? "true" : "false");
 
 	if (USB_EP_GET_IDX(xfer->ep) == 0) {
 		/* Control stage is always OUT */
@@ -998,7 +997,7 @@ static int uhc_dwc2_channel_start_transfer_ctrl(struct uhc_dwc2_channel *channel
 	hctsiz |= usb_dwc2_set_hctsiz_xfersize(sizeof(struct usb_setup_packet));
 
 	sys_write32(hctsiz, (mem_addr_t)&channel->base->hctsiz);
-	sys_write32((uint32_t)xfer->setup_pkt, (mem_addr_t)&channel->base->hcdma);
+	sys_write32((uintptr_t)setup_pkt, (mem_addr_t)&channel->base->hcdma);
 
 	/* TODO: Configure split transaction if needed */
 
@@ -1024,13 +1023,13 @@ struct uhc_dwc2_channel *uhc_dwc2_channel_get_pending(const struct device *const
 	struct uhc_dwc2_data *priv = uhc_get_private(dev);
 	int chan_num = __builtin_ffs(priv->pending_channels_msk);
 
-	if (chan_num) {
+	if (chan_num != 0) {
 		/* Clear the pending bit for that channel */
 		priv->pending_channels_msk &= ~BIT(chan_num - 1);
 		return &priv->channels[chan_num - 1];
-	} else {
-		return NULL;
 	}
+
+	return NULL;
 }
 
 /*
@@ -1044,20 +1043,22 @@ static int uhc_dwc2_submit_xfer(const struct device *const dev, struct uhc_trans
 	struct uhc_dwc2_channel *channel = NULL;
 	int ret;
 
-	LOG_DBG("ep=%02Xh, mps=%d, int=%d, start_frame=%d, stage=%d, no_status=%d",
+	LOG_DBG("ep=0x%02x, mps=%d, int=%d, start_frame=%d, stage=%d, no_status=%d",
 		xfer->ep, xfer->mps, xfer->interval,
 		xfer->start_frame, xfer->stage, xfer->no_status);
 
 	/* TODO: dma requirement, setup packet must be aligned 4 bytes */
-	if (((uintptr_t)xfer->setup_pkt % 4)) {
+	if ((uintptr_t)xfer->setup_pkt % 4 != 0) {
 		LOG_WRN("Setup packet address %p is not 4-byte aligned",
-					xfer->setup_pkt);
+			xfer->setup_pkt);
+		return -EINVAL;
 	}
 
 	/* TODO: dma requirement, buffer addr that will used as dma addr also should be aligned */
-	if ((xfer->buf != NULL) && ((uintptr_t)net_buf_tail(xfer->buf) % 4)) {
-		LOG_WRN("Buffer address %08lXh is not 4-byte aligned",
-					(uintptr_t)net_buf_tail(xfer->buf));
+	if (xfer->buf != NULL && (uintptr_t)net_buf_tail(xfer->buf) % 4 != 0) {
+		LOG_WRN("Buffer address 0x%08lx is not 4-byte aligned",
+			(uintptr_t)net_buf_tail(xfer->buf));
+		return -EINVAL;
 	}
 
 	ret = uhc_dwc2_channel_claim(dev, xfer, &channel);
@@ -1068,39 +1069,33 @@ static int uhc_dwc2_submit_xfer(const struct device *const dev, struct uhc_trans
 
 	switch (xfer->type) {
 	case USB_EP_TYPE_CONTROL:
-		return uhc_dwc2_channel_start_transfer_ctrl(channel);
+		return uhc_dwc2_channel_start_xfer_ctrl(channel);
 	case USB_EP_TYPE_BULK:
 	case USB_EP_TYPE_INTERRUPT:
 	case USB_EP_TYPE_ISO:
 	default:
-		LOG_WRN("Channel type isn't supported yet");
+		LOG_WRN("Channel type %d isn't supported yet", xfer->type);
 		uhc_dwc2_channel_release(dev, channel);
 		return -EINVAL;
 	}
-
-	return ret;
 }
 
 static void uhc_dwc2_channel_handle_events(const struct device *const dev,
-						struct uhc_dwc2_channel *channel)
+					   struct uhc_dwc2_channel *channel)
 {
-	uint32_t events = (uint32_t)atomic_set(&channel->events, 0);
 	struct uhc_transfer *const xfer = channel->xfer;
-	int err;
+	uint32_t events = (uint32_t)atomic_set(&channel->events, 0);
+	int err = 0;
 
-	LOG_DBG("Thread channel%d events: 0x%08x", channel->index, events);
+	LOG_DBG("Thread channel%d events: 0x%08X", channel->index, events);
 
 	channel->executing = 0;
 
 	if (events & BIT(UHC_DWC2_CHANNEL_EVENT_CPLT)) {
-		/**
-		 * HINT: When device is processing SetAddress(), delay should be applied
-		 */
+		/* When device is processing SetAddress(), delay should be applied */
 		if (channel->set_address) {
 			k_msleep(CONFIG_UHC_DWC2_SET_ADDR_DELAY_MS);
 		}
-		/* No error */
-		err = 0;
 	}
 
 	if (events & BIT(UHC_DWC2_CHANNEL_EVENT_STALL)) {
@@ -1112,6 +1107,7 @@ static void uhc_dwc2_channel_handle_events(const struct device *const dev,
 		LOG_ERR("Channel%d error", channel->index);
 		/* TODO: Channel has an error */
 		LOG_WRN("Channel error handing has not been implemented yet");
+		err = -EIO;
 	}
 
 	if (events & BIT(UHC_DWC2_CHANNEL_DO_RELEASE)) {
@@ -1130,58 +1126,60 @@ static void uhc_dwc2_channel_handle_events(const struct device *const dev,
 
 static enum uhc_dwc2_event uhc_dwc2_port_get_event(const struct device *const dev)
 {
-	struct uhc_dwc2_data *const priv = uhc_get_private(dev);
 	const struct uhc_dwc2_config *const config = dev->config;
+	struct uhc_dwc2_data *const priv = uhc_get_private(dev);
 	struct usb_dwc2_reg *const dwc2 = config->base;
+	uint32_t gintsts;
+	uint32_t hprt = 0;
+	uint32_t events = 0;
 
 	/* Read and clear core interrupt status */
-	uint32_t core_intrs = sys_read32((mem_addr_t)&dwc2->gintsts);
+	gintsts = sys_read32((mem_addr_t)&dwc2->gintsts);
 
-	sys_write32(core_intrs, (mem_addr_t)&dwc2->gintsts);
+	sys_write32(gintsts, (mem_addr_t)&dwc2->gintsts);
 
-	uint32_t port_intrs = 0;
-
-	if (core_intrs & USB_DWC2_GINTSTS_PRTINT) {
+	if (gintsts & USB_DWC2_GINTSTS_PRTINT) {
 		/* Port interrupt occurred -> read and clear selected HPRT W1C bits */
-		port_intrs = sys_read32((mem_addr_t)&dwc2->hprt);
+		hprt = sys_read32((mem_addr_t)&dwc2->hprt);
 		/* W1C changed bits except the PRTENA */
-		sys_write32(port_intrs & ~USB_DWC2_HPRT_PRTENA, (mem_addr_t)&dwc2->hprt);
+		sys_write32(hprt & ~USB_DWC2_HPRT_PRTENA, (mem_addr_t)&dwc2->hprt);
 	}
 
-	LOG_DBG("GINTSTS=0x%08x, HPRT=0x%08x", core_intrs, port_intrs);
+	LOG_DBG("GINTSTS=0x%08X, HPRT=0x%08X", gintsts, hprt);
 
 	/* Handle disconnect first */
-	if (core_intrs & USB_DWC2_GINTSTS_DISCONNINT) {
+	if (gintsts & USB_DWC2_GINTSTS_DISCONNINT) {
 		/* Port disconnected */
 		uhc_dwc2_port_debounce_lock(dev);
 		return UHC_DWC2_EVENT_PORT_DISCONNECTION;
 	}
 
 	/* To have better throughput, handle channels right after disconnection */
-	if (core_intrs & USB_DWC2_GINTSTS_HCHINT) {
+	if (gintsts & USB_DWC2_GINTSTS_HCHINT) {
 		priv->pending_channels_msk = sys_read32((mem_addr_t)&dwc2->haint);
 		return UHC_DWC2_EVENT_PORT_PEND_CHANNEL;
 	}
 
 	/* Handle port overcurrent as it is a failure state */
-	if (port_intrs & USB_DWC2_HPRT_PRTOVRCURRCHNG) {
+	if (hprt & USB_DWC2_HPRT_PRTOVRCURRCHNG) {
 		/* TODO: Overcurrent or overcurrent clear? */
 		return UHC_DWC2_EVENT_PORT_OVERCURRENT;
 	}
 
 	/* Handle port change bits */
-	if (port_intrs & USB_DWC2_HPRT_PRTENCHNG) {
-		if (port_intrs & USB_DWC2_HPRT_PRTENA) {
+	if (hprt & USB_DWC2_HPRT_PRTENCHNG) {
+		if (hprt & USB_DWC2_HPRT_PRTENA) {
 			/* Host port was enabled */
 			k_sem_give(&priv->sem_port_en);
 			return UHC_DWC2_EVENT_NONE;
+		} else {
+			/* Host port has been disabled */
+			return UHC_DWC2_EVENT_PORT_DISABLED;
 		}
-		/* Host port has been disabled */
-		return UHC_DWC2_EVENT_PORT_DISABLED;
 	}
 
 	/* Handle port connection */
-	if (port_intrs & USB_DWC2_HPRT_PRTCONNDET && !priv->debouncing) {
+	if (hprt & USB_DWC2_HPRT_PRTCONNDET && !priv->debouncing) {
 		/* Port connected */
 		uhc_dwc2_port_debounce_lock(dev);
 		return UHC_DWC2_EVENT_PORT_CONNECTION;
@@ -1329,7 +1327,7 @@ static int uhc_dwc2_enqueue(const struct device *const dev, struct uhc_transfer 
 {
 	int ret;
 
-	(void)uhc_xfer_append(dev, xfer);
+	uhc_xfer_append(dev, xfer);
 
 	uhc_lock_internal(dev, K_FOREVER);
 
@@ -1365,31 +1363,31 @@ static int uhc_dwc2_init(const struct device *const dev)
 
 	val = sys_read32((mem_addr_t)&dwc2->gsnpsid);
 	if (val != config->gsnpsid) {
-		LOG_ERR("Unexpected GSNPSID 0x%08x instead of 0x%08x", val, config->gsnpsid);
+		LOG_ERR("Unexpected GSNPSID 0x%08X instead of 0x%08X", val, config->gsnpsid);
 		return -ENOTSUP;
 	}
 
 	val = sys_read32((mem_addr_t)&dwc2->ghwcfg1);
 	if (val != config->ghwcfg1) {
-		LOG_ERR("Unexpected GHWCFG1 0x%08x instead of 0x%08x", val, config->ghwcfg1);
+		LOG_ERR("Unexpected GHWCFG1 0x%08X instead of 0x%08X", val, config->ghwcfg1);
 		return -ENOTSUP;
 	}
 
 	val = sys_read32((mem_addr_t)&dwc2->ghwcfg2);
 	if (val != config->ghwcfg2) {
-		LOG_ERR("Unexpected GHWCFG2 0x%08x instead of 0x%08x", val, config->ghwcfg2);
+		LOG_ERR("Unexpected GHWCFG2 0x%08X instead of 0x%08X", val, config->ghwcfg2);
 		return -ENOTSUP;
 	}
 
 	val = sys_read32((mem_addr_t)&dwc2->ghwcfg3);
 	if (val != config->ghwcfg3) {
-		LOG_ERR("Unexpected GHWCFG3 0x%08x instead of 0x%08x", val, config->ghwcfg3);
+		LOG_ERR("Unexpected GHWCFG3 0x%08X instead of 0x%08X", val, config->ghwcfg3);
 		return -ENOTSUP;
 	}
 
 	val = sys_read32((mem_addr_t)&dwc2->ghwcfg4);
 	if (val != config->ghwcfg4) {
-		LOG_ERR("Unexpected GHWCFG4 0x%08x instead of 0x%08x", val, config->ghwcfg4);
+		LOG_ERR("Unexpected GHWCFG4 0x%08X instead of 0x%08X", val, config->ghwcfg4);
 		return -ENOTSUP;
 	}
 
@@ -1434,13 +1432,14 @@ static int uhc_dwc2_init(const struct device *const dev)
 		priv->channels[idx].index = idx;
 	}
 
+	/* Reset of the initialization in uhc_dwc2_enable() */
 	return 0;
 }
 
 static int uhc_dwc2_enable(const struct device *const dev)
 {
 	const struct uhc_dwc2_config *const config = dev->config;
-
+	struct usb_dwc2_reg *const dwc2 = config->base;
 	int ret;
 
 	ret = uhc_dwc2_quirk_pre_enable(dev);
@@ -1467,6 +1466,14 @@ static int uhc_dwc2_enable(const struct device *const dev)
 		return ret;
 	}
 
+	/* Enable host all-channels interrupts */
+	sys_write32(0xffffffffUL, (mem_addr_t)&dwc2->haintmsk);
+
+	/* Enable port and channels interrupts */
+	sys_set_bits((mem_addr_t)&dwc2->gintmsk,
+		     USB_DWC2_GINTSTS_PRTINT | USB_DWC2_GINTSTS_HCHINT);
+
+	/* Rest of the initialization in UHC_DWC2_EVENT_PORT_CONNECTION handler */
 	return 0;
 }
 
