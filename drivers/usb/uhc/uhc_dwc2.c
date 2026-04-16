@@ -176,7 +176,7 @@ struct uhc_dwc2_channel {
 struct uhc_dwc2_data {
 	struct k_thread thread;
 	/* Event bitmask the driver thread waits for */
-	struct k_event event;
+	struct k_event events;
 	/* Semaphore used in a different thread */
 	struct k_sem sem_port_en;
 	/* Port channels */
@@ -1215,7 +1215,7 @@ static void uhc_dwc2_isr_handler(const struct device *const dev)
 				 * The rest channel events be handled by the thread
 				 */
 				atomic_or(&channel->events, channel_events);
-				k_event_set(&priv->event,
+				k_event_set(&priv->events,
 					BIT(UHC_DWC2_EVENT_PORT_PEND_CHANNEL + channel->index));
 			}
 			channel = uhc_dwc2_channel_get_pending(dev);
@@ -1223,8 +1223,8 @@ static void uhc_dwc2_isr_handler(const struct device *const dev)
 		break;
 	}
 	default:
-		/* Notify thread about port event */
-		k_event_set(&priv->event, BIT(port_event));
+		/* Notify thread about port events */
+		k_event_set(&priv->events, BIT(port_event));
 		break;
 	}
 
@@ -1238,7 +1238,7 @@ static void uhc_dwc2_thread(void *arg0, void *arg1, void *arg2)
 	uint32_t event_mask;
 
 	while (true) {
-		event_mask = k_event_wait_safe(&priv->event, UINT32_MAX, false, K_FOREVER);
+		event_mask = k_event_wait_safe(&priv->events, UINT32_MAX, false, K_FOREVER);
 
 		uhc_lock_internal(dev, K_FOREVER);
 
@@ -1302,7 +1302,7 @@ static int uhc_dwc2_bus_reset(const struct device *const dev)
 	/* Hold the bus in the reset state */
 	k_msleep(CONFIG_UHC_DWC2_RESET_HOLD_MS);
 
-	/* Return the bus to the idle state. Port enabled event should occur */
+	/* Return the bus to the idle state. A "port enabled" event should occur */
 	uhc_dwc2_hal_port_set_bus_reset(dwc2, false);
 
 	/* Wait the port to become enabled again */
@@ -1565,7 +1565,7 @@ static int uhc_dwc2_preinit(const struct device *const dev)
 	struct usb_dwc2_reg *const dwc2 = config->base;
 
 	k_mutex_init(&data->mutex);
-	k_event_init(&priv->event);
+	k_event_init(&priv->events);
 	k_sem_init(&priv->sem_port_en, 0, 1);
 
 	uhc_dwc2_quirk_preinit(dev);
@@ -1615,7 +1615,7 @@ static int uhc_dwc2_preinit(const struct device *const dev)
 	UHC_DWC2_IRQ_DT_INST_DEFINE(n)						\
 										\
 	static struct uhc_dwc2_data uhc_dwc2_priv_##n = {			\
-		.event = Z_EVENT_INITIALIZER(uhc_dwc2_priv_##n.event),		\
+		.events = Z_EVENT_INITIALIZER(uhc_dwc2_priv_##n.events),	\
 		.sem_port_en =							\
 			Z_SEM_INITIALIZER(uhc_dwc2_priv_##n.sem_port_en, 0, 1),	\
 	};									\
