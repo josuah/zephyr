@@ -22,6 +22,17 @@ LOG_MODULE_REGISTER(uhc_dwc2, CONFIG_UHC_DRIVER_LOG_LEVEL);
 
 #include "uhc_common.h"
 
+/* Mask to clear HPRT register */
+#define USB_DWC2_HPRT_W1C_MSK	(USB_DWC2_HPRT_PRTENA |				\
+				 USB_DWC2_HPRT_PRTCONNDET |			\
+				 USB_DWC2_HPRT_PRTENCHNG |			\
+				 USB_DWC2_HPRT_PRTOVRCURRCHNG)
+
+#define EPSIZE_BULK_FS		64
+#define EPSIZE_BULK_HS		512
+#define EPSIZE_ISO_FS_MAX	1023
+#define EPSIZE_ISO_HS_MAX	1024
+
 /* TODO: Configurable? */
 #define CONFIG_UHC_DWC2_MAX_CHANNELS		16
 
@@ -73,14 +84,6 @@ enum uhc_dwc2_channel_pid {
 	UHC_DWC2_PID_MDATA_SETUP = 3,
 };
 
-enum {
-	EPSIZE_BULK_FS = 64,
-	EPSIZE_BULK_HS = 512,
-
-	EPSIZE_ISO_FS_MAX = 1023,
-	EPSIZE_ISO_HS_MAX = 1024,
-};
-
 #define UHC_DWC2_CHANNEL_REGS(base, chan_idx)					\
 	((struct usb_dwc2_host_chan *)(((mem_addr_t)(base)) + USB_DWC2_HCCHAR(chan_idx)))
 
@@ -93,12 +96,6 @@ enum {
 		    USB_DWC2_GHWCFG2_NUMHSTCHNL_POS))
 
 
-/* Mask to clear HPRT register */
-#define USB_DWC2_HPRT_W1C_MSK	(USB_DWC2_HPRT_PRTENA |				\
-				USB_DWC2_HPRT_PRTCONNDET |			\
-				USB_DWC2_HPRT_PRTENCHNG |			\
-				USB_DWC2_HPRT_PRTOVRCURRCHNG)
-
 /* Interrupts that pertain to core events */
 #define CORE_EVENTS_INTRS_MSK	(USB_DWC2_GINTSTS_DISCONNINT |			\
 				USB_DWC2_GINTSTS_HCHINT)
@@ -108,15 +105,14 @@ enum {
 				USB_DWC2_HPRT_PRTENCHNG |			\
 				USB_DWC2_HPRT_PRTOVRCURRCHNG)
 
-/* Vendor quirks per driver instance */
 struct uhc_dwc2_vendor_quirks {
+	int (*preinit)(const struct device *const dev);
 	int (*init)(const struct device *const dev);
 	int (*pre_enable)(const struct device *const dev);
 	int (*post_enable)(const struct device *const dev);
 	int (*disable)(const struct device *const dev);
 	int (*shutdown)(const struct device *const dev);
 	int (*irq_clear)(const struct device *const dev);
-	int (*caps)(const struct device *const dev);
 	int (*phy_pre_select)(const struct device *const dev);
 	int (*phy_post_select)(const struct device *const dev);
 	int (*is_phy_clk_off)(const struct device *const dev);
@@ -125,7 +121,6 @@ struct uhc_dwc2_vendor_quirks {
 	int (*pre_hibernation_exit)(const struct device *const dev);
 };
 
-/* Driver configuration per instance */
 struct uhc_dwc2_config {
 	/* Pointer to base address of DWC2 registers */
 	struct usb_dwc2_reg *const base;
@@ -148,18 +143,16 @@ struct uhc_dwc2_config {
 };
 
 struct uhc_dwc2_channel {
-	/* Index of the channel */
-	uint8_t index;
-	/* Cached pointer to channel registers */
-	const struct usb_dwc2_host_chan *base;
+	/* Pointer to base address of a channel registers */
+	struct usb_dwc2_host_chan *base;
 	/* Pointer to the transfer */
 	struct uhc_transfer *xfer;
 	/* Channel events */
 	atomic_t events;
-
+	/* Index of the channel */
+	uint8_t index;
 	/* Control transfer stage */
 	enum uhc_control_stage ctrl_stg;
-
 	/* Associated endpoint characteristics */
 	/* Type of endpoint */
 	enum uhc_dwc2_xfer_type type;
@@ -169,7 +162,6 @@ struct uhc_dwc2_channel {
 	uint8_t dev_addr;
 	/* Maximum Packet Size */
 	uint16_t ep_mps;
-
 	/* Channel flags */
 	/* Channel is claimed and has associated endpoint */
 	uint8_t claimed: 1;
@@ -178,7 +170,7 @@ struct uhc_dwc2_channel {
 	/* Transfer has no data stage */
 	uint8_t data_stg_skip: 1;
 	/* Transfer will change the device address */
-	uint8_t set_address: 1;
+	uint8_t set_address : 1;
 	/* Channel executing transfer */
 	uint8_t executing: 1;
 };
@@ -199,8 +191,8 @@ struct uhc_dwc2_data {
 	uint16_t fifo_rxfsiz;
 	uint16_t fifo_ptxfsiz;
 	/* Root Port flags */
-	uint8_t debouncing: 1;
-	uint8_t has_device: 1;
+	uint8_t debouncing : 1;
+	uint8_t has_device : 1;
 };
 
 static int uhc_dwc2_soft_reset(const struct device *const dev);
@@ -239,7 +231,7 @@ DWC2_QUIRK_FUNC_DEFINE(post_enable);
 DWC2_QUIRK_FUNC_DEFINE(disable);
 DWC2_QUIRK_FUNC_DEFINE(shutdown);
 DWC2_QUIRK_FUNC_DEFINE(irq_clear);
-DWC2_QUIRK_FUNC_DEFINE(caps);
+DWC2_QUIRK_FUNC_DEFINE(preinit);
 DWC2_QUIRK_FUNC_DEFINE(phy_pre_select);
 DWC2_QUIRK_FUNC_DEFINE(phy_post_select);
 DWC2_QUIRK_FUNC_DEFINE(is_phy_clk_off);
@@ -1570,7 +1562,7 @@ static int uhc_dwc2_preinit(const struct device *const dev)
 	k_event_init(&priv->event);
 	k_sem_init(&priv->sem_port_en, 0, 1);
 
-	uhc_dwc2_quirk_caps(dev);
+	uhc_dwc2_quirk_preinit(dev);
 
 	k_thread_create(&priv->thread,
 			config->stack,
