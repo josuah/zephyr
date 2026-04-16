@@ -1347,7 +1347,6 @@ static int uhc_dwc2_dequeue(const struct device *const dev, struct uhc_transfer 
 
 static int uhc_dwc2_init(const struct device *const dev)
 {
-	struct uhc_dwc2_data *priv = uhc_get_private(dev);
 	const struct uhc_dwc2_config *const config = dev->config;
 	struct usb_dwc2_reg *const dwc2 = config->base;
 	uint32_t val;
@@ -1391,7 +1390,7 @@ static int uhc_dwc2_init(const struct device *const dev)
 		return -ENOTSUP;
 	}
 
-	/* 3. Select PHY */
+	/* Select PHY */
 
 	ret = uhc_dwc2_quirk_phy_pre_select(dev);
 	if (ret != 0) {
@@ -1424,12 +1423,6 @@ static int uhc_dwc2_init(const struct device *const dev)
 	ret = uhc_dwc2_hal_init_host(dwc2);
 	if (ret != 0) {
 		return ret;
-	}
-
-	/* 6. Init channels list */
-	for (uint32_t idx = 0; idx < CONFIG_UHC_DWC2_MAX_CHANNELS; idx++) {
-		priv->channels[idx].base = UHC_DWC2_CHANNEL_REGS(dwc2, idx);
-		priv->channels[idx].index = idx;
 	}
 
 	/* Reset of the initialization in uhc_dwc2_enable() */
@@ -1569,6 +1562,7 @@ static int uhc_dwc2_preinit(const struct device *const dev)
 	const struct uhc_dwc2_config *const config = dev->config;
 	struct uhc_dwc2_data *const priv = uhc_get_private(dev);
 	struct uhc_data *const data = dev->data;
+	struct usb_dwc2_reg *const dwc2 = config->base;
 
 	k_mutex_init(&data->mutex);
 	k_event_init(&priv->event);
@@ -1586,6 +1580,12 @@ static int uhc_dwc2_preinit(const struct device *const dev)
 			K_NO_WAIT);
 
 	k_thread_name_set(&priv->thread, dev->name);
+
+	for (uint32_t i = 0; i < ARRAY_SIZE(priv->channels); i++) {
+		priv->channels[i].index = i;
+		priv->channels[i].base =
+			(struct usb_dwc2_host_chan *)((mem_addr_t)dwc2 + USB_DWC2_HCCHAR(i));
+	}
 
 	return 0;
 }
