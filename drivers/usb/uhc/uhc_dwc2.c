@@ -237,7 +237,7 @@ DWC2_QUIRK_FUNC_DEFINE(phy_post_select);
 DWC2_QUIRK_FUNC_DEFINE(is_phy_clk_off);
 
 /* TODO: search in case of present helper function like this */
-static uint16_t calc_packet_count(const uint16_t size, const uint8_t mps)
+static uint16_t packet_count(const uint16_t size, const uint8_t mps)
 {
 	if (size == 0) {
 		return 1; /* in Buffer DMA mode Zero Length Packet still counts as 1 packet */
@@ -635,7 +635,7 @@ static void uhc_dwc2_channel_process_ctrl(struct uhc_dwc2_channel *channel)
 	}
 
 	/* Calculate new packet count */
-	const uint16_t pkt_cnt = calc_packet_count(size, xfer->mps);
+	const uint16_t pkt_cnt = packet_count(size, xfer->mps);
 
 	if (next_dir_is_in) {
 		sys_set_bits((mem_addr_t)&channel->base->hcchar, USB_DWC2_HCCHAR_EPDIR);
@@ -825,16 +825,6 @@ static void uhc_dwc2_port_handle_events(const struct device *const dev, uint32_t
 	}
 }
 
-static void uhc_dwc2_port_power_on(const struct device *const dev)
-{
-	const struct uhc_dwc2_config *const config = dev->config;
-	struct usb_dwc2_reg *const dwc2 = config->base;
-
-	sys_clear_bits((mem_addr_t)&dwc2->haintmsk, 0xFFFFFFFFUL);
-	sys_set_bits((mem_addr_t)&dwc2->gintmsk, USB_DWC2_GINTSTS_PRTINT | USB_DWC2_GINTSTS_HCHINT);
-	uhc_dwc2_hal_port_set_power(dwc2, true);
-}
-
 static void uhc_dwc2_port_fifo_precalc_dma(const struct device *const dev)
 {
 	const struct uhc_dwc2_config *const config = dev->config;
@@ -989,11 +979,9 @@ static int uhc_dwc2_channel_start_xfer_ctrl(struct uhc_dwc2_channel *channel)
 		LOG_WRN("Periodic transfer is not supported");
 	}
 
-	const uint16_t pkt_cnt = calc_packet_count(sizeof(struct usb_setup_packet),
-						channel->ep_mps);
-
 	hctsiz = usb_dwc2_set_hctsiz_pid(UHC_DWC2_PID_MDATA_SETUP);
-	hctsiz |= usb_dwc2_set_hctsiz_pktcnt(pkt_cnt);
+	hctsiz |= usb_dwc2_set_hctsiz_pktcnt(packet_count(sizeof(*setup_pkt),
+	                                                  channel->ep_mps));
 	hctsiz |= usb_dwc2_set_hctsiz_xfersize(sizeof(struct usb_setup_packet));
 
 	sys_write32(hctsiz, (mem_addr_t)&channel->base->hctsiz);
@@ -1451,7 +1439,11 @@ static int uhc_dwc2_enable(const struct device *const dev)
 	config->irq_enable_func(dev);
 
 	/* 3. Prepare for device connection */
-	uhc_dwc2_port_power_on(dev);
+
+	uhc_dwc2_hal_port_set_power(dwc2, true);
+
+	sys_clear_bits((mem_addr_t)&dwc2->haintmsk, 0xFFFFFFFFUL);
+	sys_set_bits((mem_addr_t)&dwc2->gintmsk, USB_DWC2_GINTSTS_PRTINT | USB_DWC2_GINTSTS_HCHINT);
 
 	ret = uhc_dwc2_quirk_post_enable(dev);
 	if (ret != 0) {
