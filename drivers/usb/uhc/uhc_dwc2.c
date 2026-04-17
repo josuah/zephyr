@@ -142,8 +142,6 @@ struct uhc_dwc2_data {
 	struct k_sem sem_port_en;
 	/* Port channels */
 	struct uhc_dwc2_channel channels[CONFIG_UHC_DWC2_MAX_CHANNELS];
-	/* Bit mask of channels with pending interrupts */
-	uint32_t pending_channels_msk;
 	/* Root Port flags */
 	uint8_t debouncing : 1;
 	uint8_t has_device : 1;
@@ -582,7 +580,7 @@ static void uhc_dwc2_channel_process_ctrl(struct uhc_dwc2_channel *const channel
 	sys_write32(hcchar, (mem_addr_t)&channel->base->hcchar);
 }
 
-static uint32_t uhc_dwc2_channel_irq_handle_events(struct uhc_dwc2_channel *const channel)
+static bool uhc_dwc2_channel_events(struct uhc_dwc2_channel *const channel)
 {
 	uint32_t hcint = sys_read32((mem_addr_t)&channel->base->hcint);
 	uint32_t channel_events = 0;
@@ -625,7 +623,9 @@ static uint32_t uhc_dwc2_channel_irq_handle_events(struct uhc_dwc2_channel *cons
 		LOG_WRN("Channel has not been handled: HCINT=0x%08x", hcint);
 	}
 
-	return channel_events;
+	atomic_or(&channel->events, channel_events);
+
+	return channel_events != 0;
 }
 
 static bool uhc_dwc2_port_debounce(const struct device *const dev,
@@ -672,19 +672,19 @@ static void uhc_dwc2_port_handle_events(const struct device *const dev, uint32_t
 			/* Notify the higher logic about the new device */
 			switch (speed) {
 			case USB_DWC2_HPRT_PRTSPD_LOW:
-				LOG_INF("New %s-speed device", "low");
+				LOG_INF("New low-speed device");
 				uhc_submit_event(dev, UHC_EVT_DEV_CONNECTED_LS, 0);
 				break;
 			case USB_DWC2_HPRT_PRTSPD_FULL:
-				LOG_INF("New %s-speed device", "full");
+				LOG_INF("New full-speed device");
 				uhc_submit_event(dev, UHC_EVT_DEV_CONNECTED_FS, 0);
 				break;
 			case USB_DWC2_HPRT_PRTSPD_HIGH:
-				LOG_INF("New %s-speed device", "high");
+				LOG_INF("New high-speed device");
 				uhc_submit_event(dev, UHC_EVT_DEV_CONNECTED_HS, 0);
 				break;
 			default:
-				LOG_ERR("New device with unsupported speed %d", speed);
+				LOG_ERR("Unsupported speed %d", speed);
 				uhc_submit_event(dev, UHC_EVT_DEV_CONNECTED_LS, -ENOTSUP);
 				break;
 			}
@@ -757,7 +757,6 @@ static int uhc_dwc2_channel_claim(const struct device *const dev,
 				  struct uhc_dwc2_channel **const channel_p)
 {
 	struct uhc_dwc2_data *const priv = uhc_get_private(dev);
-	const struct usb_device *const udev = xfer->udev;
 	/* TODO: select non-claimed channel, use channel 0 for now */
 	uint8_t idx = 0;
 	struct uhc_dwc2_channel *const channel = &priv->channels[idx];
@@ -887,20 +886,6 @@ static int uhc_dwc2_channel_start_xfer_ctrl(struct uhc_dwc2_channel *const chann
 	return 0;
 }
 
-struct uhc_dwc2_channel *uhc_dwc2_channel_get_pending(const struct device *const dev)
-{
-	struct uhc_dwc2_data *priv = uhc_get_private(dev);
-	int chan_num = __builtin_ffs(priv->pending_channels_msk);
-
-	if (chan_num != 0) {
-		/* Clear the pending bit for that channel */
-		priv->pending_channels_msk &= ~BIT(chan_num - 1);
-		return &priv->channels[chan_num - 1];
-	}
-
-	return NULL;
-}
-
 /*
  * Transfers
  *
@@ -984,6 +969,8 @@ static void uhc_dwc2_channel_handle_events(const struct device *const dev,
 		uhc_dwc2_channel_release(dev, channel);
 	}
 
+	__ASSERT_NO_MSG(xfer != NULL);
+
 	/* Notify the upper logic */
 	uhc_xfer_return(dev, xfer, err);
 }
@@ -999,11 +986,8 @@ static void uhc_dwc2_isr_handler(const struct device *const dev)
 	const struct uhc_dwc2_config *const config = dev->config;
 	struct uhc_dwc2_data *const priv = uhc_get_private(dev);
 	struct usb_dwc2_reg *const dwc2 = config->base;
-	struct uhc_dwc2_channel *channel = NULL;
-	uint32_t channel_events = 0;
 	uint32_t gintsts;
 	uint32_t hprt = 0;
-	uint32_t events = 0;
 
 	/* Read and clear core interrupt status */
 	gintsts = sys_read32((mem_addr_t)&dwc2->gintsts);
@@ -1026,21 +1010,14 @@ static void uhc_dwc2_isr_handler(const struct device *const dev)
 
 	/* To have better throughput, handle channels right after disconnection */
 	} else if (gintsts & USB_DWC2_GINTSTS_HCHINT) {
-		priv->pending_channels_msk = sys_read32((mem_addr_t)&dwc2->haint);
-
 		/* Handle pending channel event  */
-		channel = uhc_dwc2_channel_get_pending(dev);
-		while (channel != NULL) {
-			channel_events = uhc_dwc2_channel_irq_handle_events(channel);
-			if (channel_events) {
-				/**
-				 * The rest channel events be handled by the thread
-				 */
-				atomic_or(&channel->events, channel_events);
-				k_event_set(&priv->events,
-					BIT(UHC_DWC2_EVENT_PORT_PEND_CHANNEL + channel->index));
+		uint32_t haint = sys_read32((mem_addr_t)&dwc2->haint);
+
+		for (int i = __builtin_ffs(haint); i != 0; i = __builtin_ffs(haint)) {
+			if (uhc_dwc2_channel_events(&priv->channels[i - 1])) {
+				k_event_set(&priv->events, BIT(UHC_DWC2_EVENT_PORT_PEND_CHANNEL + i - 1));
 			}
-			channel = uhc_dwc2_channel_get_pending(dev);
+			haint &= ~BIT(i - 1);
 		}
 
 	/* Handle port overcurrent as it is a failure state */
@@ -1084,9 +1061,6 @@ static void uhc_dwc2_thread(void *arg0, void *arg1, void *arg2)
 
 		/* Integrate channels events */
 		for (uint32_t i = 0; i < CONFIG_UHC_DWC2_MAX_CHANNELS; i++) {
-			LOG_DBG("comparing events 0x%02x with 0x%02lx",
-				event_mask, BIT(UHC_DWC2_EVENT_PORT_PEND_CHANNEL + i));
-
 			if (event_mask & BIT(UHC_DWC2_EVENT_PORT_PEND_CHANNEL + i)) {
 				uhc_dwc2_channel_handle_events(dev, &priv->channels[i]);
 			}
@@ -1392,7 +1366,6 @@ static int uhc_dwc2_preinit(const struct device *const dev)
 {
 	const struct uhc_dwc2_config *const config = dev->config;
 	struct uhc_dwc2_data *const priv = uhc_get_private(dev);
-	struct uhc_data *const data = dev->data;
 	struct usb_dwc2_reg *const dwc2 = config->base;
 	int ret;
 
@@ -1417,35 +1390,6 @@ static int uhc_dwc2_preinit(const struct device *const dev)
 		priv->channels[i].base =
 			(struct usb_dwc2_host_chan *)((mem_addr_t)dwc2 + USB_DWC2_HCCHAR(i));
 	}
-
-	__asm__ volatile ("nop; nop;");
-	__asm__ volatile ("nop; nop; nop; nop; nop; nop; nop; nop;");
-	__asm__ volatile ("nop; nop; nop; nop; nop; nop; nop; nop;");
-	__asm__ volatile ("nop; nop; nop; nop; nop; nop; nop; nop;");
-	__asm__ volatile ("nop; nop; nop; nop; nop; nop; nop; nop;");
-	__asm__ volatile ("nop; nop; nop; nop; nop; nop; nop; nop;");
-	__asm__ volatile ("nop; nop; nop; nop; nop; nop; nop; nop;");
-	__asm__ volatile ("nop; nop; nop; nop; nop; nop; nop; nop;");
-	__asm__ volatile ("nop; nop; nop; nop; nop; nop; nop; nop;");
-	__asm__ volatile ("nop; nop; nop; nop; nop; nop; nop; nop;");
-	__asm__ volatile ("nop; nop; nop; nop; nop; nop; nop; nop;");
-	__asm__ volatile ("nop; nop; nop; nop; nop; nop; nop; nop;");
-	__asm__ volatile ("nop; nop; nop; nop; nop; nop; nop; nop;");
-	__asm__ volatile ("nop; nop; nop; nop; nop; nop; nop; nop;");
-	__asm__ volatile ("nop; nop; nop; nop; nop; nop; nop; nop;");
-	__asm__ volatile ("nop; nop; nop; nop; nop; nop; nop; nop;");
-	__asm__ volatile ("nop; nop; nop; nop; nop; nop; nop; nop;");
-	__asm__ volatile ("nop; nop; nop; nop; nop; nop; nop; nop;");
-	__asm__ volatile ("nop; nop; nop; nop; nop; nop; nop; nop;");
-	__asm__ volatile ("nop; nop; nop; nop; nop; nop; nop; nop;");
-	__asm__ volatile ("nop; nop; nop; nop; nop; nop; nop; nop;");
-	__asm__ volatile ("nop; nop; nop; nop; nop; nop; nop; nop;");
-	__asm__ volatile ("nop; nop; nop; nop; nop; nop; nop; nop;");
-	__asm__ volatile ("nop; nop; nop; nop; nop; nop; nop; nop;");
-	__asm__ volatile ("nop; nop; nop; nop; nop; nop; nop; nop;");
-	__asm__ volatile ("nop; nop; nop; nop; nop; nop; nop; nop;");
-	__asm__ volatile ("nop; nop; nop; nop; nop; nop; nop; nop;");
-	__asm__ volatile ("nop; nop; nop; nop; nop; nop; nop; nop;");
 
 	return 0;
 }
