@@ -8,6 +8,7 @@
 
 #include <stdint.h>
 
+#include <zephyr/cache.h>
 #include <zephyr/device.h>
 #include <zephyr/devicetree.h>
 #include <zephyr/drivers/usb/uhc.h>
@@ -121,8 +122,6 @@ struct uhc_dwc2_channel {
 	atomic_t events;
 	/* Index of the channel */
 	uint8_t index;
-	/* Control transfer stage */
-	enum uhc_control_stage ctrl_stg;
 	/* Associated endpoint characteristics */
 	/* Type of endpoint */
 	enum uhc_dwc2_xfer_type type;
@@ -489,7 +488,7 @@ static bool uhc_dwc2_channel_xfer_is_done(struct uhc_dwc2_channel *const channel
 	}
 
 	/* Is done when we finished the UHC_CONTROL_STAGE_STATUS */
-	return (channel->ctrl_stg == UHC_CONTROL_STAGE_STATUS);
+	return (channel->xfer->stage == UHC_CONTROL_STAGE_STATUS);
 }
 
 static uint16_t packet_count(const uint16_t size, const uint16_t mps)
@@ -501,24 +500,24 @@ static void uhc_dwc2_channel_process_ctrl(struct uhc_dwc2_channel *const channel
 {
 	struct uhc_transfer *const xfer = channel->xfer;
 	bool next_dir_is_in;
-	enum uhc_dwc2_channel_pid next_pid;
+	enum uhc_dwc2_channel_pid next_pid = UHC_DWC2_PID_DATA1;
 	uint16_t size = 0;
 	uint8_t *dma_addr = NULL;
 	uint32_t hctsiz;
 	uint32_t hcchar;
 
-	if (channel->ctrl_stg == UHC_CONTROL_STAGE_SETUP) {
+	if (channel->xfer->stage == UHC_CONTROL_STAGE_SETUP) {
 		/* Just finished UHC_CONTROL_STAGE_SETUP */
 		if (channel->data_stg_skip) {
 			/* No data stage. Go strait to status */
 			next_dir_is_in = true;
 			next_pid = UHC_DWC2_PID_DATA1;
-			channel->ctrl_stg = UHC_CONTROL_STAGE_STATUS;
+			channel->xfer->stage = UHC_CONTROL_STAGE_STATUS;
 		} else {
 			/* Data stage is present, go to data stage */
 			next_dir_is_in = channel->data_stg_in;
 			next_pid = UHC_DWC2_PID_DATA1;
-			channel->ctrl_stg = UHC_CONTROL_STAGE_DATA;
+			channel->xfer->stage = UHC_CONTROL_STAGE_DATA;
 
 			/*
 			 * NOTE:
@@ -550,11 +549,8 @@ static void uhc_dwc2_channel_process_ctrl(struct uhc_dwc2_channel *const channel
 		next_dir_is_in = !channel->data_stg_in;
 		/* Status stage always has a PID of DATA1 */
 		next_pid = UHC_DWC2_PID_DATA1;
-		channel->ctrl_stg = UHC_CONTROL_STAGE_STATUS;
+		channel->xfer->stage = UHC_CONTROL_STAGE_STATUS;
 	}
-
-	/* Calculate new packet count */
-	const uint16_t pkt_cnt = packet_count(size, xfer->mps);
 
 	if (next_dir_is_in) {
 		sys_set_bits((mem_addr_t)&channel->base->hcchar, USB_DWC2_HCCHAR_EPDIR);
@@ -563,7 +559,7 @@ static void uhc_dwc2_channel_process_ctrl(struct uhc_dwc2_channel *const channel
 	}
 
 	hctsiz = usb_dwc2_set_hctsiz_pid(next_pid);
-	hctsiz |= usb_dwc2_set_hctsiz_pktcnt(pkt_cnt);
+	hctsiz |= usb_dwc2_set_hctsiz_pktcnt(packet_count(size, xfer->mps));
 	hctsiz |= usb_dwc2_set_hctsiz_xfersize(size);
 	sys_write32(hctsiz, (mem_addr_t)&channel->base->hctsiz);
 
@@ -574,10 +570,12 @@ static void uhc_dwc2_channel_process_ctrl(struct uhc_dwc2_channel *const channel
 	/* TODO: sync CACHE */
 
 	hcchar = sys_read32((mem_addr_t)&channel->base->hcchar);
-
 	hcchar |= USB_DWC2_HCCHAR_CHENA;
 	hcchar &= ~USB_DWC2_HCCHAR_CHDIS;
 	sys_write32(hcchar, (mem_addr_t)&channel->base->hcchar);
+
+	LOG_INF("stage %d, stage %d, %p, 0x%08x, 0x%08x %d",
+		xfer->stage, channel->xfer->stage, (void *)dma_addr, hctsiz, hcchar, next_dir_is_in);
 }
 
 static bool uhc_dwc2_channel_events(struct uhc_dwc2_channel *const channel)
@@ -783,7 +781,6 @@ static int uhc_dwc2_channel_configure(const struct device *const dev,
 
 	/* Clear the interrupt bits by writing them back */
 	hcint = sys_read32((mem_addr_t)&channel->base->hcint);
-
 	sys_write32(hcint, (mem_addr_t)&channel->base->hcint);
 
 	/* Enable channel interrupt in the core */
@@ -794,11 +791,11 @@ static int uhc_dwc2_channel_configure(const struct device *const dev,
 		     USB_DWC2_HCINT_XFERCOMPL | USB_DWC2_HCINT_CHHLTD);
 
 	/* Configure the channel main properties */
-	hcchar = usb_dwc2_set_hcchar_mps(xfer->mps) |
-		 usb_dwc2_set_hcchar_epnum(USB_EP_GET_IDX(xfer->ep)) |
-		 usb_dwc2_set_hcchar_eptype(xfer->type) |
-		 usb_dwc2_set_hcchar_ec(1UL /* TODO: ep_config->mult */) |
-		 usb_dwc2_set_hcchar_devaddr(udev->addr);
+	hcchar = usb_dwc2_set_hcchar_mps(xfer->mps);
+	hcchar |= usb_dwc2_set_hcchar_epnum(USB_EP_GET_IDX(xfer->ep));
+	hcchar |= usb_dwc2_set_hcchar_eptype(xfer->type);
+	hcchar |= usb_dwc2_set_hcchar_ec(1UL /* TODO: ep_config->mult */);
+	hcchar |= usb_dwc2_set_hcchar_devaddr(udev->addr);
 
 	if (USB_EP_DIR_IS_IN(xfer->ep)) {
 		hcchar |= USB_DWC2_HCCHAR_EPDIR;
@@ -847,9 +844,8 @@ static int uhc_dwc2_channel_start_xfer_ctrl(struct uhc_dwc2_channel *const chann
 	LOG_HEXDUMP_DBG(xfer->setup_pkt, 8, "setup_pkt");
 
 	/* Get information about the control transfer by analyzing the setup packet */
-	/* TODO: something the host stack should do? */
 	channel->set_address = (setup_pkt->bRequest == USB_SREQ_SET_ADDRESS);
-	channel->ctrl_stg = UHC_CONTROL_STAGE_SETUP;
+	channel->xfer->stage = UHC_CONTROL_STAGE_SETUP;
 	channel->data_stg_in = usb_reqtype_is_to_host(setup_pkt);
 	channel->data_stg_skip = (setup_pkt->wLength == 0);
 
