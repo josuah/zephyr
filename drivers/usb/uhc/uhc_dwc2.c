@@ -1031,6 +1031,21 @@ static void uhc_dwc2_isr_handler(const struct device *const dev)
 		priv->pending_channels_msk = sys_read32((mem_addr_t)&dwc2->haint);
 		port_event = UHC_DWC2_EVENT_PORT_PEND_CHANNEL;
 
+		/* Handle pending channel event  */
+		channel = uhc_dwc2_channel_get_pending(dev);
+		while (channel != NULL) {
+			channel_events = uhc_dwc2_channel_irq_handle_events(channel);
+			if (channel_events) {
+				/**
+				 * The rest channel events be handled by the thread
+				 */
+				atomic_or(&channel->events, channel_events);
+				k_event_set(&priv->events,
+					BIT(UHC_DWC2_EVENT_PORT_PEND_CHANNEL + channel->index));
+			}
+			channel = uhc_dwc2_channel_get_pending(dev);
+		}
+
 	/* Handle port overcurrent as it is a failure state */
 	} else if (hprt & USB_DWC2_HPRT_PRTOVRCURRCHNG) {
 		/* TODO: Overcurrent or overcurrent clear? */
@@ -1054,32 +1069,10 @@ static void uhc_dwc2_isr_handler(const struct device *const dev)
 		port_event = UHC_DWC2_EVENT_PORT_CONNECTION;
 	}
 
-	switch (port_event) {
-	case UHC_DWC2_EVENT_NONE: {
-		/* Port event occurred but should not be handled in higher logic */
-		break;
-	}
-	case UHC_DWC2_EVENT_PORT_PEND_CHANNEL: {
-		/* Handle pending channel event  */
-		channel = uhc_dwc2_channel_get_pending(dev);
-		while (channel != NULL) {
-			channel_events = uhc_dwc2_channel_irq_handle_events(channel);
-			if (channel_events) {
-				/**
-				 * The rest channel events be handled by the thread
-				 */
-				atomic_or(&channel->events, channel_events);
-				k_event_set(&priv->events,
-					BIT(UHC_DWC2_EVENT_PORT_PEND_CHANNEL + channel->index));
-			}
-			channel = uhc_dwc2_channel_get_pending(dev);
-		}
-		break;
-	}
-	default:
+	if (port_event != UHC_DWC2_EVENT_PORT_PEND_CHANNEL &&
+	    port_event != UHC_DWC2_EVENT_NONE) {
 		/* Notify thread about port events */
 		k_event_set(&priv->events, BIT(port_event));
-		break;
 	}
 
 	(void) uhc_dwc2_quirk_irq_clear(dev);
