@@ -1000,7 +1000,6 @@ static void uhc_dwc2_isr_handler(const struct device *const dev)
 	struct uhc_dwc2_data *const priv = uhc_get_private(dev);
 	struct usb_dwc2_reg *const dwc2 = config->base;
 	struct uhc_dwc2_channel *channel = NULL;
-	enum uhc_dwc2_event port_event;
 	uint32_t channel_events = 0;
 	uint32_t gintsts;
 	uint32_t hprt = 0;
@@ -1008,7 +1007,6 @@ static void uhc_dwc2_isr_handler(const struct device *const dev)
 
 	/* Read and clear core interrupt status */
 	gintsts = sys_read32((mem_addr_t)&dwc2->gintsts);
-
 	sys_write32(gintsts, (mem_addr_t)&dwc2->gintsts);
 
 	if (gintsts & USB_DWC2_GINTSTS_PRTINT) {
@@ -1024,12 +1022,11 @@ static void uhc_dwc2_isr_handler(const struct device *const dev)
 	if (gintsts & USB_DWC2_GINTSTS_DISCONNINT) {
 		/* Port disconnected */
 		uhc_dwc2_port_debounce_lock(dev);
-		port_event = UHC_DWC2_EVENT_PORT_DISCONNECTION;
+		k_event_set(&priv->events, BIT(UHC_DWC2_EVENT_PORT_DISCONNECTION));
 
 	/* To have better throughput, handle channels right after disconnection */
 	} else if (gintsts & USB_DWC2_GINTSTS_HCHINT) {
 		priv->pending_channels_msk = sys_read32((mem_addr_t)&dwc2->haint);
-		port_event = UHC_DWC2_EVENT_PORT_PEND_CHANNEL;
 
 		/* Handle pending channel event  */
 		channel = uhc_dwc2_channel_get_pending(dev);
@@ -1049,30 +1046,23 @@ static void uhc_dwc2_isr_handler(const struct device *const dev)
 	/* Handle port overcurrent as it is a failure state */
 	} else if (hprt & USB_DWC2_HPRT_PRTOVRCURRCHNG) {
 		/* TODO: Overcurrent or overcurrent clear? */
-		port_event = UHC_DWC2_EVENT_PORT_OVERCURRENT;
+		k_event_set(&priv->events, BIT(UHC_DWC2_EVENT_PORT_OVERCURRENT));
 
 	/* Handle port change bits */
 	} else if (hprt & USB_DWC2_HPRT_PRTENCHNG) {
 		if (hprt & USB_DWC2_HPRT_PRTENA) {
 			/* Host port was enabled */
 			k_sem_give(&priv->sem_port_en);
-			port_event = UHC_DWC2_EVENT_NONE;
 		} else {
 			/* Host port has been disabled */
-			port_event = UHC_DWC2_EVENT_PORT_DISABLED;
+			k_event_set(&priv->events, BIT(UHC_DWC2_EVENT_PORT_DISABLED));
 		}
 
 	/* Handle port connection */
 	} else if (hprt & USB_DWC2_HPRT_PRTCONNDET && !priv->debouncing) {
 		/* Port connected */
 		uhc_dwc2_port_debounce_lock(dev);
-		port_event = UHC_DWC2_EVENT_PORT_CONNECTION;
-	}
-
-	if (port_event != UHC_DWC2_EVENT_PORT_PEND_CHANNEL &&
-	    port_event != UHC_DWC2_EVENT_NONE) {
-		/* Notify thread about port events */
-		k_event_set(&priv->events, BIT(port_event));
+		k_event_set(&priv->events, BIT(UHC_DWC2_EVENT_PORT_CONNECTION));
 	}
 
 	(void) uhc_dwc2_quirk_irq_clear(dev);
@@ -1428,6 +1418,7 @@ static int uhc_dwc2_preinit(const struct device *const dev)
 			(struct usb_dwc2_host_chan *)((mem_addr_t)dwc2 + USB_DWC2_HCCHAR(i));
 	}
 
+	__asm__ volatile ("nop; nop;");
 	__asm__ volatile ("nop; nop; nop; nop; nop; nop; nop; nop;");
 	__asm__ volatile ("nop; nop; nop; nop; nop; nop; nop; nop;");
 	__asm__ volatile ("nop; nop; nop; nop; nop; nop; nop; nop;");
