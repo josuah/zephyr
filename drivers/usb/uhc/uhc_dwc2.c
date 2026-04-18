@@ -483,8 +483,7 @@ static void uhc_dwc2_channel_process_ctrl(struct uhc_dwc2_channel *const channel
 {
 	struct uhc_transfer *const xfer = channel->xfer;
 	bool next_dir_is_in;
-	uint8_t next_pid = USB_DWC2_HCTSIZ_PID_DATA1;
-	uint16_t size = 0;
+	uint16_t dma_size = 0;
 	uint8_t *dma_addr = NULL;
 	uint32_t hctsiz;
 	uint32_t hcchar;
@@ -494,45 +493,38 @@ static void uhc_dwc2_channel_process_ctrl(struct uhc_dwc2_channel *const channel
 		if (channel->data_stg_skip) {
 			/* No data stage. Go strait to status */
 			next_dir_is_in = true;
-			next_pid = USB_DWC2_HCTSIZ_PID_DATA1;
 			channel->xfer->stage = UHC_CONTROL_STAGE_STATUS;
 		} else {
-
 			/* Data stage is present, go to data stage */
 			next_dir_is_in = channel->data_stg_in;
-			next_pid = USB_DWC2_HCTSIZ_PID_DATA1;
 			channel->xfer->stage = UHC_CONTROL_STAGE_DATA;
 
-			/*
-			 * NOTE:
-			 * For OUT - number of bytes host sends to device
-			 * For IN - number of bytes host reserves to receive
-			 */
-			if (!next_dir_is_in) {
-				size = xfer->buf->len;
-			} else {
+			if (next_dir_is_in) {
+				/* For IN, number of bytes host reserves to receive */
 				/* TODO: Check the buffer is large enough for the next transfer? */
-				size = net_buf_tailroom(xfer->buf);
+				dma_size = net_buf_tailroom(xfer->buf);
+			} else {
+				/* For OUT, number of bytes host sends to device */
+				dma_size = xfer->buf->len;
 			}
 
 			/* TODO: Toggle PID? */
 
-			if (xfer->buf != NULL) {
-				/* Get the tail of the buffer to append data */
-				dma_addr = net_buf_tail(xfer->buf);
-			}
+			/* Get the tail of the buffer to append data */
+			dma_addr = net_buf_tail(xfer->buf);
 		}
 	} else {
 		/* Just finished UHC_CONTROL_STAGE_DATA */
 		hctsiz = sys_read32((mem_addr_t)&channel->base->hctsiz);
+
 		/* Actual is requested minus remaining */
 		size_t actual = xfer->buf->size - usb_dwc2_get_hctsiz_xfersize(hctsiz);
+
 		/* Increase the net_buf for the actual transferred len */
 		net_buf_add(xfer->buf, actual);
+
 		/* Status stage is always the opposite direction of data stage */
 		next_dir_is_in = !channel->data_stg_in;
-		/* Status stage always has a PID of DATA1 */
-		next_pid = USB_DWC2_HCTSIZ_PID_DATA1;
 		channel->xfer->stage = UHC_CONTROL_STAGE_STATUS;
 	}
 
@@ -542,65 +534,67 @@ static void uhc_dwc2_channel_process_ctrl(struct uhc_dwc2_channel *const channel
 		sys_clear_bits((mem_addr_t)&channel->base->hcchar, USB_DWC2_HCCHAR_EPDIR);
 	}
 
-	hctsiz = usb_dwc2_set_hctsiz_pid(next_pid);
-	hctsiz |= usb_dwc2_set_hctsiz_pktcnt(packet_count(size, xfer->mps));
-	hctsiz |= usb_dwc2_set_hctsiz_xfersize(size);
+	/* Transfer informations */
+	hctsiz = usb_dwc2_set_hctsiz_pid(USB_DWC2_HCTSIZ_PID_DATA1);
+	hctsiz |= usb_dwc2_set_hctsiz_pktcnt(packet_count(dma_size, xfer->mps));
+	hctsiz |= usb_dwc2_set_hctsiz_xfersize(dma_size);
 	sys_write32(hctsiz, (mem_addr_t)&channel->base->hctsiz);
 
-	sys_write32((uint32_t)dma_addr, (mem_addr_t)&channel->base->hcdma);
+	/* Transfer address */
 
 	/* TODO: Configure split transaction if needed */
 
-	/* TODO: sync CACHE */
+	/* Sync CACHE for DMA to access it */
+	sys_cache_data_flush_and_invd_range(dma_addr, dma_size);
 
+	sys_write32((uintptr_t)dma_addr, (mem_addr_t)&channel->base->hcdma);
+
+	/* Enable the transfer */
 	hcchar = sys_read32((mem_addr_t)&channel->base->hcchar);
 	hcchar |= USB_DWC2_HCCHAR_CHENA;
 	hcchar &= ~USB_DWC2_HCCHAR_CHDIS;
 	sys_write32(hcchar, (mem_addr_t)&channel->base->hcchar);
-
-	LOG_WRN("control: stage %d, stage %d, %p",
-		xfer->stage, channel->xfer->stage, (void *)dma_addr);
 }
 
 static bool uhc_dwc2_channel_events(struct uhc_dwc2_channel *const channel)
 {
-	uint32_t hcint = sys_read32((mem_addr_t)&channel->base->hcint);
+	uint32_t hcint;
 	uint32_t channel_events = 0;
 
-	/* Clear the interrupt bits by writing them back */
-	sys_write32(hcint, (mem_addr_t)&channel->base->hcint);
+	hcint = sys_read32((mem_addr_t)&channel->base->hcint);
 
-	/* TODO: Read hcchar and split paths for EP IN and OUT? */
+	if (hcint & USB_DWC2_HCINT_XFERCOMPL) {
+		sys_write32(USB_DWC2_HCINT_XFERCOMPL, (mem_addr_t)&channel->base->hcint);
 
-	/* TODO: Read hcchar and split paths for BULK/CTRL/ISOC/INTR? */
+		/* TODO: channel error count = 0 */
 
-	if (hcint & USB_DWC2_HCINT_CHHLTD) {
-		if (hcint & USB_DWC2_HCINT_XFERCOMPL) {
-			/* TODO: channel error count = 0 */
-
-			if (!uhc_dwc2_channel_xfer_is_done(channel)) {
-				/* Control transfer isn't finished yet - continue in ISR */
-				uhc_dwc2_channel_process_ctrl(channel);
-			} else {
-				/* Transfer finished, notify thread */
-				channel_events |= BIT(UHC_DWC2_CHANNEL_DO_RELEASE);
-				channel_events |= BIT(UHC_DWC2_CHANNEL_EVENT_CPLT);
-			}
-		} else if (hcint & USB_DWC2_HCINT_STALL) {
-			/* TODO: channel error count = 0 */
-
-			/* Expecting ACK interrupt next */
-			sys_set_bits((mem_addr_t)&channel->base->hcintmsk, USB_DWC2_HCINT_ACK);
-
-			/* Notify thread */
+		if (uhc_dwc2_channel_xfer_is_done(channel)) {
+			/* Transfer finished, notify thread */
 			channel_events |= BIT(UHC_DWC2_CHANNEL_DO_RELEASE);
-			channel_events |= BIT(UHC_DWC2_CHANNEL_EVENT_STALL);
+			channel_events |= BIT(UHC_DWC2_CHANNEL_EVENT_CPLT);
+		} else {
+			/* Control transfer isn't finished yet - continue in ISR */
+			uhc_dwc2_channel_process_ctrl(channel);
 		}
-	} else if (hcint & USB_DWC2_HCINT_ACK) {
-		/* TODO: channel error count = 1 */
 
-		/* Not expecting ACK interrupt anymore */
-		sys_clear_bits((mem_addr_t)&channel->base->hcintmsk, USB_DWC2_HCINT_ACK);
+	} else if (hcint & USB_DWC2_HCINT_STALL) {
+		sys_write32(USB_DWC2_HCINT_STALL, (mem_addr_t)&channel->base->hcint);
+
+		/* TODO: channel error count = 0 */
+
+		/* Expecting ACK interrupt next */
+		sys_set_bits((mem_addr_t)&channel->base->hcintmsk, USB_DWC2_HCINT_ACK);
+
+		/* Notify thread */
+		channel_events |= BIT(UHC_DWC2_CHANNEL_DO_RELEASE);
+		channel_events |= BIT(UHC_DWC2_CHANNEL_EVENT_STALL);
+
+	} else if (hcint & USB_DWC2_HCINT_CHHLTD) {
+		sys_write32(USB_DWC2_HCINT_CHHLTD, (mem_addr_t)&channel->base->hcint);
+
+	} else if (hcint & USB_DWC2_HCINT_ACK) {
+		sys_write32(USB_DWC2_HCINT_ACK, (mem_addr_t)&channel->base->hcint);
+
 	} else {
 		LOG_WRN("Channel has not been handled: HCINT=0x%08x", hcint);
 	}
@@ -618,9 +612,7 @@ static bool uhc_dwc2_port_debounce(const struct device *const dev,
 	bool connected;
 	bool want_connected;
 
-	/**
-	 * HINT: Do the debounce delay outside of the global lock
-	 */
+	/* Do the debounce delay outside of the global lock */
 	uhc_unlock_internal(dev);
 
 	k_msleep(CONFIG_UHC_DWC2_DEBOUNCE_DELAY_MS);
@@ -761,6 +753,7 @@ static int uhc_dwc2_channel_configure(const struct device *const dev,
 	struct uhc_transfer *const xfer = channel->xfer;
 	struct usb_device *const udev = xfer->udev;
 	uint32_t hcint;
+	uint32_t hcintmsk;
 	uint32_t hcchar;
 
 	/* Clear the interrupt bits by writing them back */
@@ -770,9 +763,19 @@ static int uhc_dwc2_channel_configure(const struct device *const dev,
 	/* Enable channel interrupt in the core */
 	sys_set_bits((mem_addr_t)&dwc2->haintmsk, BIT(channel->index));
 
+	hcintmsk = sys_read32((mem_addr_t)&channel->base->hcintmsk);
 	/* Enable transfer complete and channel halted interrupts */
-	sys_set_bits((mem_addr_t)&channel->base->hcintmsk,
-		     USB_DWC2_HCINT_XFERCOMPL | USB_DWC2_HCINT_CHHLTD);
+	hcintmsk |= USB_DWC2_HCINT_XFERCOMPL;
+	hcintmsk |= USB_DWC2_HCINT_CHHLTD;
+	/* Enable error interrupts */
+	hcintmsk |= USB_DWC2_HCINT_AHBERR;
+	hcintmsk |= USB_DWC2_HCINT_STALL;
+	hcintmsk |= USB_DWC2_HCINT_XACTERR;
+	hcintmsk |= USB_DWC2_HCINT_BBLERR;
+	hcintmsk |= USB_DWC2_HCINT_FRMOVRUN;
+	hcintmsk |= USB_DWC2_HCINT_DTGERR;
+	hcintmsk |= USB_DWC2_HCINT_XACTERR;
+	sys_write32(hcintmsk, (mem_addr_t)&channel->base->hcintmsk);
 
 	/* Configure the channel main properties */
 	hcchar = usb_dwc2_set_hcchar_mps(xfer->mps);
