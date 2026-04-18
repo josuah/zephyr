@@ -68,13 +68,6 @@ enum uhc_dwc2_channel_event {
 	UHC_DWC2_CHANNEL_DO_RELEASE,
 };
 
-enum uhc_dwc2_xfer_type {
-	UHC_DWC2_XFER_TYPE_CTRL,
-	UHC_DWC2_XFER_TYPE_ISOCHRONOUS,
-	UHC_DWC2_XFER_TYPE_BULK,
-	UHC_DWC2_XFER_TYPE_INTR,
-};
-
 struct uhc_dwc2_vendor_quirks {
 	int (*preinit)(const struct device *const dev);
 	int (*init)(const struct device *const dev);
@@ -395,8 +388,8 @@ static void uhc_dwc2_hal_set_fifo_sizes(struct usb_dwc2_reg *const dwc2, uint32_
 		fifo_available * 4, fifo_nptxfdep * 4, fifo_rxfsiz * 4, fifo_ptxfsiz * 4);
 
 	/* FIFO config */
-	gdfifocfg = usb_dwc2_set_gdfifocfg_epinfobaseaddr(fifo_available) |
-		    usb_dwc2_set_gdfifocfg_gdfifocfg(fifo_available);
+	gdfifocfg = usb_dwc2_set_gdfifocfg_epinfobaseaddr(fifo_available);
+	gdfifocfg |= usb_dwc2_set_gdfifocfg_gdfifocfg(fifo_available);
 	sys_write32(gdfifocfg, (mem_addr_t)&dwc2->gdfifocfg);
 
 	/* RX FIFO size */
@@ -417,8 +410,8 @@ static void uhc_dwc2_hal_set_fifo_sizes(struct usb_dwc2_reg *const dwc2, uint32_
 	sys_write32(hptxfsiz, (mem_addr_t)&dwc2->hptxfsiz);
 
 	/* Flush TX FIFO and set number of TX FIFO */
-	grstctl = usb_dwc2_set_grstctl_txfnum(CONFIG_UHC_DWC2_MAX_CHANNELS) |
-		  USB_DWC2_GRSTCTL_TXFFLSH;
+	grstctl = usb_dwc2_set_grstctl_txfnum(CONFIG_UHC_DWC2_MAX_CHANNELS);
+	grstctl |= USB_DWC2_GRSTCTL_TXFFLSH;
 	sys_write32(grstctl, (mem_addr_t)&dwc2->grstctl);
 	while (sys_read32((mem_addr_t)&dwc2->grstctl) & USB_DWC2_GRSTCTL_TXFFLSH) {
 		continue;
@@ -504,6 +497,7 @@ static void uhc_dwc2_channel_process_ctrl(struct uhc_dwc2_channel *const channel
 			next_pid = USB_DWC2_HCTSIZ_PID_DATA1;
 			channel->xfer->stage = UHC_CONTROL_STAGE_STATUS;
 		} else {
+
 			/* Data stage is present, go to data stage */
 			next_dir_is_in = channel->data_stg_in;
 			next_pid = USB_DWC2_HCTSIZ_PID_DATA1;
@@ -564,8 +558,8 @@ static void uhc_dwc2_channel_process_ctrl(struct uhc_dwc2_channel *const channel
 	hcchar &= ~USB_DWC2_HCCHAR_CHDIS;
 	sys_write32(hcchar, (mem_addr_t)&channel->base->hcchar);
 
-	LOG_INF("stage %d, stage %d, %p, 0x%08x, 0x%08x %d",
-		xfer->stage, channel->xfer->stage, (void *)dma_addr, hctsiz, hcchar, next_dir_is_in);
+	LOG_WRN("control: stage %d, stage %d, %p",
+		xfer->stage, channel->xfer->stage, (void *)dma_addr);
 }
 
 static bool uhc_dwc2_channel_events(struct uhc_dwc2_channel *const channel)
@@ -823,7 +817,8 @@ static int uhc_dwc2_channel_release(const struct device *const dev,
 static int uhc_dwc2_channel_start_xfer_ctrl(struct uhc_dwc2_channel *const channel)
 {
 	struct uhc_transfer *const xfer = channel->xfer;
-	const struct usb_setup_packet *const setup_pkt = (const struct usb_setup_packet *)xfer->setup_pkt;
+	const struct usb_setup_packet *const setup_pkt =
+		(const struct usb_setup_packet *)xfer->setup_pkt;
 	uint32_t hctsiz;
 	uint32_t hcint;
 	uint32_t hcchar;
@@ -831,6 +826,7 @@ static int uhc_dwc2_channel_start_xfer_ctrl(struct uhc_dwc2_channel *const chann
 	LOG_DBG("data_in: %s, data_skip: %s",
 		usb_reqtype_is_to_host(setup_pkt) ? "true" : "false",
 		(setup_pkt->wLength == 0) ? "true" : "false");
+
 	LOG_HEXDUMP_DBG(xfer->setup_pkt, 8, "setup_pkt");
 
 	/* Get information about the control transfer by analyzing the setup packet */
@@ -858,13 +854,11 @@ static int uhc_dwc2_channel_start_xfer_ctrl(struct uhc_dwc2_channel *const chann
 	/* TODO: Configure split transaction if needed */
 
 	hcint = sys_read32((mem_addr_t)&channel->base->hcint);
-
 	sys_write32(hcint, (mem_addr_t)&channel->base->hcint);
 
 	/* TODO: sync CACHE */
 
 	hcchar = sys_read32((mem_addr_t)&channel->base->hcchar);
-
 	hcchar |= USB_DWC2_HCCHAR_CHENA;
 	hcchar &= ~USB_DWC2_HCCHAR_CHDIS;
 	sys_write32(hcchar, (mem_addr_t)&channel->base->hcchar);
