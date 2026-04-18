@@ -75,13 +75,6 @@ enum uhc_dwc2_xfer_type {
 	UHC_DWC2_XFER_TYPE_INTR,
 };
 
-enum uhc_dwc2_channel_pid {
-	UHC_DWC2_PID_DATA0 = 0,
-	UHC_DWC2_PID_DATA2 = 1,
-	UHC_DWC2_PID_DATA1 = 2,
-	UHC_DWC2_PID_MDATA_SETUP = 3,
-};
-
 struct uhc_dwc2_vendor_quirks {
 	int (*preinit)(const struct device *const dev);
 	int (*init)(const struct device *const dev);
@@ -122,13 +115,10 @@ struct uhc_dwc2_channel {
 	atomic_t events;
 	/* Index of the channel */
 	uint8_t index;
-	/* Associated endpoint characteristics */
-	/* Type of endpoint */
-	enum uhc_dwc2_xfer_type type;
 	/* Transfer stage is IN */
-	uint8_t data_stg_in: 1;
+	uint8_t data_stg_in : 1;
 	/* Transfer has no data stage */
-	uint8_t data_stg_skip: 1;
+	uint8_t data_stg_skip : 1;
 	/* Transfer will change the device address */
 	uint8_t set_address : 1;
 };
@@ -500,7 +490,7 @@ static void uhc_dwc2_channel_process_ctrl(struct uhc_dwc2_channel *const channel
 {
 	struct uhc_transfer *const xfer = channel->xfer;
 	bool next_dir_is_in;
-	enum uhc_dwc2_channel_pid next_pid = UHC_DWC2_PID_DATA1;
+	uint8_t next_pid = USB_DWC2_HCTSIZ_PID_DATA1;
 	uint16_t size = 0;
 	uint8_t *dma_addr = NULL;
 	uint32_t hctsiz;
@@ -511,12 +501,12 @@ static void uhc_dwc2_channel_process_ctrl(struct uhc_dwc2_channel *const channel
 		if (channel->data_stg_skip) {
 			/* No data stage. Go strait to status */
 			next_dir_is_in = true;
-			next_pid = UHC_DWC2_PID_DATA1;
+			next_pid = USB_DWC2_HCTSIZ_PID_DATA1;
 			channel->xfer->stage = UHC_CONTROL_STAGE_STATUS;
 		} else {
 			/* Data stage is present, go to data stage */
 			next_dir_is_in = channel->data_stg_in;
-			next_pid = UHC_DWC2_PID_DATA1;
+			next_pid = USB_DWC2_HCTSIZ_PID_DATA1;
 			channel->xfer->stage = UHC_CONTROL_STAGE_DATA;
 
 			/*
@@ -548,7 +538,7 @@ static void uhc_dwc2_channel_process_ctrl(struct uhc_dwc2_channel *const channel
 		/* Status stage is always the opposite direction of data stage */
 		next_dir_is_in = !channel->data_stg_in;
 		/* Status stage always has a PID of DATA1 */
-		next_pid = UHC_DWC2_PID_DATA1;
+		next_pid = USB_DWC2_HCTSIZ_PID_DATA1;
 		channel->xfer->stage = UHC_CONTROL_STAGE_STATUS;
 	}
 
