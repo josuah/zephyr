@@ -444,6 +444,27 @@ static void uhc_dwc2_hal_set_fifo_sizes(struct usb_dwc2_reg *const dwc2, uint32_
 	}
 }
 
+static void uhc_dwc2_hal_init_hctsiz(struct usb_dwc2_host_chan *const base,
+				     const uint32_t size, const uint32_t mps,
+				     const enum uhc_control_stage stage)
+{
+	uint32_t packet_count = max(1, DIV_ROUND_UP(size, mps));
+	uint32_t hctsiz = 0;
+
+	if (stage == UHC_CONTROL_STAGE_SETUP) {
+		hctsiz |= usb_dwc2_set_hctsiz_pid(USB_DWC2_HCTSIZ_PID_MDATA);
+	} else {
+		/* DATA or STATUS stages are always starting with DATA1 */
+		hctsiz |= usb_dwc2_set_hctsiz_pid(USB_DWC2_HCTSIZ_PID_DATA1);
+	}
+
+	/* Transfer informations */
+	hctsiz |= usb_dwc2_set_hctsiz_pktcnt(packet_count);
+	hctsiz |= usb_dwc2_set_hctsiz_xfersize(size);
+
+	sys_write32(hctsiz, (mem_addr_t)&base->hctsiz);
+}
+
 /*
  * Port
  *
@@ -483,32 +504,25 @@ static void uhc_dwc2_port_debounce_unlock(const struct device *const dev)
 						 USB_DWC2_GINTSTS_DISCONNINT);
 }
 
-static uint16_t packet_count(const uint16_t size, const uint16_t mps)
-{
-	return max(1, DIV_ROUND_UP(size, mps));
-}
-
 static void uhc_dwc2_channel_process_ctrl(struct uhc_dwc2_channel *const channel)
 {
 	struct uhc_transfer *const xfer = channel->xfer;
-	uint16_t dma_size = 0;
 	uint8_t *dma_addr = NULL;
-	uint32_t hctsiz;
-	uint32_t hcchar;
+	uint16_t dma_size = 0;
 	bool next_dir_is_in;
+	uint32_t hcchar;
+	uint32_t hctsiz;
 
-	LOG_INF("%s", __func__);
-
-	if (channel->xfer->stage == UHC_CONTROL_STAGE_SETUP) {
+	if (xfer->stage == UHC_CONTROL_STAGE_SETUP) {
 		/* Just finished UHC_CONTROL_STAGE_SETUP */
 		if (channel->data_stg_skip) {
 			/* No data stage. Go strait to status */
 			next_dir_is_in = true;
-			channel->xfer->stage = UHC_CONTROL_STAGE_STATUS;
+			xfer->stage = UHC_CONTROL_STAGE_STATUS;
 		} else {
 			/* Data stage is present, go to data stage */
 			next_dir_is_in = channel->data_stg_in;
-			channel->xfer->stage = UHC_CONTROL_STAGE_DATA;
+			xfer->stage = UHC_CONTROL_STAGE_DATA;
 
 			if (next_dir_is_in) {
 				/* For IN, number of bytes host reserves to receive */
@@ -525,40 +539,35 @@ static void uhc_dwc2_channel_process_ctrl(struct uhc_dwc2_channel *const channel
 			dma_addr = net_buf_tail(xfer->buf);
 		}
 	} else {
-		/* Just finished UHC_CONTROL_STAGE_DATA */
-		hctsiz = sys_read32((mem_addr_t)&channel->base->hctsiz);
+		uint32_t actual;
 
-		/* Actual is requested minus remaining */
-		size_t actual = xfer->buf->size - usb_dwc2_get_hctsiz_xfersize(hctsiz);
+		/* Just finished DATA stage, actual is requested minus remaining */
+		hctsiz = sys_read32((mem_addr_t)&channel->base->hctsiz);
+		actual = xfer->buf->size - usb_dwc2_get_hctsiz_xfersize(hctsiz);
 
 		/* Increase the net_buf for the actual transferred len */
 		net_buf_add(xfer->buf, actual);
 
 		/* Status stage is always the opposite direction of data stage */
 		next_dir_is_in = !channel->data_stg_in;
-		channel->xfer->stage = UHC_CONTROL_STAGE_STATUS;
+		xfer->stage = UHC_CONTROL_STAGE_STATUS;
 	}
 
+	/* Transfer address */
 	if (next_dir_is_in) {
 		sys_set_bits((mem_addr_t)&channel->base->hcchar, USB_DWC2_HCCHAR_EPDIR);
 	} else {
 		sys_clear_bits((mem_addr_t)&channel->base->hcchar, USB_DWC2_HCCHAR_EPDIR);
 	}
 
-	/* Transfer informations */
-	hctsiz = usb_dwc2_set_hctsiz_pid(USB_DWC2_HCTSIZ_PID_DATA1);
-	hctsiz |= usb_dwc2_set_hctsiz_pktcnt(packet_count(dma_size, xfer->mps));
-	hctsiz |= usb_dwc2_set_hctsiz_xfersize(dma_size);
-	sys_write32(hctsiz, (mem_addr_t)&channel->base->hctsiz);
-
-	/* Transfer address */
+	/* Configure the transfer parameters */
+	uhc_dwc2_hal_init_hctsiz(channel->base, dma_size, xfer-> mps, xfer->stage);
+	sys_write32((uintptr_t)dma_addr, (mem_addr_t)&channel->base->hcdma);
 
 	/* TODO: Configure split transaction if needed */
 
 	/* Sync CACHE for DMA to access it */
 	sys_cache_data_flush_and_invd_range(dma_addr, dma_size);
-
-	sys_write32((uintptr_t)dma_addr, (mem_addr_t)&channel->base->hcdma);
 
 	/* Enable the transfer */
 	hcchar = sys_read32((mem_addr_t)&channel->base->hcchar);
@@ -874,7 +883,6 @@ static int uhc_dwc2_channel_start_xfer_ctrl(struct uhc_dwc2_channel *const chann
 	struct uhc_transfer *const xfer = channel->xfer;
 	const struct usb_setup_packet *const setup_pkt =
 		(const struct usb_setup_packet *)xfer->setup_pkt;
-	uint32_t hctsiz;
 	uint32_t hcint;
 	uint32_t hcchar;
 
@@ -899,11 +907,8 @@ static int uhc_dwc2_channel_start_xfer_ctrl(struct uhc_dwc2_channel *const chann
 		LOG_WRN("Periodic transfer is not supported");
 	}
 
-	hctsiz = usb_dwc2_set_hctsiz_pid(USB_DWC2_HCTSIZ_PID_MDATA);
-	hctsiz |= usb_dwc2_set_hctsiz_pktcnt(packet_count(sizeof(*setup_pkt), xfer->mps));
-	hctsiz |= usb_dwc2_set_hctsiz_xfersize(sizeof(*setup_pkt));
-	sys_write32(hctsiz, (mem_addr_t)&channel->base->hctsiz);
-
+	/* Configure the transfer parameters */
+	uhc_dwc2_hal_init_hctsiz(channel->base, sizeof(*setup_pkt), xfer->mps, xfer->stage);
 	sys_write32((uintptr_t)setup_pkt, (mem_addr_t)&channel->base->hcdma);
 
 	/* TODO: Configure split transaction if needed */
