@@ -40,7 +40,36 @@ LOG_MODULE_REGISTER(uhc_dwc2, CONFIG_UHC_DRIVER_LOG_LEVEL);
 #define UHC_DWC2_QUIRK_DATA(dev)						\
 	(((const struct uhc_dwc2_config *)dev->config)->quirk_data)
 
-enum uhc_dwc2_event {
+enum uhc_dwc2_channel_event {
+	/* The channel has completed execution of a transfer. Channel is now halted */
+	UHC_DWC2_CHANNEL_EVENT_CPLT,
+	/* The channel has encountered an error. Channel is now halted */
+	UHC_DWC2_CHANNEL_EVENT_ERROR,
+	/* Need to release the channel for the next transfer */
+	UHC_DWC2_CHANNEL_DO_RELEASE,
+	/* A halt has been requested on the channel */
+	UHC_DWC2_CHANNEL_EVENT_HALT_REQ,
+	/* Need to reinit a channel */
+	UHC_DWC2_CHANNEL_DO_REINIT,
+	/* Need to process the next CSPLIT */
+	UHC_DWC2_CHANNEL_DO_NEXT_CSPLIT,
+	/* Need to process the next CSPLIT */
+	UHC_DWC2_CHANNEL_DO_NEXT_SSPLIT,
+	/* Need to process the next transaction */
+	UHC_DWC2_CHANNEL_DO_NEXT_TRANSACTION,
+	/* Need to re-enable the channel */
+	UHC_DWC2_CHANNEL_DO_REENABLE,
+	/* Need to retry the CSPLIT transaction */
+	UHC_DWC2_CHANNEL_DO_RETRY_CSPLIT,
+	/* Need to retry the SSPLIT transactio */
+	UHC_DWC2_CHANNEL_DO_RETRY_SSPLIT,
+	/* Need to rewind the buffer being transmitted on this channel */
+	UHC_DWC2_CHANNEL_DO_REWIND,
+	/* The channel has completed a transfer. Request STALLed. Channel is now halted */
+	UHC_DWC2_CHANNEL_EVENT_STALL,
+};
+
+enum uhc_dwc2_port_event {
 	/* No event has occurred or the event is no longer valid */
 	UHC_DWC2_EVENT_NONE,
 	/* A device has been connected to the port */
@@ -55,17 +84,6 @@ enum uhc_dwc2_event {
 	UHC_DWC2_EVENT_PORT_OVERCURRENT,
 	/* Port has pending channel event, one bit per channel */
 	UHC_DWC2_EVENT_PORT_PEND_CHANNEL
-};
-
-enum uhc_dwc2_channel_event {
-	/* The channel has completed a transfer. Channel is now halted */
-	UHC_DWC2_CHANNEL_EVENT_CPLT,
-	/* The channel has completed a transfer. Request STALLed. Channel is now halted */
-	UHC_DWC2_CHANNEL_EVENT_STALL,
-	/* The channel has encountered an error. Channel is now halted */
-	UHC_DWC2_CHANNEL_EVENT_ERROR,
-	/* Need to release the channel for the next transfer */
-	UHC_DWC2_CHANNEL_DO_RELEASE,
 };
 
 struct uhc_dwc2_vendor_quirks {
@@ -108,6 +126,8 @@ struct uhc_dwc2_channel {
 	atomic_t events;
 	/* Index of the channel */
 	uint8_t index;
+	/* Only accessed in ISR. Number of error interrupt received. */
+	uint8_t irq_error_count;
 	/* Transfer stage is IN */
 	uint8_t data_stg_in : 1;
 	/* Transfer has no data stage */
@@ -463,17 +483,6 @@ static void uhc_dwc2_port_debounce_unlock(const struct device *const dev)
 						 USB_DWC2_GINTSTS_DISCONNINT);
 }
 
-static bool uhc_dwc2_channel_xfer_is_done(struct uhc_dwc2_channel *const channel)
-{
-	/* Only control transfers need to be handled in stages */
-	if (channel->xfer->type != USB_EP_TYPE_CONTROL) {
-		return true;
-	}
-
-	/* Is done when we finished the UHC_CONTROL_STAGE_STATUS */
-	return (channel->xfer->stage == UHC_CONTROL_STAGE_STATUS);
-}
-
 static uint16_t packet_count(const uint16_t size, const uint16_t mps)
 {
 	return max(1, DIV_ROUND_UP(size, mps));
@@ -482,11 +491,13 @@ static uint16_t packet_count(const uint16_t size, const uint16_t mps)
 static void uhc_dwc2_channel_process_ctrl(struct uhc_dwc2_channel *const channel)
 {
 	struct uhc_transfer *const xfer = channel->xfer;
-	bool next_dir_is_in;
 	uint16_t dma_size = 0;
 	uint8_t *dma_addr = NULL;
 	uint32_t hctsiz;
 	uint32_t hcchar;
+	bool next_dir_is_in;
+
+	LOG_INF("%s", __func__);
 
 	if (channel->xfer->stage == UHC_CONTROL_STAGE_SETUP) {
 		/* Just finished UHC_CONTROL_STAGE_SETUP */
@@ -556,56 +567,97 @@ static void uhc_dwc2_channel_process_ctrl(struct uhc_dwc2_channel *const channel
 	sys_write32(hcchar, (mem_addr_t)&channel->base->hcchar);
 }
 
-static bool uhc_dwc2_channel_events(struct uhc_dwc2_channel *const channel)
+static void uhc_dwc2_channel_isr_handler(const struct device *const dev,
+					 struct uhc_dwc2_channel *const channel)
 {
+	struct uhc_dwc2_data *const priv = uhc_get_private(dev);
+	uint32_t chan_events = 0;
 	uint32_t hcint;
-	uint32_t channel_events = 0;
+	const bool xfer_is_done =
+		channel->xfer->type != USB_EP_TYPE_CONTROL ||
+		channel->xfer->stage == UHC_CONTROL_STAGE_STATUS;
 
+	/* Clear the interrupt bits by writing them back */
 	hcint = sys_read32((mem_addr_t)&channel->base->hcint);
+	sys_write32(hcint, (mem_addr_t)&channel->base->hcint);
 
-	if (hcint & USB_DWC2_HCINT_XFERCOMPL) {
-		sys_write32(USB_DWC2_HCINT_XFERCOMPL, (mem_addr_t)&channel->base->hcint);
+	/* Event decoding using a decision tree identical to the datasheet pseudocode */
 
-		/* TODO: channel error count = 0 */
+	if (USB_EP_DIR_IS_IN(channel->xfer->ep) &&
+	    (channel->xfer->type == USB_EP_TYPE_BULK ||
+	     channel->xfer->type == USB_EP_TYPE_CONTROL)) {
 
-		if (uhc_dwc2_channel_xfer_is_done(channel)) {
-			/* Transfer finished, notify thread */
-			channel_events |= BIT(UHC_DWC2_CHANNEL_DO_RELEASE);
-			channel_events |= BIT(UHC_DWC2_CHANNEL_EVENT_CPLT);
-		} else {
-			/* Control transfer isn't finished yet - continue in ISR */
-			uhc_dwc2_channel_process_ctrl(channel);
+		if (hcint & USB_DWC2_HCINT_CHHLTD) {
+			if (hcint & USB_DWC2_HCINT_XFERCOMPL) {
+				channel->irq_error_count = 0;
+				/* Expecting ACK interrupt next */
+				chan_events |= BIT(UHC_DWC2_CHANNEL_DO_RELEASE);
+				chan_events |= BIT(UHC_DWC2_CHANNEL_EVENT_CPLT);
+			} else if (hcint & (USB_DWC2_HCINT_STALL | USB_DWC2_HCINT_BBLERR)) {
+				channel->irq_error_count = 0;
+				/* Expecting ACK interrupt next */
+				chan_events |= BIT(UHC_DWC2_CHANNEL_DO_RELEASE);
+			} else if (hcint & USB_DWC2_HCINT_XACTERR) {
+				if (channel->irq_error_count == 2) {
+					chan_events |= BIT(UHC_DWC2_CHANNEL_DO_RELEASE);
+					chan_events |= BIT(UHC_DWC2_CHANNEL_EVENT_ERROR);
+				} else {
+					/* Expecting ACK, NAK, DTGERR interrupt next */
+					channel->irq_error_count++;
+					chan_events |= BIT(UHC_DWC2_CHANNEL_DO_REINIT);
+				}
+			}
+		} else if (hcint & (USB_DWC2_HCINT_ACK | USB_DWC2_HCINT_NAK |
+				    USB_DWC2_HCINT_DTGERR)) {
+			channel->irq_error_count = 0;
+			/* Not expecting ACK, NAK, DTGERR interrupt anymore */
 		}
-
-	} else if (hcint & USB_DWC2_HCINT_STALL) {
-		sys_write32(USB_DWC2_HCINT_STALL, (mem_addr_t)&channel->base->hcint);
-
-		/* TODO: channel error count = 0 */
-
-		/* Expecting ACK interrupt next */
-		sys_set_bits((mem_addr_t)&channel->base->hcintmsk, USB_DWC2_HCINT_ACK);
-
-		/* Notify thread */
-		channel_events |= BIT(UHC_DWC2_CHANNEL_DO_RELEASE);
-		channel_events |= BIT(UHC_DWC2_CHANNEL_EVENT_STALL);
-
-	} else if (hcint & USB_DWC2_HCINT_CHHLTD) {
-		sys_write32(USB_DWC2_HCINT_CHHLTD, (mem_addr_t)&channel->base->hcint);
-
-	} else if (hcint & USB_DWC2_HCINT_ACK) {
-		sys_write32(USB_DWC2_HCINT_ACK, (mem_addr_t)&channel->base->hcint);
-
-	} else {
-		LOG_WRN("Channel has not been handled: HCINT=0x%08x", hcint);
 	}
 
-	atomic_or(&channel->events, channel_events);
+	if (USB_EP_DIR_IS_OUT(channel->xfer->ep) &&
+	    (channel->xfer->type == USB_EP_TYPE_BULK ||
+	     channel->xfer->type == USB_EP_TYPE_CONTROL)) {
 
-	return channel_events != 0;
+		if (hcint & USB_DWC2_HCINT_CHHLTD) {
+			if (hcint & (USB_DWC2_HCINT_XFERCOMPL | USB_DWC2_HCINT_STALL)) {
+				channel->irq_error_count = 1;
+				/* Not expecting ACK interrupt anymore */
+				chan_events |= BIT(UHC_DWC2_CHANNEL_DO_RELEASE);
+				chan_events |= BIT(UHC_DWC2_CHANNEL_EVENT_CPLT);
+			} else if (hcint & USB_DWC2_HCINT_XACTERR) {
+				if (hcint & (USB_DWC2_HCINT_NAK | USB_DWC2_HCINT_NYET |
+					     USB_DWC2_HCINT_ACK)) {
+					channel->irq_error_count = 1;
+					chan_events |= BIT(UHC_DWC2_CHANNEL_DO_REINIT);
+					chan_events |= BIT(UHC_DWC2_CHANNEL_DO_REWIND);
+				} else {
+					channel->irq_error_count++;
+					if (channel->irq_error_count == 3) {
+						chan_events |= BIT(UHC_DWC2_CHANNEL_DO_RELEASE);
+						chan_events |= BIT(UHC_DWC2_CHANNEL_EVENT_ERROR);
+						chan_events |= BIT(UHC_DWC2_CHANNEL_DO_REWIND);
+					}
+				}
+			}
+		} else if (hcint & USB_DWC2_HCINT_ACK) {
+			channel->irq_error_count = 1;
+			/* Not expecting ACK interrupt anymore */
+		}
+	}
+
+	LOG_DBG("ISR: events=0x%08x", chan_events);
+
+	if ((chan_events & BIT(UHC_DWC2_CHANNEL_EVENT_CPLT)) && !xfer_is_done) {
+		uhc_dwc2_channel_process_ctrl(channel);
+	} else {
+		/* Handle others in a thread */
+		atomic_or(&channel->events, chan_events);
+		k_event_post(&priv->events, BIT(UHC_DWC2_EVENT_PORT_PEND_CHANNEL + channel->index));
+	}
 }
 
 static bool uhc_dwc2_port_debounce(const struct device *const dev,
-				   enum uhc_dwc2_event event)
+				   enum uhc_dwc2_port_event event)
 {
 	const struct uhc_dwc2_config *config = dev->config;
 	struct usb_dwc2_reg *dwc2 = config->base;
@@ -927,8 +979,6 @@ static void uhc_dwc2_channel_handle_events(const struct device *const dev,
 	uint32_t events = (uint32_t)atomic_set(&channel->events, 0);
 	int err = 0;
 
-	LOG_DBG("Thread channel%d events: 0x%08X", channel->index, events);
-
 	if (events & BIT(UHC_DWC2_CHANNEL_EVENT_CPLT)) {
 		/* When the device is processing SetAddress(), delay should be applied */
 		if (channel->set_address) {
@@ -938,6 +988,7 @@ static void uhc_dwc2_channel_handle_events(const struct device *const dev,
 
 	if (events & BIT(UHC_DWC2_CHANNEL_EVENT_STALL)) {
 		/* Request STALLed */
+		LOG_WRN("Request did stall");
 		err = -EPIPE;
 	}
 
@@ -950,12 +1001,10 @@ static void uhc_dwc2_channel_handle_events(const struct device *const dev,
 
 	if (events & BIT(UHC_DWC2_CHANNEL_DO_RELEASE)) {
 		uhc_dwc2_channel_release(dev, channel);
+		uhc_xfer_return(dev, xfer, err);
 	}
 
 	__ASSERT_NO_MSG(xfer != NULL);
-
-	/* Notify the upper logic */
-	uhc_xfer_return(dev, xfer, err);
 }
 
 /*
@@ -989,7 +1038,7 @@ static void uhc_dwc2_isr_handler(const struct device *const dev)
 	if (gintsts & USB_DWC2_GINTSTS_DISCONNINT) {
 		/* Port disconnected */
 		uhc_dwc2_port_debounce_lock(dev);
-		k_event_set(&priv->events, BIT(UHC_DWC2_EVENT_PORT_DISCONNECTION));
+		k_event_post(&priv->events, BIT(UHC_DWC2_EVENT_PORT_DISCONNECTION));
 
 	/* To have better throughput, handle channels right after disconnection */
 	} else if (gintsts & USB_DWC2_GINTSTS_HCHINT) {
@@ -997,16 +1046,14 @@ static void uhc_dwc2_isr_handler(const struct device *const dev)
 		uint32_t haint = sys_read32((mem_addr_t)&dwc2->haint);
 
 		for (int i = __builtin_ffs(haint); i != 0; i = __builtin_ffs(haint)) {
-			if (uhc_dwc2_channel_events(&priv->channels[i - 1])) {
-				k_event_set(&priv->events, BIT(UHC_DWC2_EVENT_PORT_PEND_CHANNEL + i - 1));
-			}
+			uhc_dwc2_channel_isr_handler(dev, &priv->channels[i - 1]);
 			haint &= ~BIT(i - 1);
 		}
 
 	/* Handle port overcurrent as it is a failure state */
 	} else if (hprt & USB_DWC2_HPRT_PRTOVRCURRCHNG) {
 		/* TODO: Overcurrent or overcurrent clear? */
-		k_event_set(&priv->events, BIT(UHC_DWC2_EVENT_PORT_OVERCURRENT));
+		k_event_post(&priv->events, BIT(UHC_DWC2_EVENT_PORT_OVERCURRENT));
 
 	/* Handle port change bits */
 	} else if (hprt & USB_DWC2_HPRT_PRTENCHNG) {
@@ -1015,14 +1062,14 @@ static void uhc_dwc2_isr_handler(const struct device *const dev)
 			k_sem_give(&priv->sem_port_en);
 		} else {
 			/* Host port has been disabled */
-			k_event_set(&priv->events, BIT(UHC_DWC2_EVENT_PORT_DISABLED));
+			k_event_post(&priv->events, BIT(UHC_DWC2_EVENT_PORT_DISABLED));
 		}
 
 	/* Handle port connection */
 	} else if (hprt & USB_DWC2_HPRT_PRTCONNDET && !priv->debouncing) {
 		/* Port connected */
 		uhc_dwc2_port_debounce_lock(dev);
-		k_event_set(&priv->events, BIT(UHC_DWC2_EVENT_PORT_CONNECTION));
+		k_event_post(&priv->events, BIT(UHC_DWC2_EVENT_PORT_CONNECTION));
 	}
 
 	(void) uhc_dwc2_quirk_irq_clear(dev);
