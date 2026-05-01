@@ -925,7 +925,6 @@ static int uhc_dwc2_channel_configure(const struct device *const dev,
 	hcintmsk = sys_read32((mem_addr_t)&channel->regs->hcintmsk);
 
 	/* Enable transfer complete and channel halted interrupts */
-	hcintmsk |= USB_DWC2_HCINT_XFERCOMPL;
 	hcintmsk |= USB_DWC2_HCINT_CHHLTD;
 	/* Enable error interrupts */
 	hcintmsk |= USB_DWC2_HCINT_ERRORS;
@@ -1382,6 +1381,8 @@ static int uhc_dwc2_bus_reset(const struct device *const dev)
 	k_msleep(RESET_RECOVERY_MS);
 
 	/* Finish the port config for the appeared device */
+	dwc2_hal_set_fifo_sizes(dwc2, config->ghwcfg2, config->ghwcfg3);
+
 	/* TODO: set frame list for the ISOC/INTR xfer */
 	/* TODO: enable periodic transfer */
 
