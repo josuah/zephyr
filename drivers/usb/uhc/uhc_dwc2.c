@@ -52,6 +52,8 @@ enum uhc_dwc2_channel_event {
 	UHC_DWC2_CHANNEL_DO_REINIT,
 	/* Need to rewind the buffer being transmitted. Channel is now halted */
 	UHC_DWC2_CHANNEL_DO_REWIND,
+	/* Need to re-enable the channel */
+	UHC_DWC2_CHANNEL_DO_REENABLE,
 };
 
 enum {
@@ -768,6 +770,49 @@ static inline uint32_t uhc_dwc2_channel_handle_out_bulk_control(struct uhc_dwc2_
 	return uhc_dwc2_handle_xfer_complete(channel, channel_events);
 }
 
+static inline uint32_t uhc_dwc2_channel_handle_in_isochronous(struct uhc_dwc2_channel *channel,
+							      uint32_t hcint)
+{
+	const uint32_t hctsiz = sys_read32((mem_addr_t)&channel->regs->hctsiz);
+	uint32_t channel_events = 0;
+
+	if (hcint & USB_DWC2_HCINT_CHHLTD) {
+		if (hcint & (USB_DWC2_HCINT_XFERCOMPL | USB_DWC2_HCINT_FRMOVRUN)) {
+			if ((hcint & USB_DWC2_HCINT_XFERCOMPL) &&
+			    (hctsiz & USB_DWC2_HCTSIZ_PKTCNT_MASK) == 0) {
+				channel->error_count = 0;
+			}
+			channel_events |= BIT(UHC_DWC2_CHANNEL_DO_RELEASE);
+			channel_events |= BIT(UHC_DWC2_CHANNEL_EVENT_ERROR);
+		} else if (hcint & (USB_DWC2_HCINT_XACTERR | USB_DWC2_HCINT_BBLERR)) {
+			if (channel->error_count == 2) {
+				channel_events |= BIT(UHC_DWC2_CHANNEL_DO_RELEASE);
+				channel_events |= BIT(UHC_DWC2_CHANNEL_EVENT_ERROR);
+			} else {
+				channel->error_count++;
+				channel_events |= BIT(UHC_DWC2_CHANNEL_DO_REENABLE);
+			}
+		}
+	}
+
+	return channel_events;
+}
+
+static inline uint32_t uhc_dwc2_channel_handle_out_isochronous(struct uhc_dwc2_channel *channel,
+							       uint32_t hcint)
+{
+	uint32_t channel_events = 0;
+
+	if (hcint & USB_DWC2_HCINT_CHHLTD) {
+		if (hcint & (USB_DWC2_HCINT_XFERCOMPL | USB_DWC2_HCINT_FRMOVRUN)) {
+			channel_events |= BIT(UHC_DWC2_CHANNEL_DO_RELEASE);
+			channel_events |= BIT(UHC_DWC2_CHANNEL_EVENT_ERROR);
+		}
+	}
+
+	return channel_events;
+}
+
 static uint32_t uhc_dwc2_channel_handle_irq_events(struct uhc_dwc2_channel *channel)
 {
 	struct uhc_transfer *const xfer = channel->xfer;
@@ -804,6 +849,12 @@ static uint32_t uhc_dwc2_channel_handle_irq_events(struct uhc_dwc2_channel *chan
 			channel_events = uhc_dwc2_channel_handle_in_bulk_control(channel, hcint);
 		} else {
 			channel_events = uhc_dwc2_channel_handle_out_bulk_control(channel, hcint);
+		}
+	} else if (xfer->type == USB_EP_TYPE_ISO) {
+		if (USB_EP_DIR_IS_IN(xfer->ep)) {
+			channel_events = uhc_dwc2_channel_handle_in_isochronous(channel, hcint);
+		} else {
+			channel_events = uhc_dwc2_channel_handle_out_isochronous(channel, hcint);
 		}
 	} else {
 		LOG_ERR("Unhandled transfer type %u, HCINT 0x%08x", xfer->type, hcint);
@@ -971,6 +1022,41 @@ static int uhc_dwc2_channel_release(const struct device *dev,
 	return 0;
 }
 
+static int uhc_dwc2_channel_start_transfer_isochronous(struct uhc_dwc2_channel *const channel)
+{
+	struct uhc_transfer *const xfer = channel->xfer;
+	char *xfer_data = net_buf_tail(xfer->buf);
+	size_t xfer_size;
+	uint32_t hcint;
+	uint32_t hcchar;
+	uint32_t hctsiz;
+
+	if (USB_EP_DIR_IS_IN(xfer->ep)) {
+		xfer_size = net_buf_tailroom(xfer->buf);
+	} else {
+		xfer_size = xfer->buf->len;
+		LOG_HEXDUMP_DBG(xfer_data, xfer_size, "ISOCHRONOUS OUT");
+	}
+
+	/* Configure the transfer parameters */
+	hctsiz = usb_dwc2_set_hctsiz_pid(USB_DWC2_HCTSIZ_PID_DATA0) |
+		usb_dwc2_set_hctsiz_pktcnt(1) |
+		usb_dwc2_set_hctsiz_xfersize(sizeof(struct usb_setup_packet));
+	sys_write32((uintptr_t)xfer_data, (mem_addr_t)&channel->regs->hcdma);
+
+	/* Clear interrupts */
+	hcint = sys_read32((mem_addr_t)&channel->regs->hcint);
+	sys_write32(hcint, (mem_addr_t)&channel->regs->hcint);
+
+	/* Prepare the transfer characteristics */
+	hcchar = sys_read32((mem_addr_t)&channel->regs->hcchar);
+	hcchar |= USB_DWC2_HCCHAR_CHENA;
+	hcchar &= ~USB_DWC2_HCCHAR_CHDIS;
+	sys_write32(hcchar, (mem_addr_t)&channel->regs->hcchar);
+
+	return 0;
+}
+
 static int uhc_dwc2_channel_start_transfer_ctrl(struct uhc_dwc2_channel *channel)
 {
 	struct uhc_transfer *const xfer = channel->xfer;
@@ -1102,7 +1188,20 @@ static int uhc_dwc2_submit_xfer(const struct device *const dev, struct uhc_trans
 		return ret;
 	}
 
-	return uhc_dwc2_channel_start_transfer_ctrl(channel);
+	switch (xfer->type) {
+	case USB_EP_TYPE_CONTROL:
+		uhc_dwc2_channel_start_transfer_ctrl(channel);
+		return 0;
+	case USB_EP_TYPE_ISO:
+		uhc_dwc2_channel_start_transfer_isochronous(channel);
+		return 0;
+	case USB_EP_TYPE_BULK:
+	case USB_EP_TYPE_INTERRUPT:
+	default:
+		LOG_WRN("Channel type %d not supported", xfer->type);
+		uhc_dwc2_channel_release(dev, channel);
+		return -ENOTSUP;
+	}
 }
 
 static void uhc_dwc2_port_handle_events(const struct device *dev, uint32_t event_mask)
