@@ -91,6 +91,10 @@ struct msc_bot_desc {
 	struct usb_ep_descriptor if0_out_ep;
 	struct usb_ep_descriptor if0_hs_in_ep;
 	struct usb_ep_descriptor if0_hs_out_ep;
+	struct usb_ep_descriptor if0_ss_in_ep;
+	struct usb_ss_endpoint_companion_descriptor if0_ss_in_ep_comp;
+	struct usb_ep_descriptor if0_ss_out_ep;
+	struct usb_ss_endpoint_companion_descriptor if0_ss_out_ep_comp;
 	struct usb_desc_header nil_desc;
 };
 
@@ -115,6 +119,7 @@ struct msc_bot_ctx {
 	struct msc_bot_desc *const desc;
 	const struct usb_desc_header **const fs_desc;
 	const struct usb_desc_header **const hs_desc;
+	const struct usb_desc_header **const ss_desc;
 	uint8_t *scsi_bufs[MSC_NUM_BUFFERS];
 	atomic_t bits;
 	enum msc_bot_state state;
@@ -184,7 +189,10 @@ static size_t clamp_transfer_length(struct usbd_context *uds_ctx,
 	if (USBD_SUPPORTS_HIGH_SPEED &&
 	    usbd_bus_speed(uds_ctx) == USBD_SPEED_HS) {
 		len = ROUND_DOWN(len, 512);
-	} else {
+	} else if (USBD_SUPPORTS_SUPER_SPEED &&
+	    usbd_bus_speed(uds_ctx) == USBD_SPEED_SS) {
+		len = ROUND_DOWN(len, 1024);
+	}else {
 		/* Full-Speed */
 		len = ROUND_DOWN(len, 64);
 	}
@@ -241,6 +249,11 @@ static uint8_t msc_get_bulk_in(struct usbd_class_data *const c_data)
 		return desc->if0_hs_in_ep.bEndpointAddress;
 	}
 
+	if (USBD_SUPPORTS_SUPER_SPEED &&
+		usbd_bus_speed(uds_ctx) == USBD_SPEED_SS) {
+		return desc->if0_ss_in_ep.bEndpointAddress;
+	}
+
 	return desc->if0_in_ep.bEndpointAddress;
 }
 
@@ -253,6 +266,11 @@ static uint8_t msc_get_bulk_out(struct usbd_class_data *const c_data)
 	if (USBD_SUPPORTS_HIGH_SPEED &&
 	    usbd_bus_speed(uds_ctx) == USBD_SPEED_HS) {
 		return desc->if0_hs_out_ep.bEndpointAddress;
+	}
+
+	if (USBD_SUPPORTS_SUPER_SPEED &&
+		usbd_bus_speed(uds_ctx) == USBD_SPEED_SS) {
+		return desc->if0_ss_out_ep.bEndpointAddress;
 	}
 
 	return desc->if0_out_ep.bEndpointAddress;
@@ -627,7 +645,12 @@ static void msc_handle_bulk_in(struct msc_bot_ctx *ctx,
 				 * shall STALL the Bulk-In pipe (if it does not
 				 * send padding data).
 				 */
-				msc_stall_bulk_in_ep(ctx->class_node);
+				/* This is handled in the next if statement block
+				 * According to the standard case (5) can be handled
+				 * when the device transfers less data than the host
+				 * indicated then:
+				 * The device shall set bCSWStatus to 00h or 01h.
+				 */
 			}
 			if (scsi_cmd_get_status(lun) == GOOD) {
 				ctx->csw.bCSWStatus = CSW_STATUS_COMMAND_PASSED;
@@ -882,6 +905,10 @@ static void *msc_bot_get_desc(struct usbd_class_data *const c_data,
 		return ctx->hs_desc;
 	}
 
+	if (USBD_SUPPORTS_SUPER_SPEED && speed == USBD_SPEED_SS) {
+		return ctx->ss_desc;
+	}
+
 	return ctx->fs_desc;
 }
 
@@ -953,6 +980,37 @@ static struct msc_bot_desc msc_bot_desc_##n = {					\
 		.bInterval = 0,							\
 	},									\
 										\
+	.if0_ss_in_ep = {                     \
+		.bLength = sizeof(struct usb_ep_descriptor), \
+		.bDescriptorType = USB_DESC_ENDPOINT, \
+		.bEndpointAddress = 0x83,	\
+		.bmAttributes = USB_EP_TYPE_BULK, \
+		.wMaxPacketSize = sys_cpu_to_le16(1024U), \
+		.bInterval = 0,  \
+	},         \
+	.if0_ss_in_ep_comp = {	\
+		.bLength = sizeof(struct usb_ss_endpoint_companion_descriptor),	\
+		.bDescriptorType = USB_DESC_ENDPOINT_COMPANION,			\
+		.bMaxBurst = 15,						\
+		.bmAttributes = 0x0,						\
+		.wBytesPerInterval = 0x0,				\
+	},	\
+	.if0_ss_out_ep = { \
+		.bLength = sizeof(struct usb_ep_descriptor), \
+		.bDescriptorType = USB_DESC_ENDPOINT, \
+		.bEndpointAddress = 0x01,	\
+		.bmAttributes = USB_EP_TYPE_BULK, 	\
+		.wMaxPacketSize = sys_cpu_to_le16(1024U), \
+		.bInterval = 0,	\
+	},	\
+	.if0_ss_out_ep_comp = {	\
+		.bLength = sizeof(struct usb_ss_endpoint_companion_descriptor), \
+		.bDescriptorType = USB_DESC_ENDPOINT_COMPANION, \
+		.bMaxBurst = 15,	\
+		.bmAttributes = 0x0,	\
+		.wBytesPerInterval = 0x0,	\
+	}, 								\
+									\
 	.nil_desc = {								\
 		.bLength = 0,							\
 		.bDescriptorType = 0,						\
@@ -971,8 +1029,16 @@ const static struct usb_desc_header *msc_bot_hs_desc_##n[] = {			\
 	(struct usb_desc_header *) &msc_bot_desc_##n.if0_hs_in_ep,		\
 	(struct usb_desc_header *) &msc_bot_desc_##n.if0_hs_out_ep,		\
 	(struct usb_desc_header *) &msc_bot_desc_##n.nil_desc,			\
-};
-
+};										\
+										\
+const static struct usb_desc_header *msc_bot_ss_desc_##n[] = { \
+	(struct usb_desc_header *) &msc_bot_desc_##n.if0,			\
+	(struct usb_desc_header *) &msc_bot_desc_##n.if0_ss_in_ep,		\
+	(struct usb_desc_header *) &msc_bot_desc_##n.if0_ss_in_ep_comp, \
+	(struct usb_desc_header *) &msc_bot_desc_##n.if0_ss_out_ep,		\
+	(struct usb_desc_header *) &msc_bot_desc_##n.if0_ss_out_ep_comp, \
+	(struct usb_desc_header *) &msc_bot_desc_##n.nil_desc,			\
+ };
 
 struct usbd_class_api msc_bot_api = {
 	.feature_halt = msc_bot_feature_halt,
@@ -1005,6 +1071,7 @@ struct usbd_class_api msc_bot_api = {
 		.desc = &msc_bot_desc_##x,					\
 		.fs_desc = msc_bot_fs_desc_##x,					\
 		.hs_desc = msc_bot_hs_desc_##x,					\
+		.ss_desc = msc_bot_ss_desc_##x,					\
 		.scsi_bufs = { NAME_SCSI_BUFS(x) },				\
 	};									\
 										\

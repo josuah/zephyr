@@ -40,6 +40,7 @@ LOG_MODULE_REGISTER(usbd_cdc_acm, CONFIG_USBD_CDC_ACM_LOG_LEVEL);
 #define CDC_ACM_INTERVAL_DEFAULT	10000UL
 #define CDC_ACM_FS_INT_EP_INTERVAL	USB_FS_INT_EP_INTERVAL(10000U)
 #define CDC_ACM_HS_INT_EP_INTERVAL	USB_HS_INT_EP_INTERVAL(10000U)
+#define CDC_ACM_SS_INT_EP_INTERVAL	USB_SS_INT_EP_INTERVAL(10000U)
 
 #define CDC_ACM_CLASS_ENABLED		0
 #define CDC_ACM_CLASS_SUSPENDED		1
@@ -73,6 +74,15 @@ struct usbd_cdc_acm_desc {
 	struct usb_ep_descriptor if1_hs_out_ep;
 #endif
 
+#if USBD_SUPPORTS_SUPER_SPEED
+	struct usb_ep_descriptor if0_ss_int_ep;
+	struct usb_ss_endpoint_companion_descriptor if0_ss_int_ep_co;
+	struct usb_ep_descriptor if1_ss_in_ep;
+	struct usb_ss_endpoint_companion_descriptor if1_ss_in_ep_co;
+	struct usb_ep_descriptor if1_ss_out_ep;
+	struct usb_ss_endpoint_companion_descriptor if1_ss_out_ep_co;
+#endif
+
 	struct usb_desc_header nil_desc;
 };
 
@@ -85,6 +95,7 @@ struct cdc_acm_uart_config {
 	struct usbd_cdc_acm_desc *const desc;
 	const struct usb_desc_header **const fs_desc;
 	const struct usb_desc_header **const hs_desc;
+	const struct usb_desc_header **const ss_desc;
 };
 
 struct cdc_acm_uart_data {
@@ -226,6 +237,12 @@ static uint8_t cdc_acm_get_int_in(struct usbd_class_data *const c_data)
 	}
 #endif
 
+#if USBD_SUPPORTS_SUPER_SPEED
+	if (usbd_bus_speed(usbd_class_get_ctx(c_data)) == USBD_SPEED_SS) {
+		return desc->if0_ss_int_ep.bEndpointAddress;
+	}
+#endif
+
 	return desc->if0_int_ep.bEndpointAddress;
 }
 
@@ -238,6 +255,12 @@ static uint8_t cdc_acm_get_bulk_in(struct usbd_class_data *const c_data)
 #if USBD_SUPPORTS_HIGH_SPEED
 	if (usbd_bus_speed(usbd_class_get_ctx(c_data)) == USBD_SPEED_HS) {
 		return desc->if1_hs_in_ep.bEndpointAddress;
+	}
+#endif
+
+#if USBD_SUPPORTS_SUPER_SPEED
+	if (usbd_bus_speed(usbd_class_get_ctx(c_data)) == USBD_SPEED_SS) {
+		return desc->if1_ss_in_ep.bEndpointAddress;
 	}
 #endif
 
@@ -256,6 +279,12 @@ static uint8_t cdc_acm_get_bulk_out(struct usbd_class_data *const c_data)
 	}
 #endif
 
+#if USBD_SUPPORTS_SUPER_SPEED
+	if (usbd_bus_speed(usbd_class_get_ctx(c_data)) == USBD_SPEED_SS) {
+		return desc->if1_ss_out_ep.bEndpointAddress;
+	}
+#endif
+
 	return desc->if1_out_ep.bEndpointAddress;
 }
 
@@ -266,6 +295,11 @@ static size_t cdc_acm_get_bulk_mps(struct usbd_class_data *const c_data)
 	if (USBD_SUPPORTS_HIGH_SPEED &&
 	    usbd_bus_speed(uds_ctx) == USBD_SPEED_HS) {
 		return 512U;
+	}
+
+	if (USBD_SUPPORTS_SUPER_SPEED &&
+	    usbd_bus_speed(uds_ctx) == USBD_SPEED_SS) {
+		return 1024U;
 	}
 
 	return 64U;
@@ -411,6 +445,10 @@ static void *usbd_cdc_acm_get_desc(struct usbd_class_data *const c_data,
 
 	if (USBD_SUPPORTS_HIGH_SPEED && speed == USBD_SPEED_HS) {
 		return cfg->hs_desc;
+	}
+
+	if (USBD_SUPPORTS_SUPER_SPEED && speed == USBD_SPEED_SS) {
+		return cfg->ss_desc;
 	}
 
 	return cfg->fs_desc;
@@ -777,7 +815,7 @@ static int cdc_acm_fifo_fill(const struct device *dev,
 			     const int len)
 {
 	struct cdc_acm_uart_data *const data = dev->data;
-	k_spinlock_key_t key;
+	unsigned int lock;
 	uint32_t done;
 
 	if (!check_wq_ctx(dev)) {
@@ -786,9 +824,9 @@ static int cdc_acm_fifo_fill(const struct device *dev,
 		return 0;
 	}
 
-	key = k_spin_lock(&data->lock);
+	lock = irq_lock();
 	done = ring_buf_put(data->tx_fifo.rb, tx_data, len);
-	k_spin_unlock(&data->lock, key);
+	irq_unlock(lock);
 	if (done) {
 		data->tx_fifo.altered = true;
 	}
@@ -996,13 +1034,13 @@ static int cdc_acm_poll_in(const struct device *dev, unsigned char *const c)
 static void cdc_acm_poll_out(const struct device *dev, const unsigned char c)
 {
 	struct cdc_acm_uart_data *const data = dev->data;
-	k_spinlock_key_t key;
+	unsigned int lock;
 	uint32_t wrote;
 
 	while (true) {
-		key = k_spin_lock(&data->lock);
+		lock = irq_lock();
 		wrote = ring_buf_put(data->tx_fifo.rb, &c, 1);
-		k_spin_unlock(&data->lock, key);
+		irq_unlock(lock);
 
 		if (wrote == 1) {
 			break;
@@ -1201,6 +1239,58 @@ struct usbd_class_api usbd_cdc_acm_api = {
 		.bInterval = 0,							\
 	},
 
+#define CDC_ACM_DEFINE_DESCRIPTOR_SS(n)						\
+	.if0_ss_int_ep = {							\
+		.bLength = sizeof(struct usb_ep_descriptor),			\
+		.bDescriptorType = USB_DESC_ENDPOINT,				\
+		.bEndpointAddress = 0x81,					\
+		.bmAttributes = USB_EP_TYPE_INTERRUPT,				\
+		.wMaxPacketSize = sys_cpu_to_le16(CDC_ACM_DEFAULT_INT_EP_MPS),	\
+		.bInterval = CDC_ACM_SS_INT_EP_INTERVAL,			\
+	},									\
+										\
+	.if0_ss_int_ep_co = {							\
+		.bLength = sizeof(struct usb_ss_endpoint_companion_descriptor),	\
+		.bDescriptorType = USB_DESC_ENDPOINT_COMPANION,			\
+		.bMaxBurst = 0,							\
+		.bmAttributes = 0x00,						\
+		.wBytesPerInterval = 0x00,					\
+	},									\
+										\
+	.if1_ss_in_ep = {							\
+		.bLength = sizeof(struct usb_ep_descriptor),			\
+		.bDescriptorType = USB_DESC_ENDPOINT,				\
+		.bEndpointAddress = 0x82,					\
+		.bmAttributes = USB_EP_TYPE_BULK,				\
+		.wMaxPacketSize = sys_cpu_to_le16(1024U),			\
+		.bInterval = 0,							\
+	},									\
+										\
+	.if1_ss_in_ep_co = {							\
+		.bLength = sizeof(struct usb_ss_endpoint_companion_descriptor),	\
+		.bDescriptorType = USB_DESC_ENDPOINT_COMPANION,			\
+		.bMaxBurst = 15,						\
+		.bmAttributes = 0x00,						\
+		.wBytesPerInterval = 0x00,					\
+	},									\
+										\
+	.if1_ss_out_ep = {							\
+		.bLength = sizeof(struct usb_ep_descriptor),			\
+		.bDescriptorType = USB_DESC_ENDPOINT,				\
+		.bEndpointAddress = 0x01,					\
+		.bmAttributes = USB_EP_TYPE_BULK,				\
+		.wMaxPacketSize = sys_cpu_to_le16(1024U),			\
+		.bInterval = 0,							\
+	},									\
+										\
+	.if1_ss_out_ep_co = {							\
+		.bLength = sizeof(struct usb_ss_endpoint_companion_descriptor),	\
+		.bDescriptorType = USB_DESC_ENDPOINT_COMPANION,			\
+		.bMaxBurst = 15,						\
+		.bmAttributes = 0x00,						\
+		.wBytesPerInterval = 0x00,					\
+	},
+
 #define CDC_ACM_DEFINE_DESCRIPTOR(n)						\
 static struct usbd_cdc_acm_desc cdc_acm_desc_##n = {				\
 	.iad = {								\
@@ -1300,6 +1390,10 @@ static struct usbd_cdc_acm_desc cdc_acm_desc_##n = {				\
 		    (CDC_ACM_DEFINE_DESCRIPTOR_HS(n)),				\
 		    ())								\
 										\
+	COND_CODE_1(USBD_SUPPORTS_SUPER_SPEED,					\
+		    (CDC_ACM_DEFINE_DESCRIPTOR_SS(n)),				\
+		    ())								\
+										\
 	.nil_desc = {								\
 		.bLength = 0,							\
 		.bDescriptorType = 0,						\
@@ -1335,6 +1429,24 @@ const static struct usb_desc_header *cdc_acm_hs_desc_##n[] = {			\
 	(struct usb_desc_header *) &cdc_acm_desc_##n.nil_desc,			\
 };
 
+#define CDC_ACM_DEFINE_SS_DESC_HEADER(n)					\
+const static struct usb_desc_header *cdc_acm_ss_desc_##n[] = {			\
+	(struct usb_desc_header *) &cdc_acm_desc_##n.iad,			\
+	(struct usb_desc_header *) &cdc_acm_desc_##n.if0,			\
+	(struct usb_desc_header *) &cdc_acm_desc_##n.if0_header,		\
+	(struct usb_desc_header *) &cdc_acm_desc_##n.if0_cm,			\
+	(struct usb_desc_header *) &cdc_acm_desc_##n.if0_acm,			\
+	(struct usb_desc_header *) &cdc_acm_desc_##n.if0_union,			\
+	(struct usb_desc_header *) &cdc_acm_desc_##n.if0_ss_int_ep,		\
+	(struct usb_desc_header *) &cdc_acm_desc_##n.if0_ss_int_ep_co,		\
+	(struct usb_desc_header *) &cdc_acm_desc_##n.if1,			\
+	(struct usb_desc_header *) &cdc_acm_desc_##n.if1_ss_in_ep,		\
+	(struct usb_desc_header *) &cdc_acm_desc_##n.if1_ss_in_ep_co,		\
+	(struct usb_desc_header *) &cdc_acm_desc_##n.if1_ss_out_ep,		\
+	(struct usb_desc_header *) &cdc_acm_desc_##n.if1_ss_out_ep_co,		\
+	(struct usb_desc_header *) &cdc_acm_desc_##n.nil_desc,			\
+};
+
 #define USBD_CDC_ACM_DT_DEVICE_DEFINE(n)					\
 	BUILD_ASSERT(DT_INST_ON_BUS(n, usb),					\
 		     "node " DT_NODE_PATH(DT_DRV_INST(n))			\
@@ -1344,10 +1456,12 @@ const static struct usb_desc_header *cdc_acm_hs_desc_##n[] = {			\
 	COND_CODE_1(USBD_SUPPORTS_HIGH_SPEED,					\
 		    (CDC_ACM_DEFINE_HS_DESC_HEADER(n)),				\
 		    ())								\
+	COND_CODE_1(USBD_SUPPORTS_SUPER_SPEED,					\
+		    (CDC_ACM_DEFINE_SS_DESC_HEADER(n)),				\
+		    ())								\
 										\
-	USBD_DEFINE_CLASS(cdc_acm_##n,						\
-			  &usbd_cdc_acm_api,					\
-			  (void *)DEVICE_DT_GET(DT_DRV_INST(n)), NULL);		\
+	USBD_DEFINE_CLASS(cdc_acm_##n, &usbd_cdc_acm_api,			\
+			  (void *)DEVICE_DT_INST_GET(n), NULL);			\
 										\
 	IF_ENABLED(DT_INST_NODE_HAS_PROP(n, label), (				\
 	USBD_DESC_STRING_DEFINE(cdc_acm_if_desc_data_##n,			\
@@ -1367,6 +1481,8 @@ const static struct usb_desc_header *cdc_acm_hs_desc_##n[] = {			\
 		.fs_desc = cdc_acm_fs_desc_##n,					\
 		.hs_desc = COND_CODE_1(USBD_SUPPORTS_HIGH_SPEED,		\
 				       (cdc_acm_hs_desc_##n,), (NULL,))		\
+		.ss_desc = COND_CODE_1(USBD_SUPPORTS_SUPER_SPEED,		\
+				       (cdc_acm_ss_desc_##n,), (NULL,))		\
 	};									\
 										\
 	static struct cdc_acm_uart_data uart_data_##n = {			\

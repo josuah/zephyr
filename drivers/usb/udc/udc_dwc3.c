@@ -15,7 +15,6 @@
 #include <zephyr/drivers/usb/udc.h>
 #include <zephyr/sys/device_mmio.h>
 #include <zephyr/sys/util.h>
-#include <zephyr/shell/shell.h>
 
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(dwc3, CONFIG_UDC_DRIVER_LOG_LEVEL);
@@ -568,8 +567,9 @@ struct udc_dwc3_vendor_quirks {
 #define UDC_DWC3_QUIRK_CFG(dev)  (((const struct udc_dwc3_config *)(dev->config))->quirk_config)
 #define UDC_DWC3_QUIRK_DATA(dev) (((const struct udc_dwc3_config *)(dev->config))->quirk_data)
 
-#if DT_HAS_COMPAT_STATUS_OKAY(snps_dwc3 /* <- replace with your more specific compatible */)
-#include "udc_dwc3_qemu.h"
+#if DT_HAS_COMPAT_STATUS_OKAY(lattice_usb23)
+#include "udc_dwc3_lattice_usb23.h"
+#include "udc_dwc3_shell.h"
 #endif
 
 /* Wrapper functions that fallback to returning 0 if no quirk is needed */
@@ -1204,12 +1204,9 @@ static void udc_dwc3_on_connect_done(const struct device *const dev)
 	case UDC_DWC3_DSTS_CONNECTSPD_FS:
 	case UDC_DWC3_DSTS_CONNECTSPD_HS:
 		mps = 64;
-		/* This is not suspending USB3, it enables the suspend feature */
-		sys_set_bits(base + UDC_DWC3_GUSB3PIPECTL, UDC_DWC3_GUSB3PIPECTL_SUSPENDENABLE);
 		break;
 	case UDC_DWC3_DSTS_CONNECTSPD_SS:
 		mps = 512;
-		sys_set_bits(base + UDC_DWC3_GUSB2PHYCFG, UDC_DWC3_GUSB2PHYCFG_SUSPHY);
 		break;
 	}
 	__ASSERT_NO_MSG(mps != 0);
@@ -1912,6 +1909,13 @@ static int udc_dwc3_driver_preinit(const struct device *const dev)
 	data->caps.addr_before_status = true;
 
 	switch (cfg->maximum_speed_idx) {
+	case UDC_DWC3_SPEED_IDX_SUPER_SPEED:
+		LOG_DBG("UDC_DWC3_SPEED_IDX_SUPER_SPEED");
+		data->caps.mps0 = UDC_MPS0_512;
+		data->caps.hs = true;
+		data->caps.ss = true;
+		mps = 1024;
+		break;
 	case UDC_DWC3_SPEED_IDX_HIGH_SPEED:
 		LOG_DBG("UDC_DWC3_SPEED_IDX_HIGH_SPEED");
 		data->caps.mps0 = UDC_MPS0_64;

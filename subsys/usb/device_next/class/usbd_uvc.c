@@ -32,14 +32,18 @@ LOG_MODULE_REGISTER(usbd_uvc, CONFIG_USBD_VIDEO_LOG_LEVEL);
 #define UVC_VBUF_DONE 1
 #define UVC_MAX_FS_DESC (CONFIG_USBD_VIDEO_MAX_FORMATS + 13)
 #define UVC_MAX_HS_DESC (CONFIG_USBD_VIDEO_MAX_FORMATS + 13)
+#define UVC_MAX_SS_DESC (CONFIG_USBD_VIDEO_MAX_FORMATS + 14)
 #define UVC_IDX_VC_UNIT 3
 #define UVC_MAX_HEADER_LENGTH 0xff
 
 /* Offset at which full-speed descriptors will start to be added */
 #define UVC_FS_DESC_IDX 10
 
-/* Offset at which full-speed descriptors will start to be added */
+/* Offset at which high-speed descriptors will start to be added */
 #define UVC_HS_DESC_IDX 10
+
+/* Offset at which super-speed descriptors will start to be added */
+#define UVC_SS_DESC_IDX 10
 
 enum uvc_op {
 	UVC_OP_GET_ERRNO,
@@ -93,6 +97,8 @@ struct uvc_desc {
 	struct uvc_color_descriptor if1_color;
 	struct usb_ep_descriptor if1_ep_fs;
 	struct usb_ep_descriptor if1_ep_hs;
+	struct usb_ep_descriptor if1_ep_ss;
+	struct usb_ss_endpoint_companion_descriptor if1_ep_ss_co;
 };
 
 struct uvc_data {
@@ -127,6 +133,7 @@ struct uvc_data {
 	/* Index where newly generated descriptors are appened */
 	unsigned int fs_desc_idx;
 	unsigned int hs_desc_idx;
+	unsigned int ss_desc_idx;
 	unsigned int fmt_desc_idx;
 	/* UVC error from latest request */
 	uint8_t err;
@@ -144,6 +151,7 @@ struct uvc_config {
 	/* Array of pointers to descriptors sent to the USB device stack and the host */
 	struct usb_desc_header **fs_desc;
 	struct usb_desc_header **hs_desc;
+	struct usb_desc_header **ss_desc;
 };
 
 /* Specialized version of UDC net_buf metadata with extra fields */
@@ -219,6 +227,11 @@ static uint8_t uvc_get_bulk_in(const struct device *dev)
 		return desc->if1_ep_hs.bEndpointAddress;
 	}
 
+	if (USBD_SUPPORTS_SUPER_SPEED &&
+	    usbd_bus_speed(uds_ctx) == USBD_SPEED_SS) {
+		return desc->if1_ep_ss.bEndpointAddress;
+	}
+
 	return desc->if1_ep_fs.bEndpointAddress;
 }
 
@@ -229,6 +242,11 @@ static size_t uvc_get_bulk_mps(struct usbd_class_data *const c_data)
 	if (USBD_SUPPORTS_HIGH_SPEED &&
 	    usbd_bus_speed(uds_ctx) == USBD_SPEED_HS) {
 		return 512U;
+	}
+
+	if (USBD_SUPPORTS_SUPER_SPEED &&
+	    usbd_bus_speed(uds_ctx) == USBD_SPEED_SS) {
+		return 1024U;
 	}
 
 	return 64U;
@@ -381,7 +399,7 @@ static int uvc_get_vs_probe_max_size(const struct device *dev, struct uvc_probe 
 {
 	struct uvc_data *data = dev->data;
 	struct video_format *fmt = &data->video_fmt;
-	uint32_t max_frame_size = fmt->size;
+	uint32_t max_frame_size = MAX(fmt->pitch, fmt->width) * fmt->height;
 	uint32_t max_payload_size = max_frame_size + UVC_MAX_HEADER_LENGTH;
 
 	switch (request) {
@@ -445,8 +463,9 @@ static int uvc_get_vs_format_from_desc(const struct device *dev, struct video_fo
 	/* Fill the format according to what the host selected */
 	fmt->width = frame_desc->wWidth;
 	fmt->height = frame_desc->wHeight;
+	fmt->pitch = fmt->width * video_bits_per_pixel(fmt->pixelformat) / BITS_PER_BYTE;
 
-	return video_estimate_fmt_size(fmt);
+	return 0;
 }
 
 static int uvc_get_vs_probe_struct(const struct device *dev, struct uvc_probe *const probe,
@@ -505,9 +524,7 @@ static int uvc_get_vs_probe(const struct device *dev, struct net_buf *const buf,
 			    const struct usb_setup_packet *const setup)
 {
 	struct uvc_data *data = dev->data;
-	const size_t size = MIN(net_buf_tailroom(buf),
-				MIN(sizeof(struct uvc_probe), setup->wLength));
-	struct uvc_probe probe = {0};
+	const size_t size = MIN(sizeof(struct uvc_probe), net_buf_tailroom(buf));
 	int ret;
 
 	switch (setup->bRequest) {
@@ -526,7 +543,10 @@ static int uvc_get_vs_probe(const struct device *dev, struct net_buf *const buf,
 		net_buf_add_le16(buf, sizeof(struct uvc_probe));
 		return 0;
 	case UVC_GET_DEF:
-		net_buf_add_mem(buf, &data->default_probe, size);
+		if (size < sizeof(struct uvc_probe)) {
+			return -ENOTSUP;
+		}
+		net_buf_add_mem(buf, &data->default_probe, sizeof(data->default_probe));
 		return 0;
 	case UVC_GET_MIN:
 		__fallthrough;
@@ -535,12 +555,15 @@ static int uvc_get_vs_probe(const struct device *dev, struct net_buf *const buf,
 	case UVC_GET_MAX:
 		__fallthrough;
 	case UVC_GET_CUR:
-		ret = uvc_get_vs_probe_struct(dev, &probe, setup->bRequest);
+		if (size < sizeof(struct uvc_probe)) {
+			return -ENOTSUP;
+		}
+		ret = uvc_get_vs_probe_struct(dev, (struct uvc_probe *)buf->data, setup->bRequest);
 		if (ret != 0) {
 			return ret;
 		}
 
-		net_buf_add_mem(buf, &probe, size);
+		net_buf_add(buf, sizeof(struct uvc_probe));
 		return 0;
 	default:
 		return -EINVAL;
@@ -550,41 +573,45 @@ static int uvc_get_vs_probe(const struct device *dev, struct net_buf *const buf,
 static int uvc_set_vs_probe(const struct device *dev, const struct net_buf *const buf)
 {
 	struct uvc_data *data = dev->data;
-	const size_t size = MIN(sizeof(struct uvc_probe), buf->len);
-	struct uvc_probe probe = {0};
+	struct uvc_probe *probe;
 	struct uvc_probe max = {0};
 	int ret;
 
-	memcpy(&probe, buf->data, size);
+	if (buf->len != sizeof(*probe)) {
+		LOG_ERR("Expected probe message of %u bytes got %u", sizeof(*probe), buf->len);
+		return -EINVAL;
+	}
+
+	probe = (struct uvc_probe *)buf->data;
 
 	ret = uvc_get_vs_probe_struct(dev, &max, UVC_GET_MAX);
 	if (ret != 0) {
 		return ret;
 	}
 
-	if (probe.bFrameIndex > max.bFrameIndex) {
+	if (probe->bFrameIndex > max.bFrameIndex) {
 		LOG_WRN("The bFrameIndex %u requested is beyond the max %u",
-			probe.bFrameIndex, max.bFrameIndex);
+			probe->bFrameIndex, max.bFrameIndex);
 		return -ERANGE;
 	}
 
-	if (probe.bFormatIndex > max.bFormatIndex) {
+	if (probe->bFormatIndex > max.bFormatIndex) {
 		LOG_WRN("The bFormatIndex %u requested is beyond the max %u",
-			probe.bFormatIndex, max.bFormatIndex);
+			probe->bFormatIndex, max.bFormatIndex);
 		return -ERANGE;
 	}
 
-	if (probe.dwFrameInterval != 0) {
-		data->video_frmival.numerator = sys_le32_to_cpu(probe.dwFrameInterval);
+	if (probe->dwFrameInterval != 0) {
+		data->video_frmival.numerator = sys_le32_to_cpu(probe->dwFrameInterval);
 		data->video_frmival.denominator = NSEC_PER_SEC / 100;
 	}
 
-	if (probe.bFrameIndex != 0) {
-		data->frame_id = probe.bFrameIndex;
+	if (probe->bFrameIndex != 0) {
+		data->frame_id = probe->bFrameIndex;
 	}
 
-	if (probe.bFormatIndex != 0) {
-		data->format_id = probe.bFormatIndex;
+	if (probe->bFormatIndex != 0) {
+		data->format_id = probe->bFormatIndex;
 	}
 
 	return 0;
@@ -604,8 +631,8 @@ static int uvc_get_vs_commit(const struct device *dev, struct net_buf *const buf
 static int uvc_set_vs_commit(const struct device *dev, const struct net_buf *const buf)
 {
 	struct uvc_data *data = dev->data;
-	struct video_format *fmt = &data->video_fmt;
-	struct video_frmival *frmival = &data->video_frmival;
+	struct video_format fmt = data->video_fmt;
+	struct video_frmival frmival = data->video_frmival;
 	int ret;
 
 	__ASSERT_NO_MSG(data->video_dev != NULL);
@@ -615,10 +642,27 @@ static int uvc_set_vs_commit(const struct device *dev, const struct net_buf *con
 		return ret;
 	}
 
-	LOG_INF("Host selected format '%s' %ux%u, frame interval %u/%u",
-		VIDEO_FOURCC_TO_STR(fmt->pixelformat), fmt->width, fmt->height,
-		frmival->numerator, frmival->denominator);
+	LOG_INF("Ready to transfer, setting source format to '%s' %ux%u",
+		VIDEO_FOURCC_TO_STR(fmt.pixelformat), fmt.width, fmt.height);
 
+	fmt.type = VIDEO_BUF_TYPE_OUTPUT;
+
+	ret = video_set_format(data->video_dev, &fmt);
+	if (ret != 0) {
+		LOG_ERR("Could not set the format of %s", data->video_dev->name);
+		return ret;
+	}
+
+	LOG_DBG("Setting frame interval of %s to %u/%u",
+		data->video_dev->name,
+		data->video_frmival.numerator, data->video_frmival.denominator);
+
+	ret = video_set_frmival(data->video_dev, &frmival);
+	if (ret != 0) {
+		LOG_WRN("Could not set the framerate of %s", data->video_dev->name);
+	}
+
+	LOG_DBG("UVC device ready, %s can now be started", data->video_dev->name);
 	if (atomic_test_bit(&data->state, UVC_STATE_STREAM_READY)) {
 		atomic_set_bit(&data->state, UVC_STATE_STREAM_RESTART);
 	}
@@ -706,8 +750,7 @@ static int uvc_get_vc_ctrl(const struct device *dev, struct net_buf *const buf,
 	const struct device *video_dev = data->video_dev;
 	struct video_ctrl_query cq = {.id = map->cid, .dev = video_dev};
 	struct video_control ctrl = {.id = map->cid};
-	const size_t size = MIN(net_buf_tailroom(buf),
-				MIN(sizeof(struct uvc_probe), setup->wLength));
+	const size_t size = MIN(setup->wLength, net_buf_tailroom(buf));
 	int64_t val64;
 	int ret;
 
@@ -899,8 +942,7 @@ static int uvc_get_errno(const struct device *dev, struct net_buf *const buf,
 			       const struct usb_setup_packet *const setup)
 {
 	struct uvc_data *data = dev->data;
-	const size_t size = MIN(net_buf_tailroom(buf),
-				MIN(sizeof(struct uvc_probe), setup->wLength));
+	const size_t size = MIN(setup->wLength, net_buf_tailroom(buf));
 
 	switch (setup->bRequest) {
 	case UVC_GET_INFO:
@@ -1110,6 +1152,11 @@ static void *uvc_get_desc(struct usbd_class_data *const c_data, const enum usbd_
 	const struct uvc_config *const cfg = dev->config;
 	struct uvc_desc *desc = cfg->desc;
 
+	if (USBD_SUPPORTS_SUPER_SPEED && speed == USBD_SPEED_SS) {
+		desc->if1_hdr.bEndpointAddress = desc->if1_ep_ss.bEndpointAddress;
+		return cfg->ss_desc;
+	}
+
 	if (USBD_SUPPORTS_HIGH_SPEED && speed == USBD_SPEED_HS) {
 		desc->if1_hdr.bEndpointAddress = desc->if1_ep_hs.bEndpointAddress;
 		return cfg->hs_desc;
@@ -1120,7 +1167,7 @@ static void *uvc_get_desc(struct usbd_class_data *const c_data, const enum usbd_
 }
 
 static int uvc_assign_desc(const struct device *const dev, void *const desc,
-			   const bool add_to_fs, const bool add_to_hs)
+			   const bool add_to_fs, const bool add_to_hs, const bool add_to_ss)
 {
 	const struct uvc_config *cfg = dev->config;
 	struct uvc_data *data = dev->data;
@@ -1144,9 +1191,18 @@ static int uvc_assign_desc(const struct device *const dev, void *const desc,
 		cfg->hs_desc[data->hs_desc_idx] = (struct usb_desc_header *)&nil_desc;
 	}
 
+	if (USBD_SUPPORTS_SUPER_SPEED && add_to_ss) {
+		if (data->ss_desc_idx + 1 >= UVC_MAX_SS_DESC) {
+			goto err;
+		}
+		cfg->ss_desc[data->ss_desc_idx] = (struct usb_desc_header *)desc;
+		data->ss_desc_idx++;
+		cfg->ss_desc[data->ss_desc_idx] = (struct usb_desc_header *)&nil_desc;
+	}
+
 	return 0;
 err:
-	LOG_WRN("Out of descriptors, raise CONFIG_USBD_VIDEO_MAX_FORMATS above %u",
+	LOG_WRN("Out of descriptor pointers, raise CONFIG_USBD_VIDEO_MAX_FORMATS above %u",
 		CONFIG_USBD_VIDEO_MAX_FORMATS);
 	return -ENOMEM;
 }
@@ -1166,6 +1222,11 @@ static int uvc_deassign_all_descs(const struct device *const dev)
 	n = data->hs_desc_idx - UVC_HS_DESC_IDX;
 	memset(&cfg->hs_desc[UVC_HS_DESC_IDX], 0x00, sizeof(*cfg->hs_desc) * n);
 	data->hs_desc_idx = UVC_HS_DESC_IDX;
+
+	/* Clear Super Speed descriptor pointers */
+	n = data->ss_desc_idx - UVC_SS_DESC_IDX;
+	memset(&cfg->ss_desc[UVC_SS_DESC_IDX], 0x00, sizeof(*cfg->ss_desc) * n);
+	data->ss_desc_idx = UVC_SS_DESC_IDX;
 
 	return 0;
 }
@@ -1190,7 +1251,7 @@ static union uvc_fmt_desc *uvc_new_fmt_desc(const struct device *dev)
 
 	LOG_DBG("Allocated format/frame descriptor %u (%p)", data->fmt_desc_idx, desc);
 
-	ret = uvc_assign_desc(dev, desc, true, true);
+	ret = uvc_assign_desc(dev, desc, true, true, true);
 	if (ret != 0) {
 		return NULL;
 	}
@@ -1200,13 +1261,13 @@ static union uvc_fmt_desc *uvc_new_fmt_desc(const struct device *dev)
 
 static int uvc_add_vs_format_desc(const struct device *dev,
 				  struct uvc_format_common_descriptor **const format_desc,
-				  uint32_t fourcc)
+				  const struct video_forma_cap *const cap)
 {
 	const struct uvc_config *cfg = dev->config;
 
 	__ASSERT_NO_MSG(format_desc != NULL);
 
-	if (fourcc == VIDEO_PIX_FMT_JPEG) {
+	if (cap->pixelformat == VIDEO_PIX_FMT_JPEG) {
 		struct uvc_format_mjpeg_descriptor *desc;
 
 		LOG_INF("Adding format descriptor #%u for MJPEG",
@@ -1225,7 +1286,7 @@ static int uvc_add_vs_format_desc(const struct device *dev,
 		cfg->desc->if1_hdr.bNumFormats++;
 		cfg->desc->if1_hdr.wTotalLength += desc->bLength;
 		*format_desc = (struct uvc_format_common_descriptor *)desc;
-	} else if (fourcc == VIDEO_PIX_FMT_H264) {
+	} else if (cap->pixelformat == VIDEO_PIX_FMT_H264) {
 		struct uvc_format_framebased_descriptor *desc;
 
 		LOG_INF("Adding format descriptor #%u for H264",
@@ -1240,7 +1301,7 @@ static int uvc_add_vs_format_desc(const struct device *dev,
 		desc->bFormatIndex = cfg->desc->if1_hdr.bNumFormats + 1;
 		desc->bLength = sizeof(*desc);
 		desc->bDescriptorSubtype = UVC_VS_FORMAT_FRAME_BASED;
-		uvc_fourcc_to_guid(desc->guidFormat, fourcc);
+		uvc_fourcc_to_guid(desc->guidFormat, cap->pixelformat);
 		desc->bDefaultFrameIndex = 1;
 		desc->bVariableSize = 1;
 		cfg->desc->if1_hdr.bNumFormats++;
@@ -1261,8 +1322,8 @@ static int uvc_add_vs_format_desc(const struct device *dev,
 		desc->bFormatIndex = cfg->desc->if1_hdr.bNumFormats + 1;
 		desc->bLength = sizeof(*desc);
 		desc->bDescriptorSubtype = UVC_VS_FORMAT_UNCOMPRESSED;
-		uvc_fourcc_to_guid(desc->guidFormat, fourcc);
-		desc->bBitsPerPixel = video_bits_per_pixel(fourcc);
+		uvc_fourcc_to_guid(desc->guidFormat, cap->pixelformat);
+		desc->bBitsPerPixel = video_bits_per_pixel(cap->pixelformat);
 		desc->bDefaultFrameIndex = 1;
 		cfg->desc->if1_hdr.bNumFormats++;
 		cfg->desc->if1_hdr.wTotalLength += desc->bLength;
@@ -1301,7 +1362,8 @@ static void uvc_set_vs_bitrate_range(struct uvc_frame_common_descriptor *const d
 	uint32_t bitrate_max = sys_le32_to_cpu(desc->dwMaxBitRate);
 	uint32_t bitrate;
 
-	bitrate = (uint64_t)fmt->size * frmival_nsec / (NSEC_PER_SEC / 100);
+	/* Multiplication/division in this order to avoid overflow */
+	bitrate = MAX(fmt->pitch, fmt->width) * frmival_nsec / (NSEC_PER_SEC / 100) * fmt->height;
 
 	/* Extend the min/max value to include the bitrate of this format */
 	bitrate_min = MIN(bitrate_min, bitrate);
@@ -1323,134 +1385,70 @@ static int uvc_add_vs_frame_interval(struct uvc_frame_common_descriptor *const d
 				     const struct video_frmival *const frmival,
 				     const struct video_format *const fmt)
 {
-	uint8_t *dwFrameInterval;
-	uint8_t *bFrameIntervalType;
+	int i = desc->bFrameIntervalType;
 
-	if (desc->bDescriptorSubtype == UVC_VS_FRAME_UNCOMPRESSED) {
-		struct uvc_frame_uncomp_discrete_descriptor *frame_desc = (void *)desc;
+    if (i >= CONFIG_USBD_VIDEO_MAX_FRMIVAL) {
+        LOG_WRN("Out of frame interval fields");
+        return -ENOSPC;
+    }
 
-		dwFrameInterval = (uint8_t *)frame_desc->dwFrameInterval;
-		bFrameIntervalType = (uint8_t *)&frame_desc->bFrameIntervalType;
-	} else if (desc->bDescriptorSubtype == UVC_VS_FRAME_MJPEG) {
-		struct uvc_frame_mjpeg_discrete_descriptor *frame_desc = (void *)desc;
+    desc->dwFrameInterval[i] = sys_cpu_to_le32(video_frmival_nsec(frmival) / 100);
+    desc->bFrameIntervalType++;
+    desc->bLength += sizeof(uint32_t);
 
-		dwFrameInterval = (uint8_t *)frame_desc->dwFrameInterval;
-		bFrameIntervalType = (uint8_t *)&frame_desc->bFrameIntervalType;
-	} else if (desc->bDescriptorSubtype == UVC_VS_FRAME_FRAME_BASED) {
-		struct uvc_frame_framebased_discrete_descriptor *frame_desc = (void *)desc;
+    uvc_set_vs_bitrate_range(desc, video_frmival_nsec(frmival), fmt);
 
-		dwFrameInterval = (uint8_t *)frame_desc->dwFrameInterval;
-		bFrameIntervalType = (uint8_t *)&frame_desc->bFrameIntervalType;
-	} else {
-		LOG_DBG("Invalid frame type");
-		return -EINVAL;
-	}
-
-	if (*bFrameIntervalType >= CONFIG_USBD_VIDEO_MAX_FRMIVAL) {
-		LOG_WRN("Out of descriptors, raise CONFIG_USBD_VIDEO_MAX_FRMIVAL above %u",
-			CONFIG_USBD_VIDEO_MAX_FRMIVAL);
-		return -ENOMEM;
-	}
-
-	sys_put_le32(sys_cpu_to_le32(video_frmival_nsec(frmival) / 100),
-		     &dwFrameInterval[sizeof(uint32_t) * *bFrameIntervalType]);
-	*bFrameIntervalType += 1;
-	desc->bLength += sizeof(uint32_t);
-
-	uvc_set_vs_bitrate_range(desc, video_frmival_nsec(frmival), fmt);
-
-	return 0;
+    return 0;
 }
 
 static int uvc_add_vs_frame_desc(const struct device *dev,
 				 struct uvc_format_common_descriptor *const format_desc,
-				 const struct video_format *const fmt)
+				 const struct video_format_cap *const cap, const bool min)
 {
 	const struct uvc_config *cfg = dev->config;
 	struct uvc_data *data = dev->data;
-	struct uvc_frame_common_descriptor *desc;
-	struct video_frmival_enum fie = {.format = fmt};
-	uint8_t *bFrameIntervalType;
-	uint8_t *dwFrameInterval;
-	uint8_t *dwDefaultFrameInterval;
-	int ret;
+	struct uvc_frame_discrete_descriptor *desc;
+	uint16_t w = min ? cap->width_min : cap->width_max;
+	uint16_t h = min ? cap->height_min : cap->height_max;
+	uint16_t p = MAX(video_bits_per_pixel(cap->pixelformat), 8) * w / BITS_PER_BYTE;
+	struct video_format fmt = {.pixelformat = cap->pixelformat,
+				   .width = w, .height = h, .pitch = p};
+	struct video_frmival_enum fie = {.format = &fmt};
+	uint32_t max_size = MAX(p, w) * h;
 
 	__ASSERT_NO_MSG(data->video_dev != NULL);
 	__ASSERT_NO_MSG(format_desc != NULL);
 
 	LOG_INF("Adding frame descriptor #%u for %ux%u",
-		format_desc->bNumFrameDescriptors + 1, fmt->width, fmt->height);
+		format_desc->bNumFrameDescriptors + 1, w, h);
 
-	desc = &uvc_new_fmt_desc(dev)->frm;
+	desc = &uvc_new_fmt_desc(dev)->frm_disc;
 	if (desc == NULL) {
 		return -ENOMEM;
 	}
 
+	desc->bLength = sizeof(*desc) - CONFIG_USBD_VIDEO_MAX_FRMIVAL * sizeof(uint32_t);
 	desc->bDescriptorType = USB_DESC_CS_INTERFACE;
 	desc->bFrameIndex = format_desc->bNumFrameDescriptors + 1;
-	desc->wWidth = sys_cpu_to_le16(fmt->width);
-	desc->wHeight = sys_cpu_to_le16(fmt->height);
+	desc->wWidth = sys_cpu_to_le16(w);
+	desc->wHeight = sys_cpu_to_le16(h);
+	desc->dwMaxVideoFrameBufferSize = sys_cpu_to_le32(max_size);
+	desc->bDescriptorSubtype = (format_desc->bDescriptorSubtype == UVC_VS_FORMAT_UNCOMPRESSED)
+		? UVC_VS_FRAME_UNCOMPRESSED : UVC_VS_FRAME_MJPEG;
 	desc->dwMinBitRate = sys_cpu_to_le32(UINT32_MAX);
 	desc->dwMaxBitRate = sys_cpu_to_le32(0);
-
-	if (format_desc->bDescriptorSubtype == UVC_VS_FORMAT_UNCOMPRESSED) {
-		struct uvc_frame_uncomp_discrete_descriptor *const frame_desc = (void *)desc;
-
-		frame_desc->bLength = sizeof(*frame_desc) - sizeof(frame_desc->dwFrameInterval);
-		frame_desc->bDescriptorSubtype = UVC_VS_FRAME_UNCOMPRESSED;
-		frame_desc->dwMaxVideoFrameBufferSize = fmt->size;
-		dwFrameInterval = (uint8_t *)&frame_desc->dwFrameInterval;
-		bFrameIntervalType = (uint8_t *)&frame_desc->bFrameIntervalType;
-		dwDefaultFrameInterval = (uint8_t *)&frame_desc->dwDefaultFrameInterval;
-	} else if (format_desc->bDescriptorSubtype == UVC_VS_FORMAT_MJPEG) {
-		struct uvc_frame_mjpeg_discrete_descriptor *const frame_desc = (void *)desc;
-
-		frame_desc->bLength = sizeof(*frame_desc) - sizeof(frame_desc->dwFrameInterval);
-		frame_desc->bDescriptorSubtype = UVC_VS_FRAME_MJPEG;
-		frame_desc->dwMaxVideoFrameBufferSize = fmt->size;
-		dwFrameInterval = (uint8_t *)&frame_desc->dwFrameInterval;
-		bFrameIntervalType = (uint8_t *)&frame_desc->bFrameIntervalType;
-		dwDefaultFrameInterval = (uint8_t *)&frame_desc->dwDefaultFrameInterval;
-	} else if (format_desc->bDescriptorSubtype == UVC_VS_FORMAT_FRAME_BASED) {
-		struct uvc_frame_framebased_discrete_descriptor *const frame_desc = (void *)desc;
-
-		frame_desc->bLength = sizeof(*frame_desc) - sizeof(frame_desc->dwFrameInterval);
-		frame_desc->bDescriptorSubtype = UVC_VS_FRAME_FRAME_BASED;
-		dwFrameInterval = (uint8_t *)&frame_desc->dwFrameInterval;
-		bFrameIntervalType = (uint8_t *)&frame_desc->bFrameIntervalType;
-		dwDefaultFrameInterval = (uint8_t *)&frame_desc->dwDefaultFrameInterval;
-	} else {
-		CODE_UNREACHABLE;
-		return -EINVAL;
-	}
-
-	*bFrameIntervalType = 0;
 
 	/* Add the adwFrameInterval fields at the end of this descriptor */
 	while (video_enum_frmival(data->video_dev, &fie) == 0) {
 		switch (fie.type) {
 		case VIDEO_FRMIVAL_TYPE_DISCRETE:
 			LOG_DBG("Adding discrete frame interval %u", fie.index);
-
-			ret = uvc_add_vs_frame_interval(desc, &fie.discrete, fmt);
-			if (ret != 0) {
-				return ret;
-			}
-
+			uvc_add_vs_frame_interval(desc, &fie.discrete, &fmt);
 			break;
 		case VIDEO_FRMIVAL_TYPE_STEPWISE:
 			LOG_DBG("Adding stepwise frame interval %u", fie.index);
-
-			ret = uvc_add_vs_frame_interval(desc, &fie.stepwise.min, fmt);
-			if (ret != 0) {
-				return ret;
-			}
-
-			ret = uvc_add_vs_frame_interval(desc, &fie.stepwise.max, fmt);
-			if (ret != 0) {
-				return ret;
-			}
-
+			uvc_add_vs_frame_interval(desc, &fie.stepwise.min, &fmt);
+			uvc_add_vs_frame_interval(desc, &fie.stepwise.max, &fmt);
 			break;
 		default:
 			CODE_UNREACHABLE;
@@ -1458,22 +1456,25 @@ static int uvc_add_vs_frame_desc(const struct device *dev,
 		fie.index++;
 	}
 
+	if (desc->bDescriptorSubtype == UVC_VS_FRAME_UNCOMPRESSED ||
+	    desc->bDescriptorSubtype == UVC_VS_FRAME_MJPEG) {
+		struct uvc_frame_discrete_descriptor *frame_desc = (void *)desc;
+
+		frame_desc->dwMaxVideoFrameBufferSize = sys_cpu_to_le32(fmt->size);
+
 	/* If no frame intrval supported, default to 30 FPS */
-	if (*bFrameIntervalType == 0) {
+	if (desc->bFrameIntervalType == 0) {
 		struct video_frmival frmival = {.numerator = 1, .denominator = 30};
 
-		ret = uvc_add_vs_frame_interval(desc, &frmival, fmt);
-		if (ret != 0) {
-			return ret;
-		}
+		uvc_add_vs_frame_interval(desc, &frmival, &fmt);
 	}
 
 	/* UVC requires the frame intervals to be sorted, but not Zephyr */
-	qsort(dwFrameInterval, *bFrameIntervalType,
-	      sizeof(*dwFrameInterval), uvc_compare_frmival_desc);
+	qsort(desc->dwFrameInterval, desc->bFrameIntervalType,
+		sizeof(*desc->dwFrameInterval), uvc_compare_frmival_desc);
 
-	sys_put_le32(sys_get_le32(dwFrameInterval), dwDefaultFrameInterval);
-	format_desc->bNumFrameDescriptors += 1;
+	desc->dwDefaultFrameInterval = desc->dwFrameInterval[0];
+	format_desc->bNumFrameDescriptors++;
 	cfg->desc->if1_hdr.wTotalLength += desc->bLength;
 
 	return 0;
@@ -1555,16 +1556,57 @@ int uvc_device_shutdown(const struct device *const dev)
 
 static int uvc_init(struct usbd_class_data *const c_data)
 {
-	const struct device *dev = usbd_class_get_private(c_data);
-	const struct uvc_config *cfg = dev->config;
+    const struct device *dev = usbd_class_get_private(c_data);
+    const struct uvc_config *cfg = dev->config;
+    struct uvc_data *data = dev->data;
+    struct uvc_format_descriptor *format_desc = NULL;
+    struct video_caps caps;
+    uint32_t prev_pixfmt = 0;
+    uint32_t mask = 0;
+    int ret;
 
-	/*
-	 * Assign the actual streaming interface number after the configuration
-	 * descriptor is initialized.
-	 */
-	cfg->desc->if0_hdr.baInterfaceNr[0] = cfg->desc->if1.bInterfaceNumber;
+    __ASSERT_NO_MSG(data->video_dev != NULL);
 
-	return 0;
+    if (atomic_test_bit(&data->state, UVC_STATE_INITIALIZED)) {
+        LOG_DBG("UVC instance '%s' is already initialized", dev->name);
+        return 0;
+    }
+
+    cfg->desc->if1_hdr.wTotalLength += cfg->desc->if1_color.bLength;
+
+    ret = uvc_assign_desc(dev, &cfg->desc->if1_color, true, true, false);
+    if (ret != 0) {
+        return ret;
+    }
+
+    ret = uvc_assign_desc(dev, &cfg->desc->if1_ep_fs, true, false, false);
+    if (ret != 0) {
+        return ret;
+    }
+
+    ret = uvc_assign_desc(dev, &cfg->desc->if1_ep_hs, false, true, false);
+    if (ret != 0) {
+        return ret;
+    }
+
+    ret = uvc_assign_desc(dev, &cfg->desc->if1_ep_ss, false, false, true);
+    if (ret != 0) {
+        return ret;
+    }
+
+    cfg->desc->if1_hdr.wTotalLength = sys_cpu_to_le16(cfg->desc->if1_hdr.wTotalLength);
+
+    /* Generating the default probe message now that descriptors are complete */
+
+    ret = uvc_get_vs_probe_struct(dev, &data->default_probe, UVC_GET_CUR);
+    if (ret != 0) {
+        LOG_ERR("init: failed to query the default probe");
+        return ret;
+    }
+
+    atomic_set_bit(&data->state, UVC_STATE_INITIALIZED);
+
+    return 0;
 }
 
 /* UVC public API */
@@ -1604,6 +1646,69 @@ void uvc_device_init(const struct device *const dev, const struct device *const 
 	cfg->desc->if0_xu.bmControls[1] = mask >> 8;
 	cfg->desc->if0_xu.bmControls[2] = mask >> 16;
 	cfg->desc->if0_xu.bmControls[3] = mask >> 24;
+
+	/* Generating VideoStreaming descriptors (interface 1) */
+
+    caps.type = VIDEO_BUF_TYPE_OUTPUT;
+
+    ret = video_get_caps(data->video_dev, &caps);
+    if (ret != 0) {
+        LOG_ERR("Could not load %s video format list", data->video_dev->name);
+        return ret;
+    }
+
+    cfg->desc->if1_hdr.wTotalLength = sys_le16_to_cpu(cfg->desc->if1_hdr.wTotalLength);
+
+    for (int i = 0; caps.format_caps[i].pixelformat != 0; i++) {
+        const struct video_format_cap *cap = &caps.format_caps[i];
+
+        if (prev_pixfmt != cap->pixelformat) {
+            if (prev_pixfmt != 0) {
+                cfg->desc->if1_hdr.wTotalLength += cfg->desc->if1_color.bLength;
+                uvc_assign_desc(dev, &cfg->desc->if1_color, true, true, true);
+            }
+
+            ret = uvc_add_vs_format_desc(dev, &format_desc, cap);
+            if (ret != 0) {
+                return ret;
+            }
+        }
+
+        ret = uvc_add_vs_frame_desc(dev, format_desc, cap, true);
+        if (ret != 0) {
+            return ret;
+        }
+
+        if (cap->width_min != cap->width_max || cap->height_min != cap->height_max) {
+            ret = uvc_add_vs_frame_desc(dev, format_desc, cap, false);
+            if (ret != 0) {
+                return ret;
+            }
+        }
+
+        prev_pixfmt = cap->pixelformat;
+    }
+
+    cfg->desc->if1_hdr.wTotalLength += cfg->desc->if1_color.bLength;
+    uvc_assign_desc(dev, &cfg->desc->if1_color, true, true, true);
+    uvc_assign_desc(dev, &cfg->desc->if1_ep_fs, true, false, false);
+    uvc_assign_desc(dev, &cfg->desc->if1_ep_hs, false, true, false);
+    uvc_assign_desc(dev, &cfg->desc->if1_ep_ss, false, false, true);
+    uvc_assign_desc(dev, &cfg->desc->if1_ep_ss_co, false, false, true);
+
+    cfg->desc->if1_hdr.wTotalLength = sys_cpu_to_le16(cfg->desc->if1_hdr.wTotalLength);
+
+    /* Generating the default probe message now that descriptors are complete */
+
+    ret = uvc_get_vs_probe_struct(dev, &data->default_probe, UVC_GET_CUR);
+    if (ret != 0) {
+        LOG_ERR("init: failed to query the default probe");
+        return ret;
+    }
+
+    atomic_set_bit(&data->state, UVC_STATE_INITIALIZED);
+
+    return 0;
 }
 
 int uvc_device_add_format(const struct device *const dev, const struct video_format *const fmt)
@@ -2007,11 +2112,23 @@ static int uvc_dequeue(const struct device *dev, struct video_buffer **const vbu
 static int uvc_get_format(const struct device *dev, struct video_format *const fmt)
 {
 	struct uvc_data *data = dev->data;
+	int ret;
+
+	__ASSERT_NO_MSG(data->video_dev != NULL);
 
 	if (!atomic_test_bit(&data->state, UVC_STATE_ENABLED) ||
 	    !atomic_test_bit(&data->state, UVC_STATE_STREAM_READY)) {
 		return -EAGAIN;
 	}
+
+	LOG_DBG("Querying the format from %s", data->video_dev->name);
+
+	tmp_fmt.type = VIDEO_BUF_TYPE_OUTPUT;
+
+	ret = video_get_format(data->video_dev, &tmp_fmt);
+	if (ret != 0) {
+		return ret;
+ 	}
 
 	*fmt = data->video_fmt;
 
@@ -2245,6 +2362,23 @@ static struct uvc_desc uvc_desc_##n = {						\
 		.wMaxPacketSize = sys_cpu_to_le16(512),				\
 		.bInterval = 0,							\
 	},									\
+										\
+	.if1_ep_ss = {								\
+		.bLength = sizeof(struct usb_ep_descriptor),			\
+		.bDescriptorType = USB_DESC_ENDPOINT,				\
+		.bEndpointAddress = 0x81,					\
+		.bmAttributes = USB_EP_TYPE_BULK,				\
+		.wMaxPacketSize = sys_cpu_to_le16(1024),			\
+		.bInterval = 0,							\
+	},									\
+										\
+	.if1_ep_ss_co = {							\
+		.bLength = sizeof(struct usb_ss_endpoint_companion_descriptor),	\
+		.bDescriptorType = USB_DESC_ENDPOINT_COMPANION,			\
+		.bMaxBurst = 15,						\
+		.bmAttributes = 0x00,						\
+		.wBytesPerInterval = 0x00,					\
+ 	},									\
 };										\
 										\
 struct usb_desc_header *uvc_fs_desc_##n[UVC_MAX_FS_DESC] = {			\
@@ -2277,7 +2411,24 @@ struct usb_desc_header *uvc_hs_desc_##n[UVC_MAX_HS_DESC] = {			\
 	/* More pointers are generated here at runtime */			\
 	(struct usb_desc_header *) &uvc_desc_##n.if1_ep_hs,			\
 	(struct usb_desc_header *) NULL,					\
-};
+};														\
+														\
+struct usb_desc_header *uvc_ss_desc_##n[UVC_MAX_SS_DESC] = {			\
+	(struct usb_desc_header *) &uvc_desc_##n.iad,				\
+	(struct usb_desc_header *) &uvc_desc_##n.if0,				\
+	(struct usb_desc_header *) &uvc_desc_##n.if0_hdr,			\
+	(struct usb_desc_header *) &uvc_desc_##n.if0_ct,			\
+	(struct usb_desc_header *) &uvc_desc_##n.if0_su,			\
+	(struct usb_desc_header *) &uvc_desc_##n.if0_pu,			\
+	(struct usb_desc_header *) &uvc_desc_##n.if0_xu,			\
+	(struct usb_desc_header *) &uvc_desc_##n.if0_ot,			\
+	(struct usb_desc_header *) &uvc_desc_##n.if1,				\
+	(struct usb_desc_header *) &uvc_desc_##n.if1_hdr,			\
+	/* More pointers are generated here at runtime */			\
+	(struct usb_desc_header *) &uvc_desc_##n.if1_ep_ss,			\
+	(struct usb_desc_header *) &uvc_desc_##n.if1_ep_ss_co,			\
+	(struct usb_desc_header *) NULL,					\
+ };
 
 #define USBD_VIDEO_DT_DEVICE_DEFINE(n)						\
 	UVC_DEFINE_DESCRIPTOR(n)						\
@@ -2290,11 +2441,13 @@ struct usb_desc_header *uvc_hs_desc_##n[UVC_MAX_HS_DESC] = {			\
 		.desc = &uvc_desc_##n,						\
 		.fs_desc = uvc_fs_desc_##n,					\
 		.hs_desc = uvc_hs_desc_##n,					\
+		.ss_desc = uvc_ss_desc_##n,					\
 	};									\
 										\
 	struct uvc_data uvc_data_##n = {					\
 		.fs_desc_idx = UVC_FS_DESC_IDX,					\
 		.hs_desc_idx = UVC_HS_DESC_IDX,					\
+		.ss_desc_idx = UVC_SS_DESC_IDX,					\
 	};									\
 										\
 	DEVICE_DT_INST_DEFINE(n, uvc_preinit, NULL, &uvc_data_##n, &uvc_cfg_##n,\

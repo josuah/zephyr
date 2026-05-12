@@ -40,7 +40,8 @@
  * @param uvc_dev Pointer to the UVC device to configure
  * @param video_dev Pointer to the video device to which controls requests are sent
  */
-void uvc_device_init(const struct device *uvc_dev, const struct device *video_dev);
+void uvc_device_init(const struct device *const dev, const struct device *const video_dev,
+                     void (*cb)(void *), void *param);
 
 /**
  * @brief Add a video format that a UVC instance will present to the host.

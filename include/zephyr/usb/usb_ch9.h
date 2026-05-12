@@ -186,6 +186,21 @@ static inline bool usb_reqtype_is_to_device(const struct usb_setup_packet *setup
 #define USB_SREQ_SYNCH_FRAME		0x0C
 /** @} */
 
+/** Additional Request Codes defined in USB 3.2 spec. Table 9-5 */
+#define USB_SREQ_SET_ENCRYPTION		0x0D
+#define USB_SREQ_GET_ENCRYPTION		0x0E
+#define USB_SREQ_SET_HANDSHAKE		0x0F
+#define USB_SREQ_GET_HANDSHAKE		0x10
+#define USB_SREQ_SET_CONNECTION		0x11
+#define USB_SREQ_SET_SECURITY_DATA	0x12
+#define USB_SREQ_GET_SECURITY_DATA	0x13
+#define USB_SREQ_SET_WUSB_DATA		0x14
+#define USB_SREQ_LOOPBACK_DATA_WRITE	0x15
+#define USB_SREQ_LOOPBACK_DATA_READ	0x16
+#define USB_SREQ_SET_INTERFACE_DS	0x17
+#define USB_SREQ_SET_SEL		0x30
+#define USB_SREQ_SET_ISOCH_DELAY	0x31
+
 /**
  * @name Descriptor Types. See Table 9-5 of the specification.
  * @{
@@ -222,6 +237,8 @@ static inline bool usb_reqtype_is_to_device(const struct usb_setup_packet *setup
 #define USB_DESC_BOS			15
 /** Device capability descriptor type. */
 #define USB_DESC_DEVICE_CAPABILITY	16
+#define USB_DESC_ENDPOINT_COMPANION 48
+#define USB_DESC_ISO_ENDPOINT_COMPANION 49
 /** @} */
 
 /**
@@ -250,6 +267,9 @@ static inline bool usb_reqtype_is_to_device(const struct usb_setup_packet *setup
 #define USB_SFS_REMOTE_WAKEUP		0x01
 /** Test mode feature selector. */
 #define USB_SFS_TEST_MODE		0x02
+#define USB_SFS_U1_ENABLE		0x30
+#define USB_SFS_U2_ENABLE		0x31
+#define USB_SFS_LTM_ENABLE		0x32
 /** @} */
 
 /**
@@ -276,6 +296,9 @@ static inline bool usb_reqtype_is_to_device(const struct usb_setup_packet *setup
 #define USB_GET_STATUS_SELF_POWERED	BIT(0)
 /** Remote wakeup status bit. */
 #define USB_GET_STATUS_REMOTE_WAKEUP	BIT(1)
+#define USB_GET_STATUS_U1_ENABLE	BIT(2)
+#define USB_GET_STATUS_U2_ENABLE	BIT(3)
+#define USB_GET_STATUS_LTM_ENABLE	BIT(4)
 /** @} */
 
 /**
@@ -481,6 +504,23 @@ struct usb_association_descriptor {
 	uint8_t iFunction;
 } __packed;
 
+/** USB Endpoint Companion Descriptor defined in USB3 spec. Table 9-27. */
+struct usb_ss_endpoint_companion_descriptor {
+	uint8_t bLength;
+	uint8_t bDescriptorType;
+	uint8_t bMaxBurst;
+	uint8_t bmAttributes;
+	uint16_t wBytesPerInterval;
+} __packed;
+
+/** USB3 SET_SEL command payload from the host. Section 9.4.12. */
+struct usb_system_exit_latency {
+	uint8_t u1sel;
+	uint8_t u1pel;
+	uint16_t u2sel;
+	uint16_t u2pel;
+} __packed;
+
 /**
  * @name USB Standard Configuration Descriptor Characteristics. See Table 9-10 of the specification.
  * @{
@@ -533,6 +573,10 @@ struct usb_association_descriptor {
 #define USB_SRN_2_0_1			0x0201
 /** USB 2.1 specification release number. */
 #define USB_SRN_2_1			0x0210
+#define USB_SRN_3_0			0x0300
+#define USB_SRN_3_1			0x0310
+#define USB_SRN_3_2			0x0320
+
 /** @} */
 
 /**
@@ -669,6 +713,15 @@ struct usb_association_descriptor {
 #define USB_FS_INT_EP_INTERVAL(us)	CLAMP(((us) / 1000U), 1U, 255U)
 
 /**
+ * Calculate super speed interrupt endpoint bInterval from a value in microseconds.
+ *
+ * @param us Polling interval in microseconds.
+ * 
+ * @retun Encode @c bInterval value.
+*/
+#define USB_SS_INT_EP_INTERVAL(us)	CLAMP((ilog2((us) / 125U) + 1U), 1U, 16U)
+
+/**
  * Calculate high speed interrupt endpoint bInterval from microseconds.
  *
  * @param us Polling interval in microseconds.
@@ -685,6 +738,15 @@ struct usb_association_descriptor {
  * @return Encoded @c bInterval value.
  */
 #define USB_FS_ISO_EP_INTERVAL(us)	CLAMP((ilog2((us) / 1000U) + 1U), 1U, 16U)
+
+/**
+ * Calculate super speed isochronous endpoint bInterval from microseconds.
+ *
+ * @param us Polling interval in microseconds.
+ *
+ * @return Encoded @c bInterval value.
+ */
+#define USB_SS_ISO_EP_INTERVAL(us)	CLAMP((ilog2((us) / 125U) + 1U), 1U, 16U)
 
 /**
  * Calculate high speed isochronous endpoint bInterval from microseconds.
