@@ -446,6 +446,22 @@
 			interrupt-parent = <&clic>;
 		};
 
+		usbd: usbd@20072000 {
+			compatible = "bflb,udc-2";
+			reg = <0x20072000 0x1000>;
+			maximum-speed = "high-speed";
+			status = "disabled";
+
+			interrupts = <37 8>;
+			interrupt-parent = <&clic>;
+		};
+
+		itcm: memory@62020000 {
+			compatible = "zephyr,memory-region", "mmio-sram";
+			reg = <0x62020000 DT_SIZE_K(16)>;
+			zephyr,memory-region = "ITCM";
+		};
+
 		/* All contiguous fast RAM for M0
 		 * It is kept tightly coupled by this CPU's internal cache
 		 */
