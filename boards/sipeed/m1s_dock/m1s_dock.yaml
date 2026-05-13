@@ -27,3 +27,4 @@ supported:
   - entropy
   - crypto
   - sdhc
+  - usbd

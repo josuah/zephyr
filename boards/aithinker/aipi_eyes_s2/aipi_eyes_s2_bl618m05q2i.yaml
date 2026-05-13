@@ -23,4 +23,5 @@ supported:
   - i2c
   - spi
   - flash
+  - usbd
 vendor: bflb

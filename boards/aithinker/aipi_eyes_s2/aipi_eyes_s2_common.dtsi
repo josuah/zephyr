@@ -40,3 +40,7 @@
 	/* shared between SD card and display, use only one */
 	cs-gpios = <&gpio0 12 GPIO_ACTIVE_LOW>;
 };
+
+zephyr_udc0: &usbd {
+	status = "okay";
+};
