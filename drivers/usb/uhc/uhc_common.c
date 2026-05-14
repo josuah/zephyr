@@ -54,36 +54,136 @@ void uhc_xfer_return(const struct device *dev,
 	data->event_cb(dev, &drv_evt);
 }
 
-struct uhc_transfer *uhc_xfer_get_next(const struct device *dev)
+/* a < b */
+bool uhc_xfer_seq_lt(uint16_t a, uint16_t b, uint16_t max)
+{
+	if (a < b) {
+		/* (b) may be larger, but if too much distance, assume overflow */
+		return b - a < max / 2;
+	}
+	if (a > b) {
+		/* (a) may be larger, but if too much distance, assume overflow */
+		return a - b > max / 2;
+	}
+	return false;
+}
+
+/* a <= b */
+bool uhc_xfer_seq_le(uint16_t a, uint16_t b, uint16_t max)
+{
+	return !uhc_xfer_seq_lt(b, a, max);
+}
+
+static void xfer_schedule_periodic(const struct device *dev,
+				  struct uhc_transfer *const xfer,
+				  const uint16_t cur_frame,
+				  const uint16_t max_frame)
+{
+	struct uhc_data *data = dev->data;
+	struct uhc_transfer *curr;
+
+	xfer->start_frame = cur_frame;
+
+	/* Search for transfers with same address and endpoint */
+	SYS_DLIST_FOR_EACH_CONTAINER(&data->periodic_xfers, curr, node) {
+		if (xfer->udev->addr == curr->udev->addr &&
+		    xfer->ep == curr->ep &&
+		    uhc_xfer_seq_lt(xfer->start_frame, curr->start_frame, max_frame)) {
+			/* Schedule it on the next interval */
+			xfer->start_frame = curr->start_frame;
+		}
+	}
+
+	xfer->start_frame++;
+	xfer->start_frame = ROUND_UP(xfer->start_frame, 1U << (xfer->interval - 1));
+	xfer->start_frame %= (uint32_t)max_frame + 1;
+
+	SYS_DLIST_FOR_EACH_CONTAINER(&data->periodic_xfers, curr, node) {
+		if (uhc_xfer_seq_lt(curr->start_frame, xfer->start_frame, max_frame)) {
+			continue;
+		}
+		sys_dlist_insert(&curr->node, &xfer->node);
+		return;
+	}
+
+	sys_dlist_append(&data->periodic_xfers, &xfer->node);
+}
+
+void uhc_xfer_set_in_progress(const struct device *const dev, struct uhc_transfer *const xfer)
+{
+	struct uhc_data *data = dev->data;
+
+	sys_dlist_remove(&xfer->node);
+	sys_dlist_append(&data->active_xfers, &xfer->node);
+}
+
+struct uhc_transfer *uhc_xfer_get_periodic(const struct device *const dev,
+					   const uint16_t cur_frame,
+					   const uint16_t max_frame)
 {
 	struct uhc_data *data = dev->data;
 	struct uhc_transfer *xfer;
-	sys_dnode_t *node;
 
-	/* Draft, WIP */
-	node = sys_dlist_peek_head(&data->ctrl_xfers);
-	if (node == NULL) {
-		node = sys_dlist_peek_head(&data->bulk_xfers);
+	xfer = SYS_DLIST_PEEK_HEAD_CONTAINER(&data->periodic_xfers, xfer, node);
+	if (xfer == NULL || uhc_xfer_seq_lt(cur_frame, xfer->start_frame, max_frame)) {
+		return NULL;
 	}
 
-	return (node == NULL) ? NULL : SYS_DLIST_CONTAINER(node, xfer, node);
+	uhc_xfer_set_in_progress(dev, xfer);
+
+	return xfer;
 }
 
-int uhc_xfer_append(const struct device *dev,
-		    struct uhc_transfer *const xfer)
+struct uhc_transfer *uhc_xfer_get_non_periodic(const struct device *dev)
+{
+	struct uhc_data *data = dev->data;
+	struct uhc_transfer *xfer;
+
+	xfer = SYS_DLIST_PEEK_HEAD_CONTAINER(&data->ctrl_xfers, xfer, node);
+	if (xfer != NULL) {
+		goto found;
+	}
+
+	xfer = SYS_DLIST_PEEK_HEAD_CONTAINER(&data->bulk_xfers, xfer, node);
+	if (xfer != NULL) {
+		goto found;
+	}
+
+	return NULL;
+
+found:
+	uhc_xfer_set_in_progress(dev, xfer);
+
+	return xfer;
+}
+
+void uhc_xfer_append(const struct device *dev,
+		     struct uhc_transfer *const xfer,
+		     uint16_t cur_frame, uint16_t max_frame)
 {
 	struct uhc_data *data = dev->data;
 
-	sys_dlist_append(&data->ctrl_xfers, &xfer->node);
-
-	return 0;
+	switch (xfer->type) {
+	case USB_EP_TYPE_CONTROL:
+		sys_dlist_append(&data->ctrl_xfers, &xfer->node);
+		break;
+	case USB_EP_TYPE_BULK:
+		sys_dlist_append(&data->bulk_xfers, &xfer->node);
+		break;
+	case USB_EP_TYPE_ISO:
+	case USB_EP_TYPE_INTERRUPT:
+		xfer_schedule_periodic(dev, xfer, cur_frame, max_frame);
+		break;
+	default:
+		LOG_ERR("Invalid xfer type: %d", xfer->type);
+	}
 }
 
 struct net_buf *uhc_xfer_buf_alloc(const struct device *dev,
 				   const size_t size,
 				   uint16_t mps)
 {
-	return net_buf_alloc_len(&uhc_ep_pool, ROUND_UP(size, mps), K_NO_WAIT);
+	return net_buf_alloc_len(&uhc_ep_pool, ROUND_UP(size, USB_MPS_TO_TPL(mps)), K_NO_WAIT);
 }
 
 void uhc_xfer_buf_free(const struct device *dev, struct net_buf *const buf)
@@ -337,6 +437,8 @@ int uhc_init(const struct device *dev,
 	data->event_ctx = event_ctx;
 	sys_dlist_init(&data->ctrl_xfers);
 	sys_dlist_init(&data->bulk_xfers);
+	sys_dlist_init(&data->periodic_xfers);
+	sys_dlist_init(&data->active_xfers);
 
 	ret = api->init(dev);
 	if (ret == 0) {

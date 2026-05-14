@@ -72,27 +72,49 @@ void uhc_xfer_return(const struct device *dev,
 		     const int err);
 
 /**
- * @brief Helper to get next transfer to process.
+ * @brief Helper to get next periodic transfer to process.
  *
- * This is currently a draft, and simple picks a transfer
- * from the lists.
+ * This includes control or bulk transfer types.
+ * If there is no transfer ready for the current frame, then skip
+ * to the next frame.
  *
  * @param[in] dev    Pointer to device struct of the driver instance
+ * @param cur_frame  The current USB frame number
+ * @param max_frame  The maximum value for the USB frame number
+ *
  * @return pointer to the next transfer or NULL on error.
  */
-struct uhc_transfer *uhc_xfer_get_next(const struct device *dev);
+struct uhc_transfer *uhc_xfer_get_periodic(const struct device *const dev,
+					   uint16_t cur_frame,
+					   uint16_t max_frame);
+
+/**
+ * @brief Helper to get next non-periodic transfer to process.
+ *
+ * @param[in] dev    Pointer to device struct of the driver instance
+ *
+ * @return pointer to the next transfer or NULL on error.
+ */
+struct uhc_transfer *uhc_xfer_get_non_periodic(const struct device *dev);
 
 /**
  * @brief Helper to append a transfer to internal list.
  *
  * @param[in] dev    Pointer to device struct of the driver instance
  * @param[in] xfer   Pointer to UHC transfer
- *
- * @return 0 on success, all other values should be treated as error.
- * @retval -ENOMEM if there is no buffer in the queue
  */
-int uhc_xfer_append(const struct device *dev,
-		    struct uhc_transfer *const xfer);
+void uhc_xfer_append(const struct device *dev,
+		     struct uhc_transfer *const xfer,
+		     uint16_t cur_frame, uint16_t max_frame);
+
+/**
+ * @brief Helper to move a transfer to the list of active transfers.
+ *
+ * @param[in] dev    Pointer to device struct of the driver instance
+ * @param[in] xfer   Pointer to UHC transfer
+ */
+void uhc_xfer_set_in_progress(const struct device *const dev,
+			      struct uhc_transfer *const xfer);
 
 /**
  * @brief Helper function to send UHC event to a higher level.
@@ -109,5 +131,33 @@ int uhc_xfer_append(const struct device *dev,
 int uhc_submit_event(const struct device *dev,
 		     const enum uhc_event_type type,
 		     const int status);
+
+/**
+ * @brief Compare two frame number taking overflow into account.
+ *
+ * Use the middle of the range (max) as a threshold between overflow and non-overflow of values.
+ *
+ * @param[in] a      First frame number to compare
+ * @param[in] b      Second frame number to compare
+ * @param[in] max    Maximum value after which counter overflow happens.
+ *
+ * @retval true      when a is lower than b
+ * @retval false     when b is lower than a
+ */
+bool uhc_xfer_seq_lt(uint16_t a, uint16_t b, uint16_t max);
+
+/**
+ * @brief Compare two frame number taking overflow into account.
+ *
+ * Use the middle of the range (max) as a threshold between overflow and non-overflow of values.
+ *
+ * @param[in] a      First frame number to compare
+ * @param[in] b      Second frame number to compare
+ * @param[in] max    Maximum value after which counter overflow happens.
+ *
+ * @retval true      when a is lower than b or equal
+ * @retval false     when b is lower than a or equal
+ */
+bool uhc_xfer_seq_le(uint16_t a, uint16_t b, uint16_t max);
 
 #endif /* ZEPHYR_INCLUDE_UHC_COMMON_H */
