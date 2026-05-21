@@ -23,99 +23,20 @@ This shield requires a board that provides:
 - A chip select GPIO
 
 Each connector-specific variant relies on a standard SPI alias defined by the board
-(``arduino_spi``, ``mikrobus_spi``, or ``xiao_spi``). The base ``arducam_mega``
-variant requires a board-specific overlay to map the SPI bus and CS pin manually.
+(``arduino_spi``, ``mikrobus_spi``, or ``xiao_spi``).
 
-Board Overlays
-==============
-
-**arducam_mega_arduino** — uses the ``arduino_spi`` alias:
+The base ``arducam_mega`` variant requires a board-specific overlay to map the SPI bus and CS pin
+manually: Create ``boards/<board_name>.overlay`` inside the shield directory, replacing
+``<board_spi_bus>``, ``<gpio_port>``, and ``<pin>`` with values appropriate for your board:
 
 .. code-block:: dts
 
-   / {
-       chosen {
-           zephyr,camera = &arducam_mega;
-       };
-   };
-
-   &arduino_spi {
-       status = "okay";
-
-       arducam_mega: arducam-mega@0 {
-           compatible = "arducam,mega";
-           reg = <0>;
-           spi-max-frequency = <4000000>;
-           status = "okay";
-       };
-   };
-
-**arducam_mega_mikrobus** — uses the ``mikrobus_spi`` alias:
-
-.. code-block:: dts
-
-   / {
-       chosen {
-           zephyr,camera = &arducam_mega;
-       };
-   };
-
-   &mikrobus_spi {
-       status = "okay";
-
-       arducam_mega: arducam-mega@0 {
-           compatible = "arducam,mega";
-           reg = <0>;
-           spi-max-frequency = <4000000>;
-           status = "okay";
-       };
-   };
-
-**arducam_mega_xiao** — uses the ``xiao_spi`` alias:
-
-.. code-block:: dts
-
-   / {
-       chosen {
-           zephyr,camera = &arducam_mega;
-       };
-   };
-
-   &xiao_spi {
-       status = "okay";
-
-       arducam_mega: arducam-mega@0 {
-           compatible = "arducam,mega";
-           reg = <0>;
-           spi-max-frequency = <4000000>;
-           status = "okay";
-       };
-   };
-
-**arducam_mega** — generic variant; the shield overlay is intentionally empty.
-Create ``boards/<board_name>.overlay`` inside the shield directory, replacing
-``<board_spi_bus>``, ``<gpio_port>``, and ``<pin>`` with values appropriate for
-your board:
-
-.. code-block:: dts
-
-   / {
-       chosen {
-           zephyr,camera = &arducam_mega;
-       };
-   };
-
-   &<board_spi_bus> {
+   arducam_mega_spi: &<board_spi_bus> {
        status = "okay";
        cs-gpios = <&<gpio_port> <pin> GPIO_ACTIVE_LOW>;
-
-       arducam_mega: arducam-mega@0 {
-           compatible = "arducam,mega";
-           reg = <0>;
-           spi-max-frequency = <4000000>;
-           status = "okay";
-       };
    };
+
+Then the ``arducam_mega.overlay`` will use the ``arducam_mega_spi`` label.
 
 Programming
 ***********

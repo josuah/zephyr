@@ -4,10 +4,6 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-&xiao_spi {
-	status = "okay";
-
-	arducam_mega: arducam-mega@0 {};
-};
+arducam_mega_spi: &xiao_spi {};
 
 #include "arducam_mega.overlay"
