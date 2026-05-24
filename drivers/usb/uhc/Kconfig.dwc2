@@ -3,7 +3,7 @@
 
 config UHC_DWC2
 	bool "DWC2 USB host controller driver"
-	default y if USB_HOST_STACK
+	default y
 	depends on DT_HAS_SNPS_DWC2_ENABLED
 	depends on !UDC_DWC2
 	select EVENTS

@@ -35,6 +35,8 @@ enum uhc_dwc2_event {
 	UHC_DWC2_EVENT_PORT_ERROR,
 	/* Overcurrent detected */
 	UHC_DWC2_EVENT_PORT_OVERCURRENT,
+	/* An event only used by software to flush the events */
+	UHC_DWC2_EVENT_FLUSH,
 	/* Port has pending channel event */
 	UHC_DWC2_EVENT_PORT_PEND_CHANNEL
 };
@@ -103,6 +105,8 @@ struct uhc_dwc2_data {
 	struct k_event events;
 	/* Semaphore used to indicate that port is enabled */
 	struct k_sem sem_port_enabled;
+	/* Semaphore used to flush the event thread */
+	struct k_condvar cond_flush_events;
 	/* Port channels */
 	struct uhc_dwc2_channel channels[MAX_CHANNELS];
 	/* Channels specific transfer related parameters */
@@ -117,7 +121,8 @@ static inline uint32_t calc_packet_count(const uint32_t size, const uint16_t mps
 	if (size == 0) {
 		return 1; /* in Buffer DMA mode Zero Length Packet still counts as 1 packet */
 	} else {
-		return DIV_ROUND_UP(size, mps);
+		/* High-speed, high-bandwidth encodes multiple things in wMaxPacketSize */
+		return DIV_ROUND_UP(size, USB_MPS_TO_TPL(mps));
 	}
 }
 
@@ -963,7 +968,7 @@ static int uhc_dwc2_channel_configure(const struct device *const dev,
 	sys_write32(hcintmsk, (mem_addr_t)&channel->regs->hcintmsk);
 
 	/* Configure the channel main properties */
-	hcchar = usb_dwc2_set_hcchar_mps(xfer->mps);
+	hcchar = usb_dwc2_set_hcchar_mps(USB_MPS_EP_SIZE(xfer->mps));
 	hcchar |= usb_dwc2_set_hcchar_epnum(USB_EP_GET_IDX(xfer->ep));
 	hcchar |= usb_dwc2_set_hcchar_eptype(xfer->type);
 	hcchar |= usb_dwc2_set_hcchar_ec(1UL /* TODO: ep_config->mult */);
@@ -1561,6 +1566,11 @@ static void uhc_dwc2_thread(void *arg0, void *arg1, void *arg2)
 			}
 		}
 
+		/* Called last to ensure no event comes after */
+		if (event_mask & BIT(UHC_DWC2_EVENT_FLUSH)) {
+			k_condvar_signal(&priv->cond_flush_events);
+		}
+
 		uhc_unlock_internal(dev);
 	}
 }
@@ -1743,7 +1753,7 @@ static int uhc_dwc2_init(const struct device *const dev)
 	gintsts = sys_read32((mem_addr_t)&dwc2->gintsts);
 	sys_write32(gintsts, (mem_addr_t)&dwc2->gintsts);
 
-	return ret;
+	return 0;
 }
 
 static int uhc_dwc2_enable(const struct device *const dev)
@@ -1772,7 +1782,10 @@ static int uhc_dwc2_enable(const struct device *const dev)
 static int uhc_dwc2_disable(const struct device *const dev)
 {
 	const struct uhc_dwc2_config *const config = dev->config;
+	struct uhc_dwc2_data *const priv = uhc_get_private(dev);
+	struct uhc_data *const data = dev->data;
 	int ret;
+
 	/* TODO: Check ongoing transfer? */
 
 	uhc_dwc2_submit_dev_gone(dev);
@@ -1780,6 +1793,13 @@ static int uhc_dwc2_disable(const struct device *const dev)
 	config->irq_disable_func(dev);
 
 	uhc_dwc2_port_disable(dev);
+
+	/* Manually trigger an event and wait for completion to make sure that no pending event
+	 * is left. This helps ensuring DWC2 is not used after uhc_dwc2_disable() is called.
+	 * The condvar is used to release the lock that was acquired by the caller.
+	 */
+	k_event_post(&priv->events, BIT(UHC_DWC2_EVENT_FLUSH));
+	k_condvar_wait(&priv->cond_flush_events, &data->mutex, K_FOREVER);
 
 	ret = uhc_dwc2_quirk_disable(dev);
 	if (ret != 0) {
@@ -1863,6 +1883,9 @@ static const struct uhc_api uhc_dwc2_api = {
 			Z_SEM_INITIALIZER(uhc_dwc2_priv_##n.sem_port_enabled,	\
 					  0,					\
 					  1),					\
+		.cond_flush_events =						\
+			Z_CONDVAR_INITIALIZER(					\
+				uhc_dwc2_priv_##n.cond_flush_events),		\
 	 };									\
 										\
 	static struct uhc_data uhc_data_##n = {					\
