@@ -150,7 +150,7 @@ static int configure_device(struct usbh_class_data *const c_data)
 
 	if (ctrl_iface == NULL || stream_iface == NULL) {
 		LOG_ERR("No control or streaming interface found");
-		return -ENODEV;
+		return -ENOENT;
 	}
 
 	/* Set control interface to default alternate setting (0) */
@@ -266,8 +266,9 @@ static int parse_vc_desc(struct uvc_host_data *const host_data,
 				(const void *)desc;
 
 			if (desc->bLength < sizeof(struct uvc_control_header_descriptor)) {
-				LOG_ERR("Invalid VC header descriptor length: %u", desc->bLength);
-				return -EINVAL;
+				LOG_ERR("Invalid VC header descriptor length: %u",
+					desc->bLength);
+				return -EBADMSG;
 			}
 
 			host_data->uvc_descriptors.vc_header = header_desc;
@@ -284,7 +285,7 @@ static int parse_vc_desc(struct uvc_host_data *const host_data,
 			if (desc->bLength < sizeof(struct uvc_input_terminal_descriptor)) {
 				LOG_ERR("Invalid input terminal descriptor length: %u",
 					desc->bLength);
-				return -EINVAL;
+				return -EBADMSG;
 			}
 
 			if (sys_le16_to_cpu(it_desc->wTerminalType) == UVC_ITT_CAMERA) {
@@ -303,7 +304,7 @@ static int parse_vc_desc(struct uvc_host_data *const host_data,
 			if (desc->bLength < sizeof(struct uvc_output_terminal_descriptor)) {
 				LOG_ERR("Invalid output terminal descriptor length: %u",
 					desc->bLength);
-				return -EINVAL;
+				return -EBADMSG;
 			}
 
 			host_data->uvc_descriptors.vc_output = ot_desc;
@@ -317,7 +318,7 @@ static int parse_vc_desc(struct uvc_host_data *const host_data,
 			if (desc->bLength < 5) {
 				LOG_ERR("Invalid selector unit descriptor length: %u",
 					desc->bLength);
-				return -EINVAL;
+				return -EBADMSG;
 			}
 
 			host_data->uvc_descriptors.vc_selector = su_desc;
@@ -331,7 +332,7 @@ static int parse_vc_desc(struct uvc_host_data *const host_data,
 			if (desc->bLength < 8) {
 				LOG_ERR("Invalid processing unit descriptor length: %u",
 					desc->bLength);
-				return -EINVAL;
+				return -EBADMSG;
 			}
 
 			host_data->uvc_descriptors.vc_processing = pu_desc;
@@ -345,7 +346,7 @@ static int parse_vc_desc(struct uvc_host_data *const host_data,
 			if (desc->bLength < 8) {
 				LOG_ERR("Invalid encoding unit descriptor length: %u",
 					desc->bLength);
-				return -EINVAL;
+				return -EBADMSG;
 			}
 
 			host_data->uvc_descriptors.vc_encoding = enc_desc;
@@ -359,7 +360,7 @@ static int parse_vc_desc(struct uvc_host_data *const host_data,
 			if (desc->bLength < 24) {
 				LOG_ERR("Invalid extension unit descriptor length: %u",
 					desc->bLength);
-				return -EINVAL;
+				return -EBADMSG;
 			}
 
 			host_data->uvc_descriptors.vc_extension = eu_desc;
@@ -413,7 +414,7 @@ static int parse_vs_desc(struct uvc_host_data *const host_data, const void *cons
 			if (desc->bLength < sizeof(struct uvc_stream_header_descriptor)) {
 				LOG_ERR("Invalid VS input header descriptor length: %u",
 					desc->bLength);
-				return -EINVAL;
+				return -EBADMSG;
 			}
 
 			host_data->uvc_descriptors.vs_input_header = header_desc;
@@ -427,7 +428,7 @@ static int parse_vs_desc(struct uvc_host_data *const host_data, const void *cons
 			if (desc->bLength < sizeof(struct uvc_format_uncomp_descriptor)) {
 				LOG_ERR("Invalid uncompressed format descriptor length: %u",
 					desc->bLength);
-				return -EINVAL;
+				return -EBADMSG;
 			}
 
 			if (host_data->num_uncompressed_formats >= CONFIG_USBH_VIDEO_MAX_FORMATS) {
@@ -450,7 +451,7 @@ static int parse_vs_desc(struct uvc_host_data *const host_data, const void *cons
 			if (desc->bLength < sizeof(struct uvc_format_mjpeg_descriptor)) {
 				LOG_ERR("Invalid MJPEG format descriptor length: %u",
 					desc->bLength);
-				return -EINVAL;
+				return -EBADMSG;
 			}
 
 			if (host_data->num_mjpeg_formats >= CONFIG_USBH_VIDEO_MAX_FORMATS) {
@@ -604,12 +605,12 @@ static int parse_descriptors(struct usbh_class_data *const c_data, uint8_t iface
 
 	if (host_data->current_stream_iface_info.iface == NULL) {
 		LOG_ERR("No VideoStreaming interface found");
-		return -EINVAL;
+		return -ENOENT;
 	}
 
 	if (host_data->current_ctrl_iface == NULL) {
 		LOG_ERR("No VideoControl interface found");
-		return -EINVAL;
+		return -ENOENT;
 	}
 
 	LOG_INF("Interface %u associated with UVC class", iface);
@@ -996,13 +997,7 @@ static int vs_get(struct uvc_host_data *const host_data, const uint8_t request,
 	uint8_t bmRequestType;
 	int ret;
 
-	if (data_len == 0 || data == NULL) {
-		LOG_ERR("Invalid parameters");
-		return -EINVAL;
-	}
-
-	if (stream_iface == NULL) {
-		LOG_ERR("Stream interface is NULL");
+	if (data_len == 0 || data == NULL || stream_iface == NULL) {
 		return -EINVAL;
 	}
 
@@ -1065,13 +1060,7 @@ static int vs_set(struct uvc_host_data *const host_data, const uint8_t request,
 	struct net_buf *buf = NULL;
 	int ret;
 
-	if (data_len == 0) {
-		LOG_ERR("Invalid data length: %u", data_len);
-		return -EINVAL;
-	}
-
-	if (stream_iface == NULL) {
-		LOG_ERR("Stream interface is NULL");
+	if (data_len == 0 || stream_iface == NULL) {
 		return -EINVAL;
 	}
 
@@ -1335,7 +1324,7 @@ static int set_frame_rate(const struct device *dev, uint32_t fps)
 		       ((NSEC_PER_SEC / 100ULL) / host_data->current_format.frmival_100ns);
 	if (byte_per_sec == 0) {
 		LOG_ERR("Cannot calculate required bandwidth");
-		return -EINVAL;
+		return -ERANGE;
 	}
 
 	ret = select_streaming_alternate(host_data, byte_per_sec);
@@ -1754,13 +1743,13 @@ static int enum_frame_intervals(const struct uvc_frame_common_descriptor *frame_
 	uint8_t interval_type = 0;
 	uint8_t num_intervals = 0;
 
-	if ((frame_ptr == NULL) || (frmival_enum == NULL)) {
+	if (frame_ptr == NULL || frmival_enum == NULL) {
 		return -EINVAL;
 	}
 
 	if (frame_ptr->bLength < UVC_FRAME_DESC_MIN_SIZE_WITH_INTERVAL) {
 		LOG_ERR("Frame descriptor too short for interval data");
-		return -EINVAL;
+		return -EBADMSG;
 	}
 
 	if (frame_ptr->bDescriptorSubtype == UVC_VS_FRAME_FRAME_BASED) {
@@ -1784,7 +1773,7 @@ static int enum_frame_intervals(const struct uvc_frame_common_descriptor *frame_
 			1;
 	} else {
 		LOG_ERR("Unsupported frame descriptor subtype: %u", frame_ptr->bDescriptorSubtype);
-		return -EINVAL;
+		return -ENOTSUP;
 	}
 
 	LOG_DBG("Enumerating frame intervals: frame_index=%u, interval_type=%u, fie_index=%u",
@@ -1798,7 +1787,7 @@ static int enum_frame_intervals(const struct uvc_frame_common_descriptor *frame_
 
 		if (frame_ptr->bLength < UVC_FRAME_DESC_MIN_SIZE_STEPWISE) {
 			LOG_ERR("Frame descriptor too short for stepwise intervals");
-			return -EINVAL;
+			return -EBADMSG;
 		}
 
 		frmival_enum->type = VIDEO_FRMIVAL_TYPE_STEPWISE;
@@ -1825,7 +1814,7 @@ static int enum_frame_intervals(const struct uvc_frame_common_descriptor *frame_
 		    (UVC_FRAME_DESC_MIN_SIZE_WITH_INTERVAL + num_intervals * 4)) {
 			LOG_ERR("Frame descriptor too short for %u discrete intervals",
 				num_intervals);
-			return -EINVAL;
+			return -EBADMSG;
 		}
 
 		frmival_enum->type = VIDEO_FRMIVAL_TYPE_DISCRETE;
@@ -1853,13 +1842,11 @@ static int vc_get(struct uvc_host_data *const host_data, const uint8_t request,
 	int ret;
 
 	if (data_len == 0 || data == NULL) {
-		LOG_ERR("Invalid parameters");
 		return -EINVAL;
 	}
 
 	ctrl_iface = host_data->current_ctrl_iface;
 	if (ctrl_iface == NULL) {
-		LOG_ERR("Control interface is NULL");
 		return -EINVAL;
 	}
 
@@ -1871,13 +1858,7 @@ static int vc_get(struct uvc_host_data *const host_data, const uint8_t request,
 
 	bmRequestType = (USB_REQTYPE_DIR_TO_HOST << 7) | (USB_REQTYPE_TYPE_CLASS << 5) |
 			(USB_REQTYPE_RECIPIENT_INTERFACE << 0);
-
-	if (request >= UVC_GET_CUR_ALL) {
-		wValue = 0x0000;
-	} else {
-		wValue = control_selector << 8;
-	}
-
+	wValue = control_selector << 8;
 	wIndex = (entity_id << 8) | ctrl_iface->bInterfaceNumber;
 
 	LOG_DBG("VC GET: req=0x%02x, cs=0x%02x, entity=0x%02x, len=%u", request, control_selector,
@@ -1914,21 +1895,14 @@ static int vc_set(struct uvc_host_data *const host_data, const uint8_t request,
 		  const uint8_t control_selector, const uint8_t entity_id,
 		  const void *data, const uint8_t data_len)
 {
-	const struct usb_if_descriptor *ctrl_iface;
+	const struct usb_if_descriptor *ctrl_iface = host_data->current_ctrl_iface;
 	struct net_buf *buf;
 	uint16_t wValue;
 	uint16_t wIndex;
 	uint8_t bmRequestType;
 	int ret;
 
-	if (data_len == 0) {
-		LOG_ERR("Invalid data length: %u", data_len);
-		return -EINVAL;
-	}
-
-	ctrl_iface = host_data->current_ctrl_iface;
-	if (ctrl_iface == NULL) {
-		LOG_ERR("Control interface is NULL");
+	if (data_len == 0 || ctrl_iface == NULL) {
 		return -EINVAL;
 	}
 
@@ -1940,13 +1914,7 @@ static int vc_set(struct uvc_host_data *const host_data, const uint8_t request,
 
 	bmRequestType = (USB_REQTYPE_DIR_TO_DEVICE << 7) | (USB_REQTYPE_TYPE_CLASS << 5) |
 			(USB_REQTYPE_RECIPIENT_INTERFACE << 0);
-
-	if (request == UVC_SET_CUR_ALL) {
-		wValue = 0x0000;
-	} else {
-		wValue = control_selector << 8;
-	}
-
+	wValue = control_selector << 8;
 	wIndex = (entity_id << 8) | ctrl_iface->bInterfaceNumber;
 
 	if (data != NULL) {
@@ -2386,13 +2354,8 @@ static int usbh_uvc_probe(struct usbh_class_data *const c_data, struct usb_devic
 
 	LOG_INF("UVC device connected");
 
-	if ((udev == NULL) || (udev->state != USB_STATE_CONFIGURED)) {
+	if (udev == NULL || udev->state != USB_STATE_CONFIGURED || host_data == NULL) {
 		LOG_ERR("USB device not properly configured");
-		return -ENODEV;
-	}
-
-	if (host_data == NULL) {
-		LOG_ERR("No UVC device instance available");
 		return -ENODEV;
 	}
 
@@ -2854,7 +2817,7 @@ static int usbh_uvc_set_ctrl(const struct device *dev, uint32_t id)
 	ret = find_control_mapping(host_data, id, &unit_subtype, &map);
 	if (ret != 0) {
 		LOG_ERR("Control 0x%08x not found in mapping", id);
-		return -EINVAL;
+		return ret;
 	}
 
 	entity_id = get_entity_id(host_data, unit_subtype);
@@ -2938,7 +2901,7 @@ static int get_control_value(struct uvc_host_data *const host_data, uint32_t cid
 
 	default:
 		LOG_ERR("Unsupported control size: %u", map->size);
-		return -EINVAL;
+		return -ENOTSUP;
 	}
 
 	LOG_DBG("Got control 0x%08x: %d", cid, *value);
@@ -3020,7 +2983,6 @@ static int usbh_uvc_set_stream(const struct device *dev, bool enable, enum video
 	}
 
 	if (stream_iface == NULL) {
-		LOG_WRN("No interface configured");
 		return -EINVAL;
 	}
 
