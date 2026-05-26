@@ -292,6 +292,52 @@ static int video_read_reg_retry(const struct i2c_dt_spec *i2c, uint8_t *buf_w, s
 	return 0;
 }
 
+static uint64_t video_get_be_uint(void *data, size_t size)
+{
+	switch (size) {
+	case 1:
+		return ((uint8_t *)data)[0];
+	case 2:
+		return sys_get_be16(data);
+	case 3:
+		return sys_get_be24(data);
+	case 4:
+		return sys_get_be32(data);
+	case 5:
+		return sys_get_be40(data);
+	case 6:
+		return sys_get_be48(data);
+	case 8:
+		return sys_get_be64(data);
+	default:
+		CODE_UNREACHABLE;
+		return 0;
+	}
+}
+
+static uint64_t video_get_le_uint(void *data, size_t size)
+{
+	switch (size) {
+	case 1:
+		return ((uint8_t *)data)[0];
+	case 2:
+		return sys_get_le16(data);
+	case 3:
+		return sys_get_le24(data);
+	case 4:
+		return sys_get_le32(data);
+	case 5:
+		return sys_get_le40(data);
+	case 6:
+		return sys_get_le48(data);
+	case 8:
+		return sys_get_le64(data);
+	default:
+		CODE_UNREACHABLE;
+		return 0;
+	}
+}
+
 int video_read_cci_reg(const struct i2c_dt_spec *i2c, uint32_t reg_addr, uint32_t *reg_data)
 {
 	size_t addr_size = FIELD_GET(VIDEO_REG_ADDR_SIZE_MASK, reg_addr);
@@ -342,9 +388,9 @@ int video_read_cci_reg(const struct i2c_dt_spec *i2c, uint32_t reg_addr, uint32_
 	}
 
 	if (big_endian) {
-		sys_get_be(reg_data, buf_r, data_size);
+		*reg_data = video_get_be_uint(buf_r, data_size);
 	} else {
-		sys_get_le(reg_data, buf_r, data_size);
+		*reg_data = video_get_le_uint(buf_r, data_size);
 	}
 
 	return 0;
