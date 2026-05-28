@@ -252,6 +252,10 @@ struct uhc_data {
 	sys_dlist_t ctrl_xfers;
 	/** dlist for bulk transfers */
 	sys_dlist_t bulk_xfers;
+	/** dlist for int/iso transfers, sorted in descending order by start_frame */
+	sys_dlist_t periodic_xfers;
+	/** dlist for transfers being scheduled in hardware */
+	sys_dlist_t active_xfers;
 	/** Callback to submit an UHC event to upper layer */
 	uhc_event_cb_t event_cb;
 	/** Opaque pointer to store higher layer context */
@@ -484,11 +488,13 @@ int uhc_xfer_buf_add(const struct device *dev,
  *
  * @param[in] dev    Pointer to device struct of the driver instance
  * @param[in] size   Size of the request buffer
+ * @param[in] mps    Size of the request buffer
  *
  * @return pointer to allocated request or NULL on error.
  */
 struct net_buf *uhc_xfer_buf_alloc(const struct device *dev,
-				   const size_t size);
+				   const size_t size,
+				   const uint16_t mps);
 
 /**
  * @brief Free UHC request buffer
