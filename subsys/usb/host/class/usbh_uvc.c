@@ -988,7 +988,6 @@ static int vs_get(struct uvc_host_data *const host_data, const uint8_t request,
 		  const uint8_t control_selector, void *const data, const uint8_t data_len)
 {
 	const struct usb_if_descriptor *stream_iface = host_data->current_stream_iface_info.iface;
-	struct net_buf *buf = NULL;
 	uint16_t wValue, wIndex;
 	uint8_t bmRequestType;
 	int ret;
@@ -1003,12 +1002,6 @@ static int vs_get(struct uvc_host_data *const host_data, const uint8_t request,
 		return -EINVAL;
 	}
 
-	buf = usbh_xfer_buf_alloc(host_data->udev, data_len);
-	if (buf == NULL) {
-		LOG_ERR("Failed to allocate transfer buffer of size %u", data_len);
-		return -ENOMEM;
-	}
-
 	bmRequestType = (USB_REQTYPE_DIR_TO_HOST << 7) | (USB_REQTYPE_TYPE_CLASS << 5) |
 			(USB_REQTYPE_RECIPIENT_INTERFACE << 0);
 
@@ -1019,37 +1012,13 @@ static int vs_get(struct uvc_host_data *const host_data, const uint8_t request,
 		data_len);
 
 	ret = usbh_req_setup(host_data->udev, bmRequestType, request, wValue, wIndex, data_len,
-			     buf);
+			     data);
 	if (ret != 0) {
 		LOG_ERR("Failed to send VS GET request 0x%02x: %d", request, ret);
-		goto cleanup;
+		return ret;
 	}
 
-	/* Copy received data */
-	if (buf->len > 0) {
-		size_t copy_len = MIN(buf->len, data_len);
-
-		memcpy(data, buf->data, copy_len);
-
-		if (buf->len != data_len) {
-			LOG_WRN("VS GET: expected %u bytes, got %zu bytes", data_len, buf->len);
-		}
-
-		LOG_DBG("VS GET received %zu bytes", buf->len);
-	} else {
-		LOG_WRN("VS GET returned no data");
-		ret = -ENODATA;
-		goto cleanup;
-	}
-
-	ret = 0;
-
-cleanup:
-	if (buf != NULL) {
-		usbh_xfer_buf_free(host_data->udev, buf);
-	}
-
-	return ret;
+	return 0;
 }
 
 /* Send VideoStreaming SET request  */
@@ -1057,9 +1026,11 @@ static int vs_set(struct uvc_host_data *const host_data, const uint8_t request,
 		  const uint8_t control_selector, const void *data, const uint8_t data_len)
 {
 	const struct usb_if_descriptor *stream_iface = host_data->current_stream_iface_info.iface;
-	uint8_t bmRequestType;
-	uint16_t wValue, wIndex;
-	struct net_buf *buf = NULL;
+	const uint8_t bmRequestType = (USB_REQTYPE_DIR_TO_DEVICE << 7) |
+				      (USB_REQTYPE_TYPE_CLASS << 5) |
+				      (USB_REQTYPE_RECIPIENT_INTERFACE << 0);
+	const uint16_t wValue = control_selector << 8;
+	const uint16_t wIndex = stream_iface->bInterfaceNumber;
 	int ret;
 
 	if (data_len == 0) {
@@ -1072,41 +1043,19 @@ static int vs_set(struct uvc_host_data *const host_data, const uint8_t request,
 		return -EINVAL;
 	}
 
-	buf = usbh_xfer_buf_alloc(host_data->udev, data_len);
-	if (buf == NULL) {
-		LOG_ERR("Failed to allocate transfer buffer of size %u", data_len);
-		return -ENOMEM;
-	}
-
-	bmRequestType = (USB_REQTYPE_DIR_TO_DEVICE << 7) | (USB_REQTYPE_TYPE_CLASS << 5) |
-			(USB_REQTYPE_RECIPIENT_INTERFACE << 0);
-
-	if (data) {
-		net_buf_add_mem(buf, data, data_len);
-	}
-
-	wValue = control_selector << 8;
-	wIndex = stream_iface->bInterfaceNumber;
-
 	LOG_DBG("VS SET request: req=0x%02x, cs=0x%02x, len=%u", request, control_selector,
 		data_len);
 
 	ret = usbh_req_setup(host_data->udev, bmRequestType, request, wValue, wIndex, data_len,
-			     buf);
+			     data);
 	if (ret != 0) {
 		LOG_ERR("Failed to send VS SET request 0x%02x: %d", request, ret);
-		goto cleanup;
+		return ret;
 	}
 
 	LOG_DBG("Successfully completed VS SET request 0x%02x", request);
-	ret = 0;
 
-cleanup:
-	if (buf != NULL) {
-		usbh_xfer_buf_free(host_data->udev, buf);
-	}
-
-	return ret;
+	return 0;
 }
 
 /* Send VideoStreaming request */
@@ -1514,36 +1463,26 @@ static int initiate_transfer(struct uvc_host_data *const host_data,
 {
 	struct uvc_stream_iface_info *const stream_info = &host_data->current_stream_iface_info;
 	const struct usb_ep_descriptor *const stream_ep = stream_info->ep;
-	struct net_buf *buf;
+	struct usbh_context *const usbh_ctx = host_data->udev->ctx;
 	struct uhc_transfer *xfer;
 	int ret;
 
 	LOG_DBG("Initiating transfer: ep=0x%02x, vbuf=%p", stream_ep->bEndpointAddress, vbuf);
 
-	xfer = usbh_xfer_alloc(host_data->udev, stream_ep->bEndpointAddress,
-			       stream_iso_req_cb, host_data);
+	xfer = uhc_xfer_alloc_with_buf(usbh_ctx->dev, stream_ep->bEndpointAddress, host_data->udev,
+				       stream_iso_req_cb, host_data, stream_info->ep_mps_mult);
 	if (xfer == NULL) {
 		LOG_ERR("Failed to allocate transfer");
 		return -ENOMEM;
 	}
 
-	buf = usbh_xfer_buf_alloc(host_data->udev, stream_info->ep_mps_mult);
-	if (buf == NULL) {
-		LOG_ERR("Failed to allocate buffer");
-		usbh_xfer_free(host_data->udev, xfer);
-		return -ENOMEM;
-	}
-
-	buf->len = 0;
 	host_data->vbuf_offset = 0;
-	xfer->buf = buf;
-
 	host_data->video_transfer[host_data->video_transfer_count++] = xfer;
 
 	ret = usbh_xfer_enqueue(host_data->udev, xfer);
 	if (ret != 0) {
 		LOG_ERR("Enqueue failed: ret=%d", ret);
-		net_buf_unref(buf);
+		net_buf_unref(xfer->buf);
 		usbh_xfer_free(host_data->udev, xfer);
 		return ret;
 	}
@@ -1556,22 +1495,17 @@ static int continue_transfer(struct uvc_host_data *const host_data,
 			     struct uhc_transfer *const xfer, struct video_buffer *vbuf)
 {
 	struct uvc_stream_iface_info *const stream_info = &host_data->current_stream_iface_info;
-	struct net_buf *buf;
 	int ret;
 
-	buf = usbh_xfer_buf_alloc(host_data->udev, stream_info->ep_mps_mult);
-	if (buf == NULL) {
-		LOG_ERR("Failed to allocate buffer");
-		return -ENOMEM;
+	ret = usbh_xfer_buf_alloc(xfer, stream_info->ep_mps_mult);
+	if (ret != 0) {
+		LOG_ERR("Failed to allocate buffer for transfer");
+		return ret;
 	}
-
-	buf->len = 0;
-	xfer->buf = buf;
 
 	ret = usbh_xfer_enqueue(host_data->udev, xfer);
 	if (ret != 0) {
 		LOG_ERR("Enqueue failed: ret=%d", ret);
-		net_buf_unref(buf);
 		return ret;
 	}
 
@@ -1605,7 +1539,7 @@ static int stream_iso_req_cb(struct usb_device *const dev, struct uhc_transfer *
 		LOG_INF("ISO transfer canceled");
 		goto cleanup;
 	} else if (xfer->err) {
-		LOG_WRN("ISO request failed, err %d", xfer->err);
+		LOG_WRN_RATELIMIT("ISO request failed, err %d", xfer->err);
 		goto cleanup;
 	} else {
 		/* Transfer successful, continue processing */
@@ -1722,6 +1656,7 @@ static int stream_iso_req_cb(struct usb_device *const dev, struct uhc_transfer *
 
 cleanup:
 	net_buf_unref(buf);
+	xfer->buf = NULL;
 	if ((atomic_test_bit(&host_data->device_flags, UVC_DEVICE_FLAG_STREAMING)) &&
 	    (vbuf != NULL)) {
 		continue_transfer(host_data, xfer, vbuf);
@@ -1832,7 +1767,6 @@ static int vc_get(struct uvc_host_data *const host_data, const uint8_t request,
 		  void *const data, const uint8_t data_len)
 {
 	const struct usb_if_descriptor *ctrl_iface;
-	struct net_buf *buf;
 	uint16_t wValue;
 	uint16_t wIndex;
 	uint8_t bmRequestType;
@@ -1847,12 +1781,6 @@ static int vc_get(struct uvc_host_data *const host_data, const uint8_t request,
 	if (ctrl_iface == NULL) {
 		LOG_ERR("Control interface is NULL");
 		return -EINVAL;
-	}
-
-	buf = usbh_xfer_buf_alloc(host_data->udev, data_len);
-	if (buf == NULL) {
-		LOG_ERR("Failed to allocate transfer buffer of size %u", data_len);
-		return -ENOMEM;
 	}
 
 	bmRequestType = (USB_REQTYPE_DIR_TO_HOST << 7) | (USB_REQTYPE_TYPE_CLASS << 5) |
@@ -1870,29 +1798,13 @@ static int vc_get(struct uvc_host_data *const host_data, const uint8_t request,
 		entity_id, data_len);
 
 	ret = usbh_req_setup(host_data->udev, bmRequestType, request,
-			     wValue, wIndex, data_len, buf);
+			     wValue, wIndex, data_len, data);
 	if (ret != 0) {
-		goto cleanup;
+		LOG_ERR("Failed to send VC GET request 0x%02x: %d", request, ret);
+		return ret;
 	}
 
-	if (buf->len > 0) {
-		size_t copy_len = MIN(buf->len, data_len);
-
-		memcpy(data, buf->data, copy_len);
-
-		if (buf->len != data_len) {
-			LOG_WRN("VC GET: expected %u bytes, got %zu bytes", data_len, buf->len);
-		}
-	}
-
-	ret = 0;
-
-cleanup:
-	if (buf != NULL) {
-		usbh_xfer_buf_free(host_data->udev, buf);
-	}
-
-	return ret;
+	return 0;
 }
 
 /* Send VideoControl SET request */
@@ -1901,7 +1813,6 @@ static int vc_set(struct uvc_host_data *const host_data, const uint8_t request,
 		  const void *data, const uint8_t data_len)
 {
 	const struct usb_if_descriptor *ctrl_iface;
-	struct net_buf *buf;
 	uint16_t wValue;
 	uint16_t wIndex;
 	uint8_t bmRequestType;
@@ -1918,12 +1829,6 @@ static int vc_set(struct uvc_host_data *const host_data, const uint8_t request,
 		return -EINVAL;
 	}
 
-	buf = usbh_xfer_buf_alloc(host_data->udev, data_len);
-	if (buf == NULL) {
-		LOG_ERR("Failed to allocate transfer buffer of size %u", data_len);
-		return -ENOMEM;
-	}
-
 	bmRequestType = (USB_REQTYPE_DIR_TO_DEVICE << 7) | (USB_REQTYPE_TYPE_CLASS << 5) |
 			(USB_REQTYPE_RECIPIENT_INTERFACE << 0);
 
@@ -1935,21 +1840,13 @@ static int vc_set(struct uvc_host_data *const host_data, const uint8_t request,
 
 	wIndex = (entity_id << 8) | ctrl_iface->bInterfaceNumber;
 
-	if (data != NULL) {
-		net_buf_add_mem(buf, data, data_len);
-	}
-
 	LOG_DBG("VC SET: req=0x%02x, cs=0x%02x, entity=0x%02x, len=%u", request, control_selector,
 		entity_id, data_len);
 
 	ret = usbh_req_setup(host_data->udev, bmRequestType, request, wValue, wIndex, data_len,
-			     buf);
+			     data);
 	if (ret != 0) {
 		LOG_ERR("VC SET failed: %d", ret);
-	}
-
-	if (buf != NULL) {
-		usbh_xfer_buf_free(host_data->udev, buf);
 	}
 
 	return ret;

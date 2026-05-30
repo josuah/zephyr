@@ -80,9 +80,10 @@ int uhc_xfer_append(const struct device *dev,
 }
 
 struct net_buf *uhc_xfer_buf_alloc(const struct device *dev,
-				   const size_t size)
+				   const size_t size,
+				   uint16_t mps)
 {
-	return net_buf_alloc_len(&uhc_ep_pool, size, K_NO_WAIT);
+	return net_buf_alloc_len(&uhc_ep_pool, ROUND_UP(size, mps), K_NO_WAIT);
 }
 
 void uhc_xfer_buf_free(const struct device *dev, struct net_buf *const buf)
@@ -162,20 +163,17 @@ struct uhc_transfer *uhc_xfer_alloc_with_buf(const struct device *dev,
 					     size_t size)
 {
 	struct uhc_transfer *xfer;
-	struct net_buf *buf;
-
-	buf = uhc_xfer_buf_alloc(dev, size);
-	if (buf == NULL) {
-		return NULL;
-	}
 
 	xfer = uhc_xfer_alloc(dev, ep, udev, cb, cb_priv);
 	if (xfer == NULL) {
-		net_buf_unref(buf);
 		return NULL;
 	}
 
-	xfer->buf = buf;
+	xfer->buf = uhc_xfer_buf_alloc(dev, size, xfer->mps);
+	if (xfer->buf == NULL) {
+		uhc_xfer_free(dev, xfer);
+		return NULL;
+	}
 
 	return xfer;
 }

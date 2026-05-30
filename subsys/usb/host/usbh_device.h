@@ -74,12 +74,21 @@ static inline int usbh_xfer_buf_add(const struct usb_device *udev,
 	return uhc_xfer_buf_add(ctx->dev, xfer, buf);
 }
 
-static inline struct net_buf *usbh_xfer_buf_alloc(struct usb_device *udev,
-						  const size_t size)
+static inline int usbh_xfer_buf_alloc(struct uhc_transfer *const xfer,
+				      const size_t size)
 {
-	struct usbh_context *const ctx = udev->ctx;
+	struct usbh_context *const ctx = xfer->udev->ctx;
 
-	return uhc_xfer_buf_alloc(ctx->dev, size);
+	if (xfer->buf != NULL) {
+		return -EALREADY;
+	}
+
+	xfer->buf = uhc_xfer_buf_alloc(ctx->dev, size, xfer->mps);
+	if (xfer->buf == NULL) {
+		return -ENOMEM;
+	}
+
+	return 0;
 }
 
 static inline int usbh_xfer_free(const struct usb_device *udev,

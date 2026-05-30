@@ -53,7 +53,7 @@ int usbh_req_setup(struct usb_device *const udev,
 		   const uint16_t wValue,
 		   const uint16_t wIndex,
 		   const uint16_t wLength,
-		   struct net_buf *const buf)
+		   void *data)
 {
 	struct usb_setup_packet req = {
 		.bmRequestType = bmRequestType,
@@ -63,24 +63,24 @@ int usbh_req_setup(struct usb_device *const udev,
 		.wLength = sys_cpu_to_le16(wLength),
 	};
 	struct uhc_transfer *xfer;
+	struct usbh_context *const ctx = udev->ctx;
 	uint8_t ep = usb_reqtype_is_to_device(&req) ? 0x00 : 0x80;
 	int ret;
 
-	xfer = usbh_xfer_alloc(udev, ep, ch9_req_cb, NULL);
+	xfer = uhc_xfer_alloc_with_buf(ctx->dev, ep, udev, ch9_req_cb, NULL, wLength);
 	if (!xfer) {
+		LOG_ERR("Failed to allocate the UHC transfer with a buffer, wLength: %d", wLength);
 		return -ENOMEM;
 	}
 
 	memcpy(xfer->setup_pkt, &req, sizeof(req));
 
 	__ASSERT(IS_ENABLED(CONFIG_ZTEST) ||
-		 (buf != NULL && wLength) || (buf == NULL && !wLength),
+		 (xfer->buf != NULL && wLength) || (xfer->buf == NULL && !wLength),
 		 "Unresolved conditions for data stage");
-	if (wLength) {
-		ret = usbh_xfer_buf_add(udev, xfer, buf);
-		if (ret) {
-			goto buf_alloc_err;
-		}
+
+	if (usb_reqtype_is_to_device(&req) && data != NULL) {
+		net_buf_add_mem(xfer->buf, data, MIN(xfer->buf->size, wLength));
 	}
 
 	if (IS_ENABLED(CONFIG_ZTEST) && ctrl_req_no_status) {
@@ -89,23 +89,37 @@ int usbh_req_setup(struct usb_device *const udev,
 
 	ret = usbh_xfer_enqueue(udev, xfer);
 	if (ret) {
-		goto buf_alloc_err;
+		LOG_ERR("Failed to enqueue buffer");
+		goto xfer_alloc_err;
 	}
 
 	if (k_sem_take(&ch9_req_sync, K_MSEC(SETUP_REQ_TIMEOUT)) != 0) {
 		ret = usbh_xfer_dequeue(udev, xfer);
 		if (ret != 0) {
 			LOG_ERR("Failed to cancel transfer");
-			return ret;
+			goto xfer_alloc_err;
 		}
 
 		LOG_ERR("Timeout");
-		return -ETIMEDOUT;
+		ret = -ETIMEDOUT;
+		goto xfer_alloc_err;
 	}
 
-	ret = xfer->err;
+	if (xfer->err != 0) {
+		ret = xfer->err;
+		goto xfer_alloc_err;
+	}
 
-buf_alloc_err:
+	if (xfer->buf->len != wLength) {
+		LOG_WRN("Expected %u bytes, got %zu bytes", wLength, xfer->buf->len);
+	}
+
+	if (usb_reqtype_is_to_host(&req) && data != NULL) {
+		memcpy(data, xfer->buf->data, MIN(xfer->buf->size, wLength));
+	}
+
+xfer_alloc_err:
+	net_buf_unref(xfer->buf);
 	usbh_xfer_free(udev, xfer);
 
 	return ret;
@@ -115,7 +129,7 @@ int usbh_req_desc(struct usb_device *const udev,
 		  const uint8_t type, const uint8_t index,
 		  const uint16_t id,
 		  const uint16_t len,
-		  struct net_buf *const buf)
+		  void *data)
 {
 	const uint8_t bmRequestType = USB_REQTYPE_DIR_TO_HOST << 7;
 	const uint8_t bRequest = USB_SREQ_GET_DESCRIPTOR;
@@ -123,7 +137,7 @@ int usbh_req_desc(struct usb_device *const udev,
 
 	return usbh_req_setup(udev,
 			      bmRequestType, bRequest, wValue, id, len,
-			      buf);
+			      data);
 }
 
 int usbh_req_desc_dev(struct usb_device *const udev,
@@ -132,24 +146,15 @@ int usbh_req_desc_dev(struct usb_device *const udev,
 {
 	const uint8_t type = USB_DESC_DEVICE;
 	const uint16_t wLength = MIN(len, sizeof(struct usb_device_descriptor));
-	struct net_buf *buf;
 	int ret;
 
-	buf = usbh_xfer_buf_alloc(udev, wLength);
-	if (!buf) {
-		return -ENOMEM;
-	}
-
-	ret = usbh_req_desc(udev, type, 0, 0, wLength, buf);
-	if (ret == 0 && buf->len == wLength) {
-		memcpy(desc, buf->data, wLength);
+	ret = usbh_req_desc(udev, type, 0, 0, wLength, desc);
+	if (ret == 0) {
 		desc->bcdUSB = sys_le16_to_cpu(desc->bcdUSB);
 		desc->idVendor = sys_le16_to_cpu(desc->idVendor);
 		desc->idProduct = sys_le16_to_cpu(desc->idProduct);
 		desc->bcdDevice = sys_le16_to_cpu(desc->bcdDevice);
 	}
-
-	usbh_xfer_buf_free(udev, buf);
 
 	return ret;
 }
@@ -161,23 +166,16 @@ int usbh_req_desc_cfg(struct usb_device *const udev,
 {
 	const uint8_t type = USB_DESC_CONFIGURATION;
 	const uint16_t wLength = len;
-	struct net_buf *buf;
 	int ret;
 
-	buf = usbh_xfer_buf_alloc(udev, len);
-	if (!buf) {
-		return -ENOMEM;
+	ret = usbh_req_desc(udev, type, index, 0, wLength, desc);
+	if (ret != 0) {
+		return ret;
 	}
 
-	ret = usbh_req_desc(udev, type, index, 0, wLength, buf);
-	if (ret == 0) {
-		memcpy(desc, buf->data, len);
-		desc->wTotalLength = sys_le16_to_cpu(desc->wTotalLength);
-	}
+	desc->wTotalLength = sys_le16_to_cpu(desc->wTotalLength);
 
-	usbh_xfer_buf_free(udev, buf);
-
-	return ret;
+	return 0;
 }
 
 int usbh_req_set_address(struct usb_device *const udev,
@@ -186,7 +184,9 @@ int usbh_req_set_address(struct usb_device *const udev,
 	const uint8_t bmRequestType = USB_REQTYPE_DIR_TO_DEVICE << 7;
 	const uint8_t bRequest = USB_SREQ_SET_ADDRESS;
 
-	return usbh_req_setup(udev, bmRequestType, bRequest, addr, 0, 0, NULL);
+	return usbh_req_setup(udev,
+			      bmRequestType, bRequest, addr, 0, 0,
+			      NULL);
 }
 
 int usbh_req_set_cfg(struct usb_device *const udev,
@@ -195,7 +195,9 @@ int usbh_req_set_cfg(struct usb_device *const udev,
 	const uint8_t bmRequestType = USB_REQTYPE_DIR_TO_DEVICE << 7;
 	const uint8_t bRequest = USB_SREQ_SET_CONFIGURATION;
 
-	return usbh_req_setup(udev, bmRequestType, bRequest, cfg, 0, 0, NULL);
+	return usbh_req_setup(udev,
+			      bmRequestType, bRequest, cfg, 0, 0,
+			      NULL);
 }
 
 int usbh_req_get_cfg(struct usb_device *const udev,
@@ -204,22 +206,10 @@ int usbh_req_get_cfg(struct usb_device *const udev,
 	const uint8_t bmRequestType = USB_REQTYPE_DIR_TO_HOST << 7;
 	const uint8_t bRequest = USB_SREQ_GET_CONFIGURATION;
 	const uint16_t wLength = 1;
-	struct net_buf *buf;
-	int ret;
 
-	buf = usbh_xfer_buf_alloc(udev, wLength);
-	if (!buf) {
-		return -ENOMEM;
-	}
-
-	ret = usbh_req_setup(udev, bmRequestType, bRequest, 0, 0, wLength, buf);
-	if (ret == 0 && buf->len == wLength) {
-		*cfg = buf->data[0];
-	}
-
-	usbh_xfer_buf_free(udev, buf);
-
-	return ret;
+	return usbh_req_setup(udev,
+			      bmRequestType, bRequest, 0, 0, wLength,
+			      cfg);
 }
 
 int usbh_req_set_alt(struct usb_device *const udev,
