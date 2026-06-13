@@ -107,14 +107,9 @@ struct uvc_host_data {
 	atomic_t device_flags;
 
 	uint8_t expect_frame_id;
-	uint8_t discard_first_frame;
-	bool save_picture;
 	uint8_t video_transfer_count;
-	uint8_t multi_prime_cnt;
 
 	uint32_t vbuf_offset;
-	uint32_t transfer_count;
-	uint32_t discard_frame_cnt;
 	uint32_t current_frame_timestamp;
 
 	struct uhc_transfer *video_transfer[CONFIG_USBH_VIDEO_CONCURRENT_TRANSFERS];
@@ -1572,7 +1567,8 @@ static bool complete_transfer(struct uhc_transfer *const xfer,
 		LOG_INF("ISO transfer canceled");
 		goto cleanup;
 	} else if (xfer->err) {
-		LOG_WRN("ISO request failed, err %d", xfer->err);
+		LOG_WRN("ISO request failed, err %d, mps %u, size %u, len %u, start %d",
+			xfer->err, xfer->mps, xfer->buf->size, xfer->buf->len, xfer->start_frame);
 		goto cleanup;
 	} else {
 		/* Transfer successful, continue processing */
@@ -1605,7 +1601,6 @@ static bool complete_transfer(struct uhc_transfer *const xfer,
 			if (data_size > (vbuf->size - vbuf->bytesused)) {
 				LOG_WRN("Buffer overflow: used=%u, payload=%u, capacity=%u",
 					vbuf->bytesused, data_size, vbuf->size);
-				host_data->save_picture = true;
 				vbuf->bytesused = 0U;
 				host_data->vbuf_offset = 0;
 			} else if (frame_id == host_data->expect_frame_id) {
@@ -1630,9 +1625,6 @@ static bool complete_transfer(struct uhc_transfer *const xfer,
 	}
 
 	if (!host_data->save_picture) {
-		if (host_data->discard_first_frame) {
-			host_data->discard_first_frame = 0;
-		}
 
 		if (vbuf->bytesused != 0) {
 			host_data->discard_frame_cnt++;
@@ -1659,7 +1651,6 @@ static bool complete_transfer(struct uhc_transfer *const xfer,
 	host_data->expect_frame_id = host_data->expect_frame_id ^ 1;
 	host_data->save_picture = true;
 	host_data->vbuf_offset = 0;
-	host_data->transfer_count = 0;
 
 	if (IS_ENABLED(CONFIG_POLL) && host_data->sig != NULL) {
 		LOG_DBG("Raising VIDEO_BUF_DONE signal");
@@ -2304,8 +2295,6 @@ static int usbh_uvc_init(struct usbh_class_data *const c_data)
 	k_thread_name_set(&host_data->thread_data, "usbh_uvc");
 
 	host_data->expect_frame_id = UVC_FRAME_ID_INVALID;
-	host_data->discard_first_frame = 1;
-	host_data->multi_prime_cnt = CONFIG_USBH_VIDEO_CONCURRENT_TRANSFERS;
 
 	LOG_INF("UVC host data initialized successfully");
 
@@ -2415,7 +2404,6 @@ static int usbh_uvc_removed(struct usbh_class_data *const c_data)
 	k_mutex_unlock(&host_data->lock);
 
 	host_data->vbuf_offset = 0;
-	host_data->transfer_count = 0;
 
 	LOG_DBG("Cleaning up UVC controls");
 	memset(&host_data->ctrls, 0, sizeof(host_data->ctrls));
@@ -2975,16 +2963,13 @@ static int usbh_uvc_set_stream(const struct device *dev, bool enable, enum video
 
 		k_mutex_lock(&host_data->lock, K_FOREVER);
 
-		host_data->multi_prime_cnt = CONFIG_USBH_VIDEO_CONCURRENT_TRANSFERS;
-		while (host_data->multi_prime_cnt > 0) {
+		for (int n = CONFIG_USBH_VIDEO_CONCURRENT_TRANSFERS; n > 0; n--) {
 			ret = initiate_transfer(host_data);
 			if (ret != 0) {
 				LOG_ERR("Failed to initiate transfer: %d", ret);
 				k_mutex_unlock(&host_data->lock);
 				goto err_stream;
 			}
-
-			host_data->multi_prime_cnt--;
 		}
 
 		k_mutex_unlock(&host_data->lock);
