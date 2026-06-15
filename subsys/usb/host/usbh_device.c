@@ -534,6 +534,12 @@ int usbh_device_init(struct usb_device *const udev)
 			LOG_ERR("Failed to signal bus reset");
 			return err;
 		}
+
+		err = uhc_sof_enable(uhs_ctx->dev);
+		if (err) {
+			LOG_ERR("Failed to enable SoF generation");
+			return err;
+		}
 	}
 
 	/*
