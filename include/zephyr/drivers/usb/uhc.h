@@ -157,12 +157,8 @@ struct uhc_transfer {
  * @brief USB host controller event types
  */
 enum uhc_event_type {
-	/** Low speed device connected */
-	UHC_EVT_DEV_CONNECTED_LS,
-	/** Full speed device connected */
-	UHC_EVT_DEV_CONNECTED_FS,
-	/** High speed device connected */
-	UHC_EVT_DEV_CONNECTED_HS,
+	/** New device connected */
+	UHC_EVT_DEV_CONNECTED,
 	/** Device (peripheral) removed */
 	UHC_EVT_DEV_REMOVED,
 	/** Bus reset operation finished */
@@ -311,6 +307,8 @@ struct uhc_api {
 	int (*bus_suspend)(const struct device *dev);
 	int (*bus_resume)(const struct device *dev);
 
+	enum usb_device_speed (*get_speed)(const struct device *dev);
+
 	int (*ep_enqueue)(const struct device *dev,
 			  struct uhc_transfer *const xfer);
 	int (*ep_dequeue)(const struct device *dev,
@@ -406,6 +404,33 @@ static inline int uhc_bus_resume(const struct device *dev)
 
 	api->lock(dev);
 	ret = api->bus_resume(dev);
+	api->unlock(dev);
+
+	return ret;
+}
+
+/**
+ * @brief Get the USB speed at which the device is connected
+ *
+ * Some controllers generate an event for device connection before the speed is known.
+ * Then the speed must be queried to the driver after reset happens.
+ *
+ * @param[in] dev      Pointer to device struct of the driver instance
+ *
+ * @return 0 on success, all other values should be treated as error.
+ * @retval -EBUSY if the controller is already performing a bus operation
+ */
+static inline enum usb_device_speed uhc_get_speed(const struct device *dev)
+{
+	const struct uhc_api *api = dev->api;
+	int ret;
+
+	if (api->get_speed == NULL) {
+		return USB_SPEED_UNKNOWN;
+	}
+
+	api->lock(dev);
+	ret = api->get_speed(dev);
 	api->unlock(dev);
 
 	return ret;

@@ -92,6 +92,16 @@ int uhc_mcux_bus_reset(const struct device *dev)
 	return uhc_mcux_bus_control(dev, kUSB_HostBusReset);
 }
 
+/* Report the detected speed of the attached device */
+static enum usb_device_speed uhc_mcux_get_speed(const struct device *dev)
+{
+	struct uhc_mcux_data *priv;
+
+	priv = (struct uhc_mcux_data *)(PRV_DATA_HANDLE(hostHandle));
+
+	return priv->speed;
+}
+
 /* Enable SOF generator */
 int uhc_mcux_sof_enable(const struct device *dev)
 {
@@ -134,16 +144,10 @@ usb_status_t USB_HostAttachDevice(usb_host_handle hostHandle, uint8_t speed, uin
 	enum uhc_event_type type;
 	struct uhc_mcux_data *priv;
 
-	if (speed == USB_SPEED_HIGH) {
-		type = UHC_EVT_DEV_CONNECTED_HS;
-	} else if (speed == USB_SPEED_FULL) {
-		type = UHC_EVT_DEV_CONNECTED_FS;
-	} else {
-		type = UHC_EVT_DEV_CONNECTED_LS;
-	}
-
 	priv = (struct uhc_mcux_data *)(PRV_DATA_HANDLE(hostHandle));
-	uhc_submit_event(priv->dev, type, 0);
+	uhc_submit_event(priv->dev, UHC_EVT_DEV_CONNECTED, 0);
+
+	priv->speed = speed;
 
 	return kStatus_USB_Success;
 }

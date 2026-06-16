@@ -37,6 +37,7 @@ struct max3421e_data {
 	struct uhc_transfer *last_xfer;
 	struct k_sem irq_sem;
 	atomic_t state;
+	enum usb_device_speed speed;
 	uint16_t tog_in;
 	uint16_t tog_out;
 	uint8_t addr;
@@ -576,15 +577,15 @@ static void max3421e_handle_condet(const struct device *dev)
 
 	if (jk == MAX3421E_JSTATUS) {
 		/* Device connected */
-		type = UHC_EVT_DEV_CONNECTED_FS;
+		priv->speed = USB_SPEED_FULL;
 	}
 
 	if (jk == MAX3421E_KSTATUS) {
 		/* Device connected */
-		type = UHC_EVT_DEV_CONNECTED_LS;
+		priv->speed = USB_SPEED_LOW;
 	}
 
-	uhc_submit_event(dev, type, 0);
+	uhc_submit_event(dev, UHC_EVT_DEV_CONNECTED, 0);
 }
 
 static void max3421e_bus_event(const struct device *dev)
@@ -815,6 +816,13 @@ static int max3421e_dequeue(const struct device *dev,
 	irq_unlock(key);
 
 	return 0;
+}
+
+static enum usb_device_speed max3421e_get_speed(const struct device *dev)
+{
+	struct max3421e_data *priv = uhc_get_private(dev);
+
+	return priv->speed;
 }
 
 static int max3421e_reset(const struct device *dev)
