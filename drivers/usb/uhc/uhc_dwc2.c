@@ -550,50 +550,6 @@ static void uhc_dwc2_port_debounce_unlock(const struct device *dev)
 						USB_DWC2_GINTSTS_DISCONNINT);
 }
 
-static int uhc_dwc2_port_reset(const struct device *dev)
-{
-	const struct uhc_dwc2_config *const config = dev->config;
-	struct uhc_dwc2_data *const priv = uhc_get_private(dev);
-	struct usb_dwc2_reg *const dwc2 = config->base;
-	int ret;
-
-	/* Reset the port */
-	dwc2_set_reset(dwc2, true);
-
-	/* Hold the bus in the reset state */
-	uhc_unlock_internal(dev);
-
-	k_msleep(RESET_HOLD_MS);
-
-	uhc_lock_internal(dev, K_FOREVER);
-
-	/* Return the bus to the idle state. Port enabled event should occur */
-	dwc2_set_reset(dwc2, false);
-
-	/* Give 10 ms to the port to become enabled */
-	ret = k_sem_take(&priv->sem_port_enabled, K_MSEC(10));
-	if (ret != 0) {
-		/* Port didn't change its state to ENABLED */
-		LOG_ERR("Port wasn't enabled after reset");
-		return ret;
-	}
-
-	/* Give the device some extra time to recover after port reset */
-	uhc_unlock_internal(dev);
-
-	k_msleep(RESET_RECOVERY_MS);
-
-	uhc_lock_internal(dev, K_FOREVER);
-
-	/* FIFO */
-	ret = dwc2_set_fifo_sizes(dwc2);
-
-	/* TODO: set frame list for the ISOC/INTR xfer */
-	/* TODO: enable periodic transfer */
-
-	return ret;
-}
-
 static inline void uhc_dwc2_channel_process_control(struct uhc_dwc2_channel *channel)
 {
 	struct uhc_transfer *const xfer = channel->xfer;
@@ -1268,26 +1224,8 @@ static void uhc_dwc2_channel_start_bulk(struct uhc_dwc2_channel *channel)
 static inline void uhc_dwc2_submit_new_device(const struct device *dev)
 {
 	struct uhc_dwc2_data *const priv = uhc_get_private(dev);
-	const struct uhc_dwc2_config *const config = dev->config;
-	struct usb_dwc2_reg *const dwc2 = config->base;
-	uint32_t hprt = sys_read32((mem_addr_t)&dwc2->hprt);
 
-	switch (usb_dwc2_get_hprt_prtspd(hprt)) {
-	case USB_DWC2_HPRT_PRTSPD_HIGH:
-		uhc_submit_event(dev, UHC_EVT_DEV_CONNECTED_HS, 0);
-		break;
-	case USB_DWC2_HPRT_PRTSPD_FULL:
-		uhc_submit_event(dev, UHC_EVT_DEV_CONNECTED_FS, 0);
-		break;
-	case USB_DWC2_HPRT_PRTSPD_LOW:
-		uhc_submit_event(dev, UHC_EVT_DEV_CONNECTED_LS, 0);
-		break;
-	default:
-		LOG_WRN("Port has unexpected speed, submit as full speed");
-		uhc_submit_event(dev, UHC_EVT_DEV_CONNECTED_FS, 0);
-		break;
-	}
-
+	uhc_submit_event(dev, UHC_EVT_DEV_CONNECTED, 0);
 	priv->has_device = 1;
 }
 
@@ -1482,8 +1420,6 @@ static void uhc_dwc2_port_handle_events(const struct device *dev, uint32_t event
 		LOG_DBG("Port connected");
 		/* Debounce port connection */
 		if (uhc_dwc2_port_debounce(dev, UHC_DWC2_EVENT_PORT_CONNECTION)) {
-			/* Do first reset in the driver */
-			uhc_dwc2_port_reset(dev);
 			/* Notify the higher logic about the new device */
 			uhc_dwc2_submit_new_device(dev);
 		} else {
@@ -1794,17 +1730,68 @@ static int uhc_dwc2_bus_suspend(const struct device *const dev)
 	return -ENOSYS;
 }
 
+static enum usb_device_speed uhc_dwc2_get_speed(const struct device *dev)
+{
+	const struct uhc_dwc2_config *const config = dev->config;
+	struct usb_dwc2_reg *const dwc2 = config->base;
+	uint32_t hprt = sys_read32((mem_addr_t)&dwc2->hprt);
+
+	switch (usb_dwc2_get_hprt_prtspd(hprt)) {
+	case USB_DWC2_HPRT_PRTSPD_HIGH:
+		return USB_SPEED_SPEED_HS;
+	case USB_DWC2_HPRT_PRTSPD_FULL:
+		return USB_SPEED_SPEED_FS;
+	case USB_DWC2_HPRT_PRTSPD_LOW:
+		return USB_SPEED_SPEED_LS;
+	default:
+		return USB_SPEED_UNKNOWN;
+	}
+}
+
 static int uhc_dwc2_bus_reset(const struct device *const dev)
 {
+	const struct uhc_dwc2_config *const config = dev->config;
+	struct uhc_dwc2_data *const priv = uhc_get_private(dev);
+	struct usb_dwc2_reg *const dwc2 = config->base;
 	int ret;
 
-	ret = uhc_dwc2_port_reset(dev);
+	/* Reset the port */
+	dwc2_set_reset(dwc2, true);
+
+	/* Hold the bus in the reset state */
+	uhc_unlock_internal(dev);
+
+	k_msleep(RESET_HOLD_MS);
+
+	uhc_lock_internal(dev, K_FOREVER);
+
+	/* Return the bus to the idle state. Port enabled event should occur */
+	dwc2_set_reset(dwc2, false);
+
+	/* Give 10 ms to the port to become enabled */
+	ret = k_sem_take(&priv->sem_port_enabled, K_MSEC(10));
 	if (ret != 0) {
-		LOG_ERR("Unable to reset root port");
+		/* Port didn't change its state to ENABLED */
+		LOG_ERR("Port wasn't enabled after reset");
 		return ret;
 	}
 
-	uhc_submit_event(dev, UHC_EVT_RESETED, 0);
+	/* Give the device some extra time to recover after port reset */
+	uhc_unlock_internal(dev);
+
+	k_msleep(RESET_RECOVERY_MS);
+
+	uhc_lock_internal(dev, K_FOREVER);
+
+	/* FIFO */
+	ret = dwc2_set_fifo_sizes(dwc2);
+	if (ret != 0) {
+		LOG_ERR("Failed to configure FIFO sizes");
+		return ret;
+	}
+
+	/* TODO: set frame list for the ISOC/INTR xfer */
+	/* TODO: enable periodic transfer */
 
 	return 0;
 }
@@ -2059,6 +2046,8 @@ static const struct uhc_api uhc_dwc2_api = {
 	.sof_enable = uhc_dwc2_sof_enable,
 	.bus_suspend = uhc_dwc2_bus_suspend,
 	.bus_resume = uhc_dwc2_bus_resume,
+	/* Queries */
+	.get_speed = uhc_dwc2_get_speed,
 	/* EP related */
 	.ep_enqueue = uhc_dwc2_enqueue,
 	.ep_dequeue = uhc_dwc2_dequeue,
