@@ -1581,6 +1581,7 @@ static bool complete_transfer(struct uhc_transfer *const xfer,
 	header_length = payload_header->bHeaderLength;
 
 	if (buf->len <= UVC_PAYLOAD_HEADER_MIN_SIZE) {
+		LOG_WRN("Only %u bytes, skipping packet", buf->len);
 		goto cleanup;
 	}
 
@@ -1593,6 +1594,8 @@ static bool complete_transfer(struct uhc_transfer *const xfer,
 			}
 		} else if (presentation_time != host_data->current_frame_timestamp) {
 			host_data->save_picture = false;
+			LOG_WRN("presentation time mismatch, expected %u, got %u - discarding",
+				host_data->current_frame_timestamp, presentation_time);
 		} else {
 			/* Normal frame continuation */
 		}
@@ -1643,6 +1646,7 @@ static bool complete_transfer(struct uhc_transfer *const xfer,
 	LOG_DBG("Frame completed: %u bytes (FID: %u)", vbuf->bytesused, frame_id);
 
 	if (!atomic_test_bit(&host_data->device_flags, UVC_DEVICE_FLAG_STREAMING)) {
+		LOG_WRN("Device is not streaming anymore, pausing");
 		goto cleanup;
 	}
 
