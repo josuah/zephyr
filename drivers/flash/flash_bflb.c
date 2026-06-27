@@ -2733,8 +2733,8 @@ static __ramfunc int flash_bflb_discovery(struct flash_bflb_bank_data *data, uin
 		}
 
 	} else {
-		flash_bflb_nxip_message_set(data, NXIP_MSG_SAD_SFDP, 1,
-					    JESD216_SFDP_PARAM_ID_BFP, 0);
+		flash_bflb_nxip_message_set(data, NXIP_MSG_SAD_SFDP,
+					    JESD216_SFDP_PARAM_ID_BFP, 1, 0);
 	}
 
 	return ret;
