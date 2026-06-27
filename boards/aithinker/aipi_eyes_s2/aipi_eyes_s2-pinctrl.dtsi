@@ -1,0 +1,54 @@
+/*
+ * Copyright (c) 2026 Panoramix Labs
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+&pinctrl {
+	/* "J9" connector (1:3V3, 2:SCL, 3:SDA, 4:GND), at the top */
+	i2c0_default: i2c0_default {
+		group1 {
+			pinmux = <GPIO0_I2C0_SCL>,
+				 <GPIO1_I2C0_SDA>;
+			bias-pull-up;
+			input-schmitt-enable;
+		};
+	};
+
+	/* "SPI Touch Screen", "CON1" connector */
+	spi0_default: spi0_default {
+		group1 {
+			pinmux = <GPIO15_SPI_MOSI>,
+				 <GPIO17_SPI_SCLK>;
+			bias-pull-up;
+			input-schmitt-enable;
+		};
+	};
+
+	/* "TF1", "Micro SD Socket", SD card connector at the back, absent by default.
+	 * It needs the connector, 6 resistors, 1 capacitor soldered as in the schematics.
+	 */
+	sdh_default: sdh_default {
+		group_data {
+			pinmux = <GPIO11_SDH_DAT0>,
+				 <GPIO10_SDH_DAT1>,
+				 <GPIO15_SDH_DAT2>,
+				 <GPIO14_SDH_DAT3>;
+			bias-pull-up;
+			input-schmitt-enable;
+		};
+
+		group_cmd {
+			pinmux = <GPIO13_SDH_CMD>;
+			bias-pull-up;
+			input-schmitt-enable;
+		};
+
+		group_clk {
+			pinmux = <GPIO12_SDH_CLK>;
+			bias-pull-up;
+			input-schmitt-enable;
+			drive-strength = <1>;
+		};
+	};
+};
