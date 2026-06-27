@@ -165,7 +165,7 @@ static void flash_bflb_nxip_message_bad_sfdp(uint32_t arg1, uint32_t arg2, uint3
 
 static void flash_bflb_nxip_message_sad_sfdp(uint32_t arg1, uint32_t arg2, uint32_t arg3)
 {
-	LOG_WRN("Serial Flash Discovery Protocol unexpected, code: %u %x", arg1, arg2);
+	LOG_WRN("Serial Flash Discovery Protocol unexpected, code: %u %d", arg1, arg2);
 }
 
 static void flash_bflb_nxip_message_notsup_sfdp(uint32_t arg1, uint32_t arg2, uint32_t arg3)
