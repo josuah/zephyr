@@ -158,7 +158,7 @@ static void flash_bflb_nxip_message_bad_sfdp(uint32_t arg1, uint32_t arg2, uint3
 
 static void flash_bflb_nxip_message_sad_sfdp(uint32_t arg1, uint32_t arg2, uint32_t arg3)
 {
-	LOG_WRN("Serial Flash Discovery Protocol unexpected, code: %u %x", arg1, arg2);
+	LOG_WRN("Serial Flash Discovery Protocol unexpected, code: %u %d", arg1, arg2);
 }
 
 static void flash_bflb_nxip_message_notsup_sfdp(uint32_t arg1, uint32_t arg2, uint32_t arg3)
@@ -2730,8 +2730,8 @@ static __ramfunc int flash_bflb_discovery(struct flash_bflb_bank_data *data, uin
 		}
 
 	} else {
-		flash_bflb_nxip_message_set(data, NXIP_MSG_SAD_SFDP, 1,
-					    JESD216_SFDP_PARAM_ID_BFP, 0);
+		flash_bflb_nxip_message_set(data, NXIP_MSG_SAD_SFDP,
+					    JESD216_SFDP_PARAM_ID_BFP, 1, 0);
 	}
 
 	return ret;
