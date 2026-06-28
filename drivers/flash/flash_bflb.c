@@ -1079,7 +1079,7 @@ static __ramfunc int flash_bflb_flash_set_burst(struct flash_bflb_bank_data *dat
 		return ret;
 	}
 
-	/* Burst wrap commands are usually in QO mode */
+	/* Burst wrap commands are usually in QIO mode */
 	enable_burstwrap.spi_mode = BUS_QIO;
 	enable_burstwrap.dummy_clks = data->cfg.cmd.burstwrap_dmycy;
 	enable_burstwrap.cmd_buf[0] = data->cfg.cmd.burstwrap << 24;
@@ -2581,7 +2581,7 @@ static __ramfunc int flash_bflb_discovery(struct flash_bflb_bank_data *data, uin
 			if (data->cfg.cmd.auto_read == 0) {
 				data->cfg.cmd.auto_read = instr.instr;
 			}
-			/* Dummy cycles come in package of 8 */
+			/* Dummy cycles come in package of 8 bits */
 			if (data->cfg.cmd.auto_read_dmycy == 0) {
 				data->cfg.cmd.auto_read_dmycy = instr.wait_states / dummy_div;
 
