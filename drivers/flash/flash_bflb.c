@@ -2581,7 +2581,7 @@ static __ramfunc int flash_bflb_discovery(struct flash_bflb_bank_data *data, uin
 			if (data->cfg.cmd.auto_read == 0) {
 				data->cfg.cmd.auto_read = instr.instr;
 			}
-			/* Dummy cycles come in package of 8 */
+			/* Dummy cycles come in package of 8 bits */
 			if (data->cfg.cmd.auto_read_dmycy == 0) {
 				data->cfg.cmd.auto_read_dmycy = instr.wait_states / dummy_div;
 
