@@ -64,7 +64,7 @@ struct mp_thread {
  * @param delay Scheduling delay, or K_NO_WAIT
  * @return ID of the newly created thread on success or NULL on failure
  */
-k_tid_t mp_thread_create(struct mp_thread *thread, k_thread_entry_t func, void *p1, void *p2,
+k_tid_t mp_thread_create_(struct mp_thread *thread, k_thread_entry_t func, void *p1, void *p2,
 			 void *p3, int priority, k_timeout_t delay);
 
 /**
