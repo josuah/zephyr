@@ -65,10 +65,10 @@ ZTEST_SUITE(mp_thread_api, NULL, thread_suite_setup, thread_before, thread_after
 
 ZTEST_F(mp_thread_api, test_create)
 {
-	k_tid_t tid = mp_thread_create(&fixture->thread, simple_thread_func, &thread_ran_sem, NULL,
+	k_tid_t tid = mp_thread_create_(&fixture->thread, simple_thread_func, &thread_ran_sem, NULL,
 				       NULL, CONFIG_MP_THREAD_DEFAULT_PRIORITY, K_NO_WAIT);
 
-	zassert_not_null(tid, "mp_thread_create returned NULL");
+	zassert_not_null(tid, "mp_thread_create_ returned NULL");
 	zassert_true(fixture->thread.stack_id >= 0 &&
 			     fixture->thread.stack_id < CONFIG_MP_THREADS_NUM,
 		     "stack_id %d out of range [0, %d)", fixture->thread.stack_id,

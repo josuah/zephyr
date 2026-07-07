@@ -291,7 +291,7 @@ static enum mp_state_change_return mp_pipeline_change_state(struct mp_element *e
 		mp_pipeline_set_flushing(&pipeline->bin, false);
 
 		/* Create the thread but do not start it (K_FOREVER) */
-		if (mp_thread_create(&pipeline->thread, mp_pipeline_thread_func, element, NULL,
+		if (mp_thread_create_(&pipeline->thread, mp_pipeline_thread_func, element, NULL,
 				     NULL, CONFIG_MP_THREAD_DEFAULT_PRIORITY, K_FOREVER) == NULL) {
 			LOG_ERR("Failed to create a new pipeline thread");
 			return MP_STATE_CHANGE_FAILURE;

@@ -13,7 +13,7 @@ K_THREAD_STACK_ARRAY_DEFINE(thread_stack, CONFIG_MP_THREADS_NUM, CONFIG_MP_THREA
 
 static bool mp_thread_stack_pool[CONFIG_MP_THREADS_NUM];
 
-k_tid_t mp_thread_create(struct mp_thread *thread, k_thread_entry_t func, void *p1, void *p2,
+k_tid_t mp_thread_create_(struct mp_thread *thread, k_thread_entry_t func, void *p1, void *p2,
 			 void *p3, int priority, k_timeout_t delay)
 {
 	int id;
