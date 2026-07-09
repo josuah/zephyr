@@ -319,18 +319,9 @@ struct mp_structure *mp_structure_fixate(struct mp_structure *src)
 
 	SYS_SLIST_FOR_EACH_CONTAINER(&src->fields, field, node) {
 		switch (mp_value_get_type(field->value)) {
-		case MP_TYPE_INT_RANGE:
+		case MP_TYPE_RANGE:
 			fixated_value =
-				mp_value_new(MP_TYPE_INT, mp_value_get_int_range_min(field->value));
-			break;
-		case MP_TYPE_UINT_RANGE:
-			fixated_value = mp_value_new(MP_TYPE_UINT,
-						     mp_value_get_int_range_min(field->value));
-			break;
-		case MP_TYPE_INT_FRACTION_RANGE:
-		case MP_TYPE_UINT_FRACTION_RANGE:
-			fixated_value =
-				mp_value_duplicate(mp_value_get_fraction_range_min(field->value));
+				mp_value_new(MP_TYPE_INT, mp_value_get_range_min(field->value));
 			break;
 		case MP_TYPE_LIST:
 			fixated_value = mp_value_duplicate(mp_value_list_get(field->value, 0));

@@ -37,7 +37,7 @@
  * @code{.c}
  *
  *  struct mp_structure *structure = mp_structure_new(MEDIA_TYPE_VIDEO_RAW,
- * MP_CAPS_FORMAT, MP_TYPE_UINT, MP_PIXEL_FORMAT_RGB565,
+ * MP_CAPS_FORMAT, MP_TYPE_INT, MP_PIXEL_FORMAT_RGB565,
  * MP_CAPS_WIDTH, MP_TYPE_INT, 1280,
  * MP_CAPS_HEIGHT, MP_TYPE_INT, 720,
  * MP_CAPS_FRAMERATE, 30, 1, MP_CAPS_END);
@@ -47,21 +47,22 @@
  * Structure supports also int range, fraction range and list
  *
  * Example of structure with range and list:
- * video/x-dummy, format={MP_PIXEL_FORMAT_RGB565, MP_PIXEL_FORMAT_XRGB}, width=[720, 1080,
- * 720], height=[960, 1920, 960], framerate=[30/1, 60,1, 15/1]
+ * video/x-dummy, format={MP_PIXEL_FORMAT_RGB565, MP_PIXEL_FORMAT_XRGB}, width=[720, 1080, 720],
+ *     height=[960, 1920, 960], framerate=[33333333, 16666666, 1, 66666666]
  *
  * To create a new structure this one structure structure:
  * @code{.c}
  *
  * mp_value_t list = mp_value_new(MP_TYPE_LIST, NULL);
- * mp_value_list_append(list, mp_value_new(MP_TYPE_UINT, MP_PIXEL_FORMAT_RGB565, NULL));
- * mp_value_list_append(list, mp_value_new(MP_TYPE_UINT, MP_PIXEL_FORMAT_XRGB32, NULL));
+ * mp_value_list_append(list, mp_value_new(MP_TYPE_INT, MP_PIXEL_FORMAT_RGB565, NULL));
+ * mp_value_list_append(list, mp_value_new(MP_TYPE_INT, MP_PIXEL_FORMAT_XRGB32, NULL));
  *
  * struct mp_structure *structure = mp_structure_new(MEDIA_TYPE_VIDEO_RAW,
  *     MP_CAPS_FORMAT, MP_TYPE_LIST, list,
- *     MP_CAPS_WIDTH, MP_TYPE_RANGE_INT, 720, 1080, 720,
- *     MP_CAPS_HEIGHT, MP_TYPE_RANGE_INT, 960, 1920, 960,
- *     MP_CAPS_FRAMERATE, MP_TYPE_FRACTION_RANGE, 30, 1, 60, 1, 15, 1, MP_CAPS_END);
+ *     MP_CAPS_WIDTH, MP_TYPE_RANGE, 720, 1080, 720,
+ *     MP_CAPS_HEIGHT, MP_TYPE_RANGE, 960, 1920, 960,
+ *     MP_CAPS_FRAMERATE, MP_TYPE_RANGE, NSEC_PER_SEC / 30, NSEC_PER_SEC / 60, NSEC_PER_SEC / 15,
+ *     MP_CAPS_END);
  *
  * @endcode
  *

@@ -65,11 +65,11 @@ ZTEST(mp_value_api, test_new_values)
 	zassert_equal(mp_value_get_int(iv), -42, "value != -42");
 	mp_value_destroy(iv);
 
-	mp_value_t uv = mp_value_new(MP_TYPE_UINT, 123U);
+	mp_value_t uv = mp_value_new(MP_TYPE_INT, 123U);
 
 	zassert_not_null(uv);
-	zassert_equal(mp_value_get_type(uv), MP_TYPE_UINT, "type != UINT");
-	zassert_equal(mp_value_get_uint(uv), 123U, "value != 123");
+	zassert_equal(mp_value_get_type(uv), MP_TYPE_INT, "type != INT");
+	zassert_equal(mp_value_get_int(uv), 123U, "value != 123");
 	mp_value_destroy(uv);
 
 	mp_value_t sv = mp_value_new(MP_TYPE_STRING, "hello");
@@ -79,22 +79,14 @@ ZTEST(mp_value_api, test_new_values)
 	zassert_str_equal(mp_value_get_string(sv), "hello", "string mismatch");
 	mp_value_destroy(sv);
 
-	mp_value_t rv = mp_value_new(MP_TYPE_INT_RANGE, 8000, 48000, 8000);
+	mp_value_t rv = mp_value_new(MP_TYPE_RANGE, 8000, 48000, 8000);
 
 	zassert_not_null(rv);
-	zassert_equal(mp_value_get_type(rv), MP_TYPE_INT_RANGE, "type != INT_RANGE");
-	zassert_equal(mp_value_get_int_range_min(rv), 8000, "min != 8000");
-	zassert_equal(mp_value_get_int_range_max(rv), 48000, "max != 48000");
-	zassert_equal(mp_value_get_int_range_step(rv), 8000, "step != 8000");
+	zassert_equal(mp_value_get_type(rv), MP_TYPE_RANGE, "type != INT_RANGE");
+	zassert_equal(mp_value_get_range_min(rv), 8000, "min != 8000");
+	zassert_equal(mp_value_get_range_max(rv), 48000, "max != 48000");
+	zassert_equal(mp_value_get_range_step(rv), 8000, "step != 8000");
 	mp_value_destroy(rv);
-
-	mp_value_t fv = mp_value_new(MP_TYPE_INT_FRACTION, 30, 1);
-
-	zassert_not_null(fv);
-	zassert_equal(mp_value_get_type(fv), MP_TYPE_INT_FRACTION, "type != INT_FRACTION");
-	zassert_equal(mp_value_get_fraction_numerator(fv), 30, "numerator != 30");
-	zassert_equal(mp_value_get_fraction_denominator(fv), 1, "denominator != 1");
-	mp_value_destroy(fv);
 
 	mp_value_t ez = mp_value_new(MP_TYPE_INT, 0);
 
@@ -170,7 +162,7 @@ ZTEST(mp_value_api, test_intersect)
 	mp_value_destroy(a);
 	mp_value_destroy(b);
 
-	mp_value_t range = mp_value_new(MP_TYPE_INT_RANGE, 8000, 48000, 8000);
+	mp_value_t range = mp_value_new(MP_TYPE_RANGE, 8000, 48000, 8000);
 	mp_value_t val = mp_value_new(MP_TYPE_INT, 16000);
 
 	result = mp_value_intersect(range, val);
@@ -191,13 +183,13 @@ ZTEST(mp_value_api, test_duplicate_and_is_primitive)
 	mp_value_destroy(original);
 	mp_value_destroy(copy);
 
-	mp_value_t rorig = mp_value_new(MP_TYPE_INT_RANGE, 1, 100, 1);
+	mp_value_t rorig = mp_value_new(MP_TYPE_RANGE, 1, 100, 1);
 	mp_value_t rcopy = mp_value_duplicate(rorig);
 
 	zassert_not_null(rcopy);
-	zassert_equal(mp_value_get_int_range_min(rcopy), 1, "min != 1");
-	zassert_equal(mp_value_get_int_range_max(rcopy), 100, "max != 100");
-	zassert_equal(mp_value_get_int_range_step(rcopy), 1, "step != 1");
+	zassert_equal(mp_value_get_range_min(rcopy), 1, "min != 1");
+	zassert_equal(mp_value_get_range_max(rcopy), 100, "max != 100");
+	zassert_equal(mp_value_get_range_step(rcopy), 1, "step != 1");
 	mp_value_destroy(rorig);
 	mp_value_destroy(rcopy);
 
@@ -216,7 +208,7 @@ ZTEST(mp_value_api, test_duplicate_and_is_primitive)
 	zassert_false(mp_value_is_primitive(lv), "LIST is primitive");
 	mp_value_destroy(lv);
 
-	mp_value_t rv = mp_value_new(MP_TYPE_INT_RANGE, 0, 10, 1);
+	mp_value_t rv = mp_value_new(MP_TYPE_RANGE, 0, 10, 1);
 
 	zassert_false(mp_value_is_primitive(rv), "INT_RANGE is primitive");
 	mp_value_destroy(rv);
@@ -228,7 +220,7 @@ ZTEST(mp_value_api, test_duplicate_and_is_primitive)
 	mp_value_destroy(ci_a);
 	mp_value_destroy(ci_b);
 
-	mp_value_t ci_range = mp_value_new(MP_TYPE_INT_RANGE, 0, 100, 1);
+	mp_value_t ci_range = mp_value_new(MP_TYPE_RANGE, 0, 100, 1);
 	mp_value_t ci_val = mp_value_new(MP_TYPE_INT, 50);
 
 	zassert_true(mp_value_can_intersect(ci_range, ci_val), "range and value cannot intersect");

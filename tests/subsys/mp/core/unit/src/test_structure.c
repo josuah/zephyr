@@ -80,16 +80,16 @@ ZTEST(mp_structure_api, test_new)
 	mp_structure_destroy(sv);
 
 	struct mp_structure *sr =
-		mp_structure_new(MP_MEDIA_AUDIO_PCM, MP_CAPS_SAMPLE_RATE, MP_TYPE_INT_RANGE, 8000,
+		mp_structure_new(MP_MEDIA_AUDIO_PCM, MP_CAPS_SAMPLE_RATE, MP_TYPE_RANGE, 8000,
 				 48000, 8000, MP_STRUCTURE_END);
 
 	zassert_not_null(sr);
 	mp_value_t val = mp_structure_get_value(sr, MP_CAPS_SAMPLE_RATE);
 
 	zassert_not_null(val);
-	zassert_equal(mp_value_get_type(val), MP_TYPE_INT_RANGE, "type != INT_RANGE");
-	zassert_equal(mp_value_get_int_range_min(val), 8000, "min != 8000");
-	zassert_equal(mp_value_get_int_range_max(val), 48000, "max != 48000");
+	zassert_equal(mp_value_get_type(val), MP_TYPE_RANGE, "type != INT_RANGE");
+	zassert_equal(mp_value_get_range_min(val), 8000, "min != 8000");
+	zassert_equal(mp_value_get_range_max(val), 48000, "max != 48000");
 	mp_structure_destroy(sr);
 
 	struct mp_structure si;
@@ -140,7 +140,7 @@ ZTEST(mp_structure_api, test_is_fixed_fixate_duplicate)
 	mp_structure_destroy(fixed_s);
 
 	struct mp_structure *range_s =
-		mp_structure_new(MP_MEDIA_AUDIO_PCM, MP_CAPS_SAMPLE_RATE, MP_TYPE_INT_RANGE, 8000,
+		mp_structure_new(MP_MEDIA_AUDIO_PCM, MP_CAPS_SAMPLE_RATE, MP_TYPE_RANGE, 8000,
 				 48000, 8000, MP_STRUCTURE_END);
 
 	zassert_false(mp_structure_is_fixed(range_s), "range structure is fixed");
@@ -156,7 +156,7 @@ ZTEST(mp_structure_api, test_is_fixed_fixate_duplicate)
 ZTEST(mp_structure_api, test_intersect)
 {
 	struct mp_structure *s1 =
-		mp_structure_new(MP_MEDIA_AUDIO_PCM, MP_CAPS_SAMPLE_RATE, MP_TYPE_INT_RANGE, 8000,
+		mp_structure_new(MP_MEDIA_AUDIO_PCM, MP_CAPS_SAMPLE_RATE, MP_TYPE_RANGE, 8000,
 				 48000, 8000, MP_STRUCTURE_END);
 	struct mp_structure *s2 = mp_structure_new(MP_MEDIA_AUDIO_PCM, MP_CAPS_SAMPLE_RATE,
 						   MP_TYPE_INT, 16000, MP_STRUCTURE_END);

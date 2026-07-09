@@ -51,14 +51,8 @@ enum mp_value_type {
 	MP_TYPE_BOOLEAN,             /**< Boolean value */
 	MP_TYPE_ENUM,                /**< Enumeration value */
 	MP_TYPE_INT,                 /**< Signed integer value */
-	MP_TYPE_UINT,                /**< Unsigned integer value */
-	MP_TYPE_UINT_FRACTION,       /**< Unsigned integer fraction value */
-	MP_TYPE_INT_FRACTION,        /**< Fraction value */
 	MP_TYPE_STRING,              /**< String value */
-	MP_TYPE_INT_RANGE,           /**< Integer range value */
-	MP_TYPE_INT_FRACTION_RANGE,  /**< Integer fraction range value */
-	MP_TYPE_UINT_RANGE,          /**< Unsigned integer range value */
-	MP_TYPE_UINT_FRACTION_RANGE, /**< Unsigned integer fraction range value */
+	MP_TYPE_RANGE,               /**< Integer range value */
 	MP_TYPE_LIST,                /**< List of values */
 	MP_TYPE_OBJECT,              /**< Object reference */
 	MP_TYPE_PTR,                 /**< Pointer type */
@@ -79,12 +73,9 @@ struct mp_value {
  * This function creates a new mp_value instance based on the provided type.
  * The number and type of variadic arguments depend on the specified enum mp_value_type:
  *
- * - MP_TYPE_BOOLEAN, MP_TYPE_ENUM, MP_TYPE_INT, MP_TYPE_UINT, MP_TYPE_STRING,
- *   MP_TYPE_OBJECT, MP_TYPE_PTR: Require one initialization value.
- * - MP_TYPE_INT_RANGE: Requires three integer values (min, max, and step).
- * - MP_TYPE_FRACTION: Requires two values (numerator and denominator).
- * - MP_TYPE_FRACTION_RANGE: Requires six values (min numerator, min denominator,
- *   max numerator, max denominator, step numerator, and step denominator).
+ * - MP_TYPE_BOOLEAN, MP_TYPE_ENUM, MP_TYPE_INT, MP_TYPE_STRING, MP_TYPE_OBJECT, MP_TYPE_PTR:
+ *   Require one initialization value.
+ * - MP_TYPE_RANGE: Requires three integer values (min, max, and step).
  * - MP_TYPE_LIST: Requires a sequence of mp_value elements, terminated with NULL
  *   to indicate the end of the list.
  *
@@ -197,10 +188,7 @@ mp_value_t mp_value_list_get(const mp_value_t list, int index);
 bool mp_value_get_boolean(const mp_value_t value);
 
 /** Get int value of MP_TYPE_INT */
-int mp_value_get_int(const mp_value_t value);
-
-/** Get uint value of MP_TYPE_UINT */
-uint32_t mp_value_get_uint(const mp_value_t value);
+int64_t mp_value_get_int(const mp_value_t value);
 
 /** Get string value of MP_TYPE_STRING */
 const char *mp_value_get_string(const mp_value_t value);
@@ -208,44 +196,13 @@ const char *mp_value_get_string(const mp_value_t value);
 /** Get pointer value of MP_TYPE_PTR */
 void *mp_value_get_ptr(const mp_value_t value);
 
-/** Get numerator of @ref mp_value with MP_TYPE_FRACTION*/
-int mp_value_get_fraction_numerator(const mp_value_t frac);
 
-/** Get denominator of @ref mp_value with MP_TYPE_FRACTION */
-int mp_value_get_fraction_denominator(const mp_value_t frac);
-
-/** Get minimum value of @ref mp_value with MP_TYPE_INT_RANGE */
-int mp_value_get_int_range_min(const mp_value_t range);
-
-/** Get maximum value of @ref mp_value with MP_TYPE_INT_RANGE */
-int mp_value_get_int_range_max(const mp_value_t range);
-
-/** Get step value of @ref mp_value with MP_TYPE_INT_RANGE */
-int mp_value_get_int_range_step(const mp_value_t range);
-
-/** Get minimum value of @ref mp_value with MP_TYPE_UINT_RANGE */
-uint32_t mp_value_get_uint_range_min(const mp_value_t range);
-
-/** Get maximum value of @ref mp_value with MP_TYPE_UINT_RANGE */
-uint32_t mp_value_get_uint_range_max(const mp_value_t range);
-
-/** Get step value of @ref mp_value with MP_TYPE_UINT_RANGE */
-uint32_t mp_value_get_uint_range_step(const mp_value_t range);
-
-/** Get the min value of a mp_value with type MP_TYPE_FRACTION_RANGE, returning a mp_value with
- * MP_TYPE_FRACTION
- */
-const mp_value_t mp_value_get_fraction_range_min(const mp_value_t fraction_range);
-
-/** Get the max value of a mp_value with type MP_TYPE_FRACTION_RANGE, returning a mp_value with
- * MP_TYPE_FRACTION
- */
-const mp_value_t mp_value_get_fraction_range_max(const mp_value_t fraction_range);
-
-/** Get the step value of a mp_value with type MP_TYPE_FRACTION_RANGE, returning a mp_value
- * with MP_TYPE_FRACTION
- */
-const mp_value_t mp_value_get_fraction_range_step(const mp_value_t fraction_range);
+/** Get minimum value of @ref mp_value with MP_TYPE_RANGE */
+int mp_value_get_range_min(const mp_value_t range);
+/* Get maximum value of @ref mp_value with MP_TYPE_RANGE */
+int mp_value_get_range_max(const mp_value_t range);
+/* Get step value of @ref mp_value with MP_TYPE_RANGE */
+int mp_value_get_range_step(const mp_value_t range);
 
 /** Get the object reference of a mp_value with MP_TYPE_OBJECT */
 struct mp_object *mp_value_get_object(mp_value_t value);
@@ -273,36 +230,14 @@ int mp_value_compare(const mp_value_t val1, const mp_value_t val2);
 mp_value_t mp_value_intersect(const mp_value_t val1, const mp_value_t val2);
 
 /**
- * Comparison between two fractions
- *
- * @param frac1 first fraction
- * @param frac2 second fraction
- * @return MP_VALUE_GREATER_THAN if frac1 > frac2
- * MP_VALUE_LESS_THAN if frac1 < frac2
- * MP_VALUE_EQUAL if frac1 == frac2
- */
-int mp_value_compare_fraction(const mp_value_t frac1, const mp_value_t frac2);
-
-/**
  * Intersect between value and range
  *
  * @param ref_val reference value to compare with
  * @param compare_val value to compare with
  * @return NULL if intersect is empty
  */
-mp_value_t mp_value_intersect_int_range(const mp_value_t ref_val,
-					      const mp_value_t compare_val);
-
-/**
- * Intersect between franction range and fraction
- *
- * @param ref_val reference value to compare with, reference value should be
- * fraction range
- * @param compare_val value to compare with
- * @return NULL if intersect is empty
- */
-mp_value_t mp_value_intersect_fraction_range(const mp_value_t ref_val,
-						   const mp_value_t compare_val);
+mp_value_t mp_value_intersect_range(const mp_value_t ref_val,
+				    const mp_value_t compare_val);
 
 /**
  * Intersect between list with value, range or list

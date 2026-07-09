@@ -62,13 +62,6 @@ ZTEST_SUITE(caps, NULL, caps_suite_setup, caps_before, caps_after, NULL);
 		zassert_equal(mp_value_get_int(value), expected);                                  \
 	})
 
-#define validate_uint_value(value, expected)                                                       \
-	({                                                                                         \
-		zassert_not_null(value);                                                           \
-		zassert_equal(mp_value_get_type(value), MP_TYPE_UINT);                             \
-		zassert_equal(mp_value_get_uint(value), expected);                                 \
-	})
-
 #define validate_string_value(value, expected)                                                     \
 	({                                                                                         \
 		zassert_not_null(value);                                                           \
@@ -76,70 +69,13 @@ ZTEST_SUITE(caps, NULL, caps_suite_setup, caps_before, caps_after, NULL);
 		zassert_str_equal(mp_value_get_string(value), expected);                           \
 	})
 
-#define validate_int_fraction_value(value, num, denom)                                             \
+#define validate_range_value(value, min, max, step)                                                \
 	({                                                                                         \
 		zassert_not_null(value);                                                           \
-		zassert_equal(mp_value_get_type(value), MP_TYPE_INT_FRACTION);                     \
-		zassert_equal(mp_value_get_fraction_numerator(value), num);                        \
-		zassert_equal(mp_value_get_fraction_denominator(value), denom);                    \
-	})
-
-#define validate_uint_fraction_value(value, num, denom)                                            \
-	({                                                                                         \
-		zassert_not_null(value);                                                           \
-		zassert_equal(mp_value_get_type(value), MP_TYPE_UINT_FRACTION);                    \
-		zassert_equal(mp_value_get_fraction_numerator(value), num);                        \
-		zassert_equal(mp_value_get_fraction_denominator(value), denom);                    \
-	})
-
-#define validate_int_range_value(value, min, max, step)                                            \
-	({                                                                                         \
-		zassert_not_null(value);                                                           \
-		zassert_equal(mp_value_get_type(value), MP_TYPE_INT_RANGE);                        \
-		zassert_equal(mp_value_get_int_range_min(value), min);                             \
-		zassert_equal(mp_value_get_int_range_max(value), max);                             \
-		zassert_equal(mp_value_get_int_range_step(value), step);                           \
-	})
-
-#define validate_uint_range_value(value, min, max, step)                                           \
-	({                                                                                         \
-		zassert_not_null(value);                                                           \
-		zassert_equal(mp_value_get_type(value), MP_TYPE_UINT_RANGE);                       \
-		zassert_equal(mp_value_get_uint_range_min(value), min);                            \
-		zassert_equal(mp_value_get_uint_range_max(value), max);                            \
-		zassert_equal(mp_value_get_uint_range_step(value), step);                          \
-	})
-
-#define validate_fraction_int_range(value, min_num, min_denom, max_num, max_denom, step_num,       \
-				    step_denom)                                                    \
-	({                                                                                         \
-		zassert_not_null(value);                                                           \
-		zassert_equal(mp_value_get_type(value), MP_TYPE_INT_FRACTION_RANGE);               \
-		mp_value_t frac = mp_value_get_fraction_range_min(value);                          \
-		zassert_equal(mp_value_get_fraction_numerator(frac), min_num);                     \
-		zassert_equal(mp_value_get_fraction_denominator(frac), min_denom);                 \
-		frac = mp_value_get_fraction_range_max(value);                                     \
-		zassert_equal(mp_value_get_fraction_numerator(frac), max_num);                     \
-		zassert_equal(mp_value_get_fraction_denominator(frac), max_denom);                 \
-		frac = mp_value_get_fraction_range_step(value);                                    \
-		zassert_equal(mp_value_get_fraction_numerator(frac), step_num);                    \
-		zassert_equal(mp_value_get_fraction_denominator(frac), step_denom);                \
-	})
-
-#define validate_uint_fraction_range(value, min_num, min_denom, max_num, max_denom, step_num,      \
-				     step_denom)                                                   \
-	({                                                                                         \
-		zassert_not_null(value);                                                           \
-		zassert_equal(mp_value_get_type(value), MP_TYPE_UINT_FRACTION_RANGE);              \
-		mp_value_t frac = mp_value_get_fraction_range_min(value);                          \
-		zassert_equal(mp_value_get_fraction_numerator(frac), min_num);                     \
-		zassert_equal(mp_value_get_fraction_denominator(frac), min_denom);                 \
-		frac = mp_value_get_fraction_range_max(value);                                     \
-		zassert_equal(mp_value_get_fraction_numerator(frac), max_num);                     \
-		zassert_equal(mp_value_get_fraction_denominator(frac), max_denom);                 \
-		frac = mp_value_get_fraction_range_step(value);                                    \
-		zassert_equal(mp_value_get_fraction_numerator(frac), step_num);                    \
-		zassert_equal(mp_value_get_fraction_denominator(frac), step_denom);                \
+		zassert_equal(mp_value_get_type(value), MP_TYPE_RANGE);                            \
+		zassert_equal(mp_value_get_range_min(value), min);                                 \
+		zassert_equal(mp_value_get_range_max(value), max);                                 \
+		zassert_equal(mp_value_get_range_step(value), step);                               \
 	})
 
 #define validate_list_value_type_and_size(value, expected_size)                                    \
@@ -152,26 +88,25 @@ ZTEST_SUITE(caps, NULL, caps_suite_setup, caps_before, caps_after, NULL);
 enum test_field {
 	TEST_BOOL = 0,
 	TEST_INT,
-	TEST_UINT,
 	TEST_STRING,
-	TEST_FRACTION,
-	TEST_RANGE_INT,
-	TEST_RANGE_UINT,
-	TEST_INT_FRACTION_RANGE,
-	TEST_UINT_FRACTION_RANGE,
+	TEST_RANGE,
 	TEST_LIST,
 };
 
 ZTEST_F(caps, test_caps_intersection_primitive)
 {
-	fixture->caps[1] = mp_caps_new(MP_MEDIA_AUDIO_PCM, TEST_BOOL, MP_TYPE_BOOLEAN, true,
-				       TEST_INT, MP_TYPE_INT, -123, TEST_UINT, MP_TYPE_UINT, 123,
-				       TEST_STRING, MP_TYPE_STRING, "xRGB", TEST_FRACTION,
-				       MP_TYPE_INT_FRACTION, 30, 1, MP_CAPS_END);
-	fixture->caps[2] = mp_caps_new(MP_MEDIA_AUDIO_PCM, TEST_BOOL, MP_TYPE_BOOLEAN, true,
-				       TEST_INT, MP_TYPE_INT, -123, TEST_UINT, MP_TYPE_UINT, 123,
-				       TEST_STRING, MP_TYPE_STRING, "xRGB", TEST_FRACTION,
-				       MP_TYPE_INT_FRACTION, 30, 1, MP_CAPS_END);
+	fixture->caps[1] = mp_caps_new(
+		MP_MEDIA_AUDIO_PCM,
+		TEST_BOOL, MP_TYPE_BOOLEAN, true,
+		TEST_INT, MP_TYPE_INT, -123,
+		TEST_STRING, MP_TYPE_STRING, "xRGB",
+		MP_CAPS_END);
+	fixture->caps[2] = mp_caps_new(
+		MP_MEDIA_AUDIO_PCM,
+		TEST_BOOL, MP_TYPE_BOOLEAN, true,
+		TEST_INT, MP_TYPE_INT, -123,
+		TEST_STRING, MP_TYPE_STRING, "xRGB",
+		MP_CAPS_END);
 	fixture->caps_intersect = mp_caps_intersect(fixture->caps[1], fixture->caps[1]);
 	fixture->structure = mp_caps_get_structure(fixture->caps_intersect, 0);
 
@@ -181,21 +116,15 @@ ZTEST_F(caps, test_caps_intersection_primitive)
 	fixture->value = mp_structure_get_value(fixture->structure, TEST_INT);
 	validate_int_value(fixture->value, -123);
 
-	fixture->value = mp_structure_get_value(fixture->structure, TEST_UINT);
-	validate_uint_value(fixture->value, 123);
-
 	fixture->value = mp_structure_get_value(fixture->structure, TEST_STRING);
 	validate_string_value(fixture->value, "xRGB");
-
-	fixture->value = mp_structure_get_value(fixture->structure, TEST_FRACTION);
-	validate_int_fraction_value(fixture->value, 30, 1);
 
 	mp_caps_unref(fixture->caps[1]);
 	mp_caps_unref(fixture->caps[2]);
 	mp_caps_unref(fixture->caps_intersect);
 }
 
-ZTEST_F(caps, test_caps_int_with_int_range)
+ZTEST_F(caps, test_caps_int_with_range)
 {
 	struct {
 		int value;
@@ -206,20 +135,22 @@ ZTEST_F(caps, test_caps_int_with_int_range)
 		{(INT_MIN + INT_MAX) / 2, (INT_MIN + INT_MAX) / 2},
 	};
 
-	fixture->caps[0] = mp_caps_new(MP_MEDIA_AUDIO_PCM, TEST_RANGE_INT, MP_TYPE_INT_RANGE,
-				       INT_MIN, INT_MAX, 1, MP_CAPS_END);
+	fixture->caps[0] = mp_caps_new(MP_MEDIA_AUDIO_PCM,
+				       TEST_RANGE, MP_TYPE_RANGE, INT_MIN, INT_MAX, 1,
+				       MP_CAPS_END);
 	zassert_not_null(fixture->caps[0], "caps[0] alloc failed");
 
 	for (int i = 0; i < ARRAY_SIZE(test_cases); i++) {
-		fixture->caps[1] = mp_caps_new(MP_MEDIA_AUDIO_PCM, TEST_RANGE_INT, MP_TYPE_INT,
-					       test_cases[i].value, MP_CAPS_END);
+		fixture->caps[1] = mp_caps_new(MP_MEDIA_AUDIO_PCM,
+					       TEST_RANGE, MP_TYPE_INT, test_cases[i].value,
+					       MP_CAPS_END);
 		zassert_not_null(fixture->caps[1], "caps[1] alloc failed");
 
 		fixture->caps_intersect = mp_caps_intersect(fixture->caps[0], fixture->caps[1]);
 		zassert_not_null(fixture->caps_intersect, "intersection returned NULL");
 
 		fixture->structure = mp_caps_get_structure(fixture->caps_intersect, 0);
-		fixture->value = mp_structure_get_value(fixture->structure, TEST_RANGE_INT);
+		fixture->value = mp_structure_get_value(fixture->structure, TEST_RANGE);
 		validate_int_value(fixture->value, test_cases[i].expected);
 
 		mp_caps_unref(fixture->caps[1]);
@@ -229,149 +160,25 @@ ZTEST_F(caps, test_caps_int_with_int_range)
 	mp_caps_unref(fixture->caps[0]);
 }
 
-ZTEST_F(caps, test_caps_uint_with_uint_range)
-{
-	struct {
-		unsigned int expected;
-		bool should_succeed;
-		const char *description;
-	} test_cases[] = {
-		{0, true, "Zero value"},
-		{UINT32_MAX, true, "Maximum value"},
-		{UINT32_MAX / 2, true, "Mid-range value"},
-	};
-
-	fixture->caps[0] = mp_caps_new(MP_MEDIA_AUDIO_PCM, TEST_RANGE_UINT, MP_TYPE_UINT_RANGE, 0,
-				       UINT32_MAX, 1, MP_CAPS_END);
-	zassert_not_null(fixture->caps[0], "caps[0] alloc failed");
-
-	for (int i = 0; i < ARRAY_SIZE(test_cases); i++) {
-		fixture->caps[1] = mp_caps_new(MP_MEDIA_AUDIO_PCM, TEST_RANGE_UINT, MP_TYPE_UINT,
-					       test_cases[i].expected, MP_CAPS_END);
-		zassert_not_null(fixture->caps[1], "caps[1] alloc failed for: %s",
-				 test_cases[i].description);
-
-		fixture->caps_intersect = mp_caps_intersect(fixture->caps[0], fixture->caps[1]);
-		zassert_not_null(fixture->caps_intersect, "intersection returned NULL for: %s",
-				 test_cases[i].description);
-
-		fixture->structure = mp_caps_get_structure(fixture->caps_intersect, 0);
-		fixture->value = mp_structure_get_value(fixture->structure, TEST_RANGE_UINT);
-		validate_uint_value(fixture->value, test_cases[i].expected);
-
-		mp_caps_unref(fixture->caps_intersect);
-		mp_caps_unref(fixture->caps[1]);
-	}
-
-	mp_caps_unref(fixture->caps[0]);
-}
-
-ZTEST_F(caps, test_caps_int_fraction_range_intersection)
-{
-	fixture->caps[0] = mp_caps_new(MP_MEDIA_AUDIO_PCM, TEST_INT_FRACTION_RANGE,
-				       MP_TYPE_INT_FRACTION, 1, INT_MIN, MP_CAPS_END);
-	fixture->caps[1] =
-		mp_caps_new(MP_MEDIA_AUDIO_PCM, TEST_INT_FRACTION_RANGE, MP_TYPE_INT_FRACTION_RANGE,
-			    1, INT_MIN, INT_MAX, 1, 1, 1, MP_CAPS_END);
-
-	fixture->caps_intersect = mp_caps_intersect(fixture->caps[1], fixture->caps[1]);
-	zassert_not_null(fixture->caps_intersect, "intersection returned NULL");
-	fixture->structure = mp_caps_get_structure(fixture->caps_intersect, 0);
-	fixture->value = mp_structure_get_value(fixture->structure, TEST_INT_FRACTION_RANGE);
-	validate_fraction_int_range(fixture->value, 1, INT_MIN, INT_MAX, 1, 1, 1);
-	mp_caps_unref(fixture->caps_intersect);
-
-	fixture->caps_intersect = mp_caps_intersect(fixture->caps[0], fixture->caps[1]);
-	zassert_not_null(fixture->caps_intersect, "intersection returned NULL");
-	fixture->structure = mp_caps_get_structure(fixture->caps_intersect, 0);
-	fixture->value = mp_structure_get_value(fixture->structure, TEST_INT_FRACTION_RANGE);
-	validate_int_fraction_value(fixture->value, 1, INT_MIN);
-
-	mp_caps_unref(fixture->caps_intersect);
-	mp_caps_unref(fixture->caps[0]);
-	mp_caps_unref(fixture->caps[1]);
-}
-
-ZTEST_F(caps, test_caps_uint_fraction_range_intersection)
-{
-	fixture->caps[0] = mp_caps_new(MP_MEDIA_AUDIO_PCM, TEST_UINT_FRACTION_RANGE,
-				       MP_TYPE_UINT_FRACTION, 1, UINT32_MAX, MP_CAPS_END);
-	fixture->caps[1] = mp_caps_new(MP_MEDIA_AUDIO_PCM, TEST_UINT_FRACTION_RANGE,
-				       MP_TYPE_UINT_FRACTION_RANGE, 1, UINT32_MAX, UINT32_MAX, 1, 1,
-				       1, MP_CAPS_END);
-
-	fixture->caps_intersect = mp_caps_intersect(fixture->caps[1], fixture->caps[1]);
-	zassert_not_null(fixture->caps_intersect, "intersection returned NULL");
-	fixture->structure = mp_caps_get_structure(fixture->caps_intersect, 0);
-	fixture->value = mp_structure_get_value(fixture->structure, TEST_UINT_FRACTION_RANGE);
-	validate_uint_fraction_range(fixture->value, 1, UINT32_MAX, UINT32_MAX, 1, 1, 1);
-	mp_caps_unref(fixture->caps_intersect);
-
-	fixture->caps_intersect = mp_caps_intersect(fixture->caps[0], fixture->caps[1]);
-	zassert_not_null(fixture->caps_intersect, "intersection returned NULL");
-	fixture->structure = mp_caps_get_structure(fixture->caps_intersect, 0);
-	fixture->value = mp_structure_get_value(fixture->structure, TEST_UINT_FRACTION_RANGE);
-	validate_uint_fraction_value(fixture->value, 1, UINT32_MAX);
-
-	mp_caps_unref(fixture->caps_intersect);
-	mp_caps_unref(fixture->caps[0]);
-	mp_caps_unref(fixture->caps[1]);
-}
-
-ZTEST_F(caps, test_caps_int_fraction_range)
-{
-	fixture->caps[0] =
-		mp_caps_new(MP_MEDIA_AUDIO_PCM, TEST_FRACTION, MP_TYPE_INT_FRACTION, 1,
-			    INT32_MIN, MP_CAPS_END);
-	fixture->caps[1] =
-		mp_caps_new(MP_MEDIA_AUDIO_PCM, TEST_FRACTION, MP_TYPE_INT_FRACTION_RANGE, 1,
-			    INT32_MIN, INT32_MAX, 1, 1, 1, MP_CAPS_END);
-	fixture->caps[2] =
-		mp_caps_new(MP_MEDIA_AUDIO_PCM, TEST_FRACTION, MP_TYPE_INT_FRACTION_RANGE, 1,
-			    INT32_MIN, INT32_MAX, 1, 1, 1, MP_CAPS_END);
-
-	fixture->caps_intersect = mp_caps_intersect(fixture->caps[0], fixture->caps[1]);
-	zassert_not_null(fixture->caps_intersect, "intersection returned NULL");
-
-	fixture->structure = mp_caps_get_structure(fixture->caps_intersect, 0);
-	fixture->value = mp_structure_get_value(fixture->structure, TEST_FRACTION);
-	validate_int_fraction_value(fixture->value, 1, INT32_MIN);
-	mp_caps_unref(fixture->caps_intersect);
-
-	fixture->caps_intersect = mp_caps_intersect(fixture->caps[1], fixture->caps[2]);
-	zassert_not_null(fixture->caps_intersect, "intersection returned NULL");
-
-	fixture->structure = mp_caps_get_structure(fixture->caps_intersect, 0);
-	fixture->value = mp_structure_get_value(fixture->structure, TEST_FRACTION);
-	validate_fraction_int_range(fixture->value, 1, INT_MIN, INT_MAX, 1, 1, 1);
-
-	mp_caps_unref(fixture->caps[0]);
-	mp_caps_unref(fixture->caps[1]);
-	mp_caps_unref(fixture->caps[2]);
-	mp_caps_unref(fixture->caps_intersect);
-}
-
 ZTEST_F(caps, test_caps_intersection_list)
 {
 	fixture->caps[0] = mp_caps_new(
-		MP_MEDIA_AUDIO_PCM, TEST_LIST, MP_TYPE_LIST,
-		mp_value_new(MP_TYPE_LIST, mp_value_new(MP_TYPE_INT, 15),
-			     mp_value_new(MP_TYPE_UINT, 30),
-			     mp_value_new(MP_TYPE_INT_FRACTION, 15, 1),
-			     mp_value_new(MP_TYPE_INT_RANGE, 1, 100, 1),
-			     mp_value_new(MP_TYPE_INT_FRACTION_RANGE, 100, 1, 60, 1, 1, 1),
-			     mp_value_new(MP_TYPE_STRING, "RGB"),
-			     mp_value_new(MP_TYPE_LIST, mp_value_new(MP_TYPE_INT, 15), NULL), NULL),
+		MP_MEDIA_AUDIO_PCM,
+		TEST_LIST, MP_TYPE_LIST, mp_value_new(MP_TYPE_LIST,
+			mp_value_new(MP_TYPE_INT, 15),
+			mp_value_new(MP_TYPE_RANGE, 1, 100, 1),
+			mp_value_new(MP_TYPE_STRING, "RGB"),
+			mp_value_new(MP_TYPE_LIST, mp_value_new(MP_TYPE_INT, 15), NULL),
+			NULL),
 		MP_CAPS_END);
 	fixture->caps[1] = mp_caps_new(
-		MP_MEDIA_AUDIO_PCM, TEST_LIST, MP_TYPE_LIST,
-		mp_value_new(MP_TYPE_LIST, mp_value_new(MP_TYPE_STRING, "RGB"),
-			     mp_value_new(MP_TYPE_UINT, 30),
-			     mp_value_new(MP_TYPE_LIST, mp_value_new(MP_TYPE_INT, 15), NULL),
-			     mp_value_new(MP_TYPE_INT_RANGE, 1, 100, 1),
-			     mp_value_new(MP_TYPE_INT_FRACTION, 15, 1),
-			     mp_value_new(MP_TYPE_INT_FRACTION_RANGE, 100, 1, 60, 1, 1, 1),
-			     mp_value_new(MP_TYPE_INT, 15), NULL),
+		MP_MEDIA_AUDIO_PCM,
+		TEST_LIST, MP_TYPE_LIST, mp_value_new(MP_TYPE_LIST,
+			mp_value_new(MP_TYPE_STRING, "RGB"),
+			mp_value_new(MP_TYPE_LIST, mp_value_new(MP_TYPE_INT, 15), NULL),
+			mp_value_new(MP_TYPE_RANGE, 1, 100, 1),
+			mp_value_new(MP_TYPE_INT, 15),
+			NULL),
 		MP_CAPS_END);
 
 	fixture->caps_intersect = mp_caps_intersect(fixture->caps[0], fixture->caps[1]);
@@ -385,10 +192,10 @@ ZTEST_F(caps, test_caps_intersection_list)
 	validate_int_value(list_val, 15);
 
 	list_val = mp_value_list_get(list, 1);
-	validate_uint_value(list_val, 30);
+	validate_int_value(list_val, 30);
 
 	list_val = mp_value_list_get(list, 2);
-	validate_int_fraction_value(list_val, 15, 1);
+	validate_range_value(list_val, 1, 100, 1);
 
 	mp_caps_unref(fixture->caps[0]);
 	mp_caps_unref(fixture->caps[1]);
@@ -397,27 +204,33 @@ ZTEST_F(caps, test_caps_intersection_list)
 
 ZTEST_F(caps, test_caps_video_sample)
 {
-	mp_value_t frmrates1 = mp_value_new(MP_TYPE_LIST, NULL);
+	mp_value_t frmivals1 = mp_value_new(MP_TYPE_LIST, NULL);
 
 	for (int i = 15; i <= 60; i += 15) {
-		zassert_ok(
-			mp_value_list_append(frmrates1, mp_value_new(MP_TYPE_INT_FRACTION, i, 1)),
-			"mp_value_list_append failed");
+		zassert_ok(mp_value_list_append(frmivals1,
+					        mp_value_new(MP_TYPE_INT, NSEC_PER_SEC / i, 1)),
+			  "mp_value_list_append failed");
 	}
 
-	fixture->caps[0] = mp_caps_new(MP_MEDIA_VIDEO, MP_CAPS_PIXEL_FORMAT, MP_TYPE_STRING, "xRGB",
-				       MP_CAPS_IMAGE_WIDTH, MP_TYPE_UINT_RANGE, 1280, 1280, 0,
-				       MP_CAPS_IMAGE_HEIGHT, MP_TYPE_UINT_RANGE, 720, 720, 0,
-				       MP_CAPS_FRAME_RATE, MP_TYPE_LIST, frmrates1, MP_CAPS_END);
+	fixture->caps[0] = mp_caps_new(
+		MP_MEDIA_VIDEO,
+		MP_CAPS_PIXEL_FORMAT, MP_TYPE_STRING, "xRGB",
+		MP_CAPS_IMAGE_WIDTH, MP_TYPE_RANGE, 1280, 1280, 0,
+		MP_CAPS_IMAGE_HEIGHT, MP_TYPE_RANGE, 720, 720, 0,
+		MP_CAPS_FRAME_RATE, MP_TYPE_LIST, frmivals1,
+		MP_CAPS_END);
 	zassert_not_null(fixture->caps[0], "caps[0] alloc failed");
 
-	fixture->caps[1] =
-		mp_caps_new(MP_MEDIA_VIDEO, MP_CAPS_PIXEL_FORMAT, MP_TYPE_LIST,
-			    mp_value_new(MP_TYPE_LIST, mp_value_new(MP_TYPE_STRING, "RGB565"),
-					 mp_value_new(MP_TYPE_STRING, "xRGB"),
-					 mp_value_new(MP_TYPE_STRING, "YUV"), NULL),
-			    MP_CAPS_IMAGE_WIDTH, MP_TYPE_UINT_RANGE, 1280, 1280, 0,
-			    MP_CAPS_IMAGE_HEIGHT, MP_TYPE_UINT_RANGE, 720, 720, 0, MP_CAPS_END);
+	fixture->caps[1] = mp_caps_new(
+		MP_MEDIA_VIDEO,
+		MP_CAPS_PIXEL_FORMAT, MP_TYPE_LIST, mp_value_new(MP_TYPE_LIST,
+			mp_value_new(MP_TYPE_STRING, "RGB565"),
+			mp_value_new(MP_TYPE_STRING, "xRGB"),
+			mp_value_new(MP_TYPE_STRING, "YUV"),
+			NULL),
+		MP_CAPS_IMAGE_WIDTH, MP_TYPE_RANGE, 1280, 1280, 0,
+		MP_CAPS_IMAGE_HEIGHT, MP_TYPE_RANGE, 720, 720, 0,
+		MP_CAPS_END);
 	zassert_not_null(fixture->caps[1], "caps[1] alloc failed");
 
 	fixture->caps_intersect = mp_caps_intersect(fixture->caps[0], fixture->caps[1]);
@@ -432,18 +245,18 @@ ZTEST_F(caps, test_caps_video_sample)
 	zassert_str_equal(mp_value_get_string(mp_value_list_get(fixture->value, 0)), "xRGB");
 
 	fixture->value = mp_structure_get_value(fixture->structure, MP_CAPS_IMAGE_WIDTH);
-	validate_uint_range_value(fixture->value, 1280, 1280, 0);
+	validate_range_value(fixture->value, 1280, 1280, 0);
 
 	fixture->value = mp_structure_get_value(fixture->structure, MP_CAPS_IMAGE_HEIGHT);
-	validate_uint_range_value(fixture->value, 720, 720, 0);
+	validate_range_value(fixture->value, 720, 720, 0);
 
 	fixture->value = mp_structure_get_value(fixture->structure, MP_CAPS_FRAME_RATE);
 	validate_list_value_type_and_size(fixture->value, 4);
 
 	for (int i = 15, j = 0; i <= 60; i += 15, j++) {
-		mp_value_t frac = mp_value_list_get(fixture->value, j);
+		mp_value_t value = mp_value_list_get(fixture->value, j);
 
-		validate_int_fraction_value(frac, i, 1);
+		validate_int_value(value, NSEC_PER_SEC / i);
 	}
 
 	mp_caps_unref(fixture->caps[0]);
@@ -459,13 +272,13 @@ ZTEST_F(caps, test_caps_video_sample)
 	validate_string_value(fixture->value, "xRGB");
 
 	fixture->value = mp_structure_get_value(fixture->structure, MP_CAPS_IMAGE_WIDTH);
-	validate_uint_value(fixture->value, 1280);
+	validate_int_value(fixture->value, 1280);
 
 	fixture->value = mp_structure_get_value(fixture->structure, MP_CAPS_IMAGE_HEIGHT);
-	validate_uint_value(fixture->value, 720);
+	validate_int_value(fixture->value, 720);
 
 	fixture->value = mp_structure_get_value(fixture->structure, MP_CAPS_FRAME_RATE);
-	validate_int_fraction_value(fixture->value, 15, 1);
+	validate_int_value(fixture->value, NSEC_PER_SEC / 15);
 
 	mp_caps_unref(fixture->caps_fixate);
 }
