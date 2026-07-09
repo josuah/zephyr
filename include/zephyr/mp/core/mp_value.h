@@ -39,10 +39,15 @@
 #define MP_VALUE_COMPARE_FAILED 3
 
 /**
+ * @brief value encoded as either an immediate value, or a pointer to a value structure.
+ */
+typedef struct mp_value *mp_value_t;
+
+/**
  * @brief mp_value type enumeration
  */
 enum mp_value_type {
-	MP_TYPE_NONE = 0,            /**< No type */
+	MP_TYPE_NONE,                /**< No type */
 	MP_TYPE_BOOLEAN,             /**< Boolean value */
 	MP_TYPE_ENUM,                /**< Enumeration value */
 	MP_TYPE_INT,                 /**< Signed integer value */
@@ -64,8 +69,8 @@ enum mp_value_type {
  * @brief Base mp_value structure
  */
 struct mp_value {
-	/** Type of value, see @ref mp_value_type */
-	enum mp_value_type type;
+	/** For internal use, see @ref mp_value_get_type */
+	enum mp_value_type _type;
 };
 
 /**
@@ -89,7 +94,7 @@ struct mp_value {
  * @return Pointer to the newly created mp_value, NULL if memory allocation fails or an invalid
  *         type or argument list is provided.
  */
-struct mp_value *mp_value_new(enum mp_value_type type, ...);
+mp_value_t mp_value_new(enum mp_value_type type, ...);
 
 /**
  * @brief Create a new mp_value from a va_list.
@@ -101,7 +106,7 @@ struct mp_value *mp_value_new(enum mp_value_type type, ...);
  *
  * @return Pointer to the newly created mp_value, or NULL on failure.
  */
-struct mp_value *mp_value_new_va_list(enum mp_value_type type, va_list *args);
+mp_value_t mp_value_new_va_list(enum mp_value_type type, va_list *args);
 
 /**
  * @brief Create an empty value with given type.
@@ -110,7 +115,7 @@ struct mp_value *mp_value_new_va_list(enum mp_value_type type, va_list *args);
  *
  * @return Pointer to the newly created mp_value, or NULL on failure.
  */
-struct mp_value *mp_value_new_empty(enum mp_value_type type);
+mp_value_t mp_value_new_empty(enum mp_value_type type);
 
 /**
  * @brief Destroy a value and release its resources.
@@ -119,7 +124,7 @@ struct mp_value *mp_value_new_empty(enum mp_value_type type);
  *
  * @return 0 on success, -EINVAL if value is NULL
  */
-int mp_value_destroy(struct mp_value *value);
+int mp_value_destroy(mp_value_t value);
 
 /**
  * @brief Get list size.
@@ -128,7 +133,7 @@ int mp_value_destroy(struct mp_value *value);
  *
  * @return size of list
  */
-size_t mp_value_list_get_size(const struct mp_value *list);
+size_t mp_value_list_get_size(const mp_value_t list);
 
 /**
  * @brief Return true if list is empty.
@@ -137,7 +142,7 @@ size_t mp_value_list_get_size(const struct mp_value *list);
  *
  * @return true if list is empty, false otherwise
  */
-bool mp_value_list_is_empty(const struct mp_value *list);
+bool mp_value_list_is_empty(const mp_value_t list);
 
 /**
  * @brief Append value to list.
@@ -147,19 +152,36 @@ bool mp_value_list_is_empty(const struct mp_value *list);
  *
  * @return 0 on success, -EINVAL if arguments are invalid, -ENOMEM on allocation failure
  */
-int mp_value_list_append(struct mp_value *list, struct mp_value *append_value);
+int mp_value_list_append(mp_value_t list, mp_value_t append_value);
 
 /**
  * @brief Set values to type.
  *
- * @param value value to set
+ * @param value pointer to the value to set
  * @param type type of value
  * @param ... Variadic arguments used to initialize the value,
  *            same rule as @ref mp_value_new()
  *
  * @return 0 on success, -EINVAL if value is NULL or type/arguments are invalid
  */
-int mp_value_set(struct mp_value *value, int type, ...);
+int mp_value_set(mp_value_t *value, int type, ...);
+
+/**
+ * @brief Get the type of a value
+ *
+ * @param value the value to query
+ *
+ * @return type of value
+ */
+enum mp_value_type mp_value_get_type(const mp_value_t value);
+
+/**
+ * @brief Set the type of a value
+ *
+ * @param value pointer the value
+ * @param value type to set
+ */
+void mp_value_set_type(mp_value_t *value, enum mp_value_type type);
 
 /**
  * @brief Get value at index in list.
@@ -169,64 +191,64 @@ int mp_value_set(struct mp_value *value, int type, ...);
  *
  * @return value at given index in list, or NULL if not found
  */
-struct mp_value *mp_value_list_get(const struct mp_value *list, int index);
+mp_value_t mp_value_list_get(const mp_value_t list, int index);
 
 /** Get boolean value of MP_TYPE_BOOLEAN */
-bool mp_value_get_boolean(const struct mp_value *value);
+bool mp_value_get_boolean(const mp_value_t value);
 
 /** Get int value of MP_TYPE_INT */
-int mp_value_get_int(const struct mp_value *value);
+int mp_value_get_int(const mp_value_t value);
 
 /** Get uint value of MP_TYPE_UINT */
-uint32_t mp_value_get_uint(const struct mp_value *value);
+uint32_t mp_value_get_uint(const mp_value_t value);
 
 /** Get string value of MP_TYPE_STRING */
-const char *mp_value_get_string(const struct mp_value *value);
+const char *mp_value_get_string(const mp_value_t value);
 
 /** Get pointer value of MP_TYPE_PTR */
-void *mp_value_get_ptr(const struct mp_value *value);
+void *mp_value_get_ptr(const mp_value_t value);
 
 /** Get numerator of @ref mp_value with MP_TYPE_FRACTION*/
-int mp_value_get_fraction_numerator(const struct mp_value *frac);
+int mp_value_get_fraction_numerator(const mp_value_t frac);
 
 /** Get denominator of @ref mp_value with MP_TYPE_FRACTION */
-int mp_value_get_fraction_denominator(const struct mp_value *frac);
+int mp_value_get_fraction_denominator(const mp_value_t frac);
 
 /** Get minimum value of @ref mp_value with MP_TYPE_INT_RANGE */
-int mp_value_get_int_range_min(const struct mp_value *range);
+int mp_value_get_int_range_min(const mp_value_t range);
 
 /** Get maximum value of @ref mp_value with MP_TYPE_INT_RANGE */
-int mp_value_get_int_range_max(const struct mp_value *range);
+int mp_value_get_int_range_max(const mp_value_t range);
 
 /** Get step value of @ref mp_value with MP_TYPE_INT_RANGE */
-int mp_value_get_int_range_step(const struct mp_value *range);
+int mp_value_get_int_range_step(const mp_value_t range);
 
 /** Get minimum value of @ref mp_value with MP_TYPE_UINT_RANGE */
-uint32_t mp_value_get_uint_range_min(const struct mp_value *range);
+uint32_t mp_value_get_uint_range_min(const mp_value_t range);
 
 /** Get maximum value of @ref mp_value with MP_TYPE_UINT_RANGE */
-uint32_t mp_value_get_uint_range_max(const struct mp_value *range);
+uint32_t mp_value_get_uint_range_max(const mp_value_t range);
 
 /** Get step value of @ref mp_value with MP_TYPE_UINT_RANGE */
-uint32_t mp_value_get_uint_range_step(const struct mp_value *range);
+uint32_t mp_value_get_uint_range_step(const mp_value_t range);
 
 /** Get the min value of a mp_value with type MP_TYPE_FRACTION_RANGE, returning a mp_value with
  * MP_TYPE_FRACTION
  */
-const struct mp_value *mp_value_get_fraction_range_min(const struct mp_value *fraction_range);
+const mp_value_t mp_value_get_fraction_range_min(const mp_value_t fraction_range);
 
 /** Get the max value of a mp_value with type MP_TYPE_FRACTION_RANGE, returning a mp_value with
  * MP_TYPE_FRACTION
  */
-const struct mp_value *mp_value_get_fraction_range_max(const struct mp_value *fraction_range);
+const mp_value_t mp_value_get_fraction_range_max(const mp_value_t fraction_range);
 
 /** Get the step value of a mp_value with type MP_TYPE_FRACTION_RANGE, returning a mp_value
  * with MP_TYPE_FRACTION
  */
-const struct mp_value *mp_value_get_fraction_range_step(const struct mp_value *fraction_range);
+const mp_value_t mp_value_get_fraction_range_step(const mp_value_t fraction_range);
 
 /** Get the object reference of a mp_value with MP_TYPE_OBJECT */
-struct mp_object *mp_value_get_object(struct mp_value *value);
+struct mp_object *mp_value_get_object(mp_value_t value);
 
 /**
  * Comparison between two primitive values
@@ -239,7 +261,7 @@ struct mp_object *mp_value_get_object(struct mp_value *value);
  *	MP_VALUE_UNORDERED if val1 and val2 are not comparable
  *	MP_VALUE_COMPARE_FAILED if val1 and val2 are not same type
  */
-int mp_value_compare(const struct mp_value *val1, const struct mp_value *val2);
+int mp_value_compare(const mp_value_t val1, const mp_value_t val2);
 
 /**
  * Intersect between two values
@@ -248,7 +270,7 @@ int mp_value_compare(const struct mp_value *val1, const struct mp_value *val2);
  * @param val2 value to compare with
  * @return NULL if intersect is empty
  */
-struct mp_value *mp_value_intersect(const struct mp_value *val1, const struct mp_value *val2);
+mp_value_t mp_value_intersect(const mp_value_t val1, const mp_value_t val2);
 
 /**
  * Comparison between two fractions
@@ -259,7 +281,7 @@ struct mp_value *mp_value_intersect(const struct mp_value *val1, const struct mp
  * MP_VALUE_LESS_THAN if frac1 < frac2
  * MP_VALUE_EQUAL if frac1 == frac2
  */
-int mp_value_compare_fraction(const struct mp_value *frac1, const struct mp_value *frac2);
+int mp_value_compare_fraction(const mp_value_t frac1, const mp_value_t frac2);
 
 /**
  * Intersect between value and range
@@ -268,8 +290,8 @@ int mp_value_compare_fraction(const struct mp_value *frac1, const struct mp_valu
  * @param compare_val value to compare with
  * @return NULL if intersect is empty
  */
-struct mp_value *mp_value_intersect_int_range(const struct mp_value *ref_val,
-					      const struct mp_value *compare_val);
+mp_value_t mp_value_intersect_int_range(const mp_value_t ref_val,
+					      const mp_value_t compare_val);
 
 /**
  * Intersect between franction range and fraction
@@ -279,8 +301,8 @@ struct mp_value *mp_value_intersect_int_range(const struct mp_value *ref_val,
  * @param compare_val value to compare with
  * @return NULL if intersect is empty
  */
-struct mp_value *mp_value_intersect_fraction_range(const struct mp_value *ref_val,
-						   const struct mp_value *compare_val);
+mp_value_t mp_value_intersect_fraction_range(const mp_value_t ref_val,
+						   const mp_value_t compare_val);
 
 /**
  * Intersect between list with value, range or list
@@ -289,8 +311,8 @@ struct mp_value *mp_value_intersect_fraction_range(const struct mp_value *ref_va
  * @param compare_val value to compare with
  * @return NULL if intersect is empty
  */
-struct mp_value *mp_value_intersect_list(const struct mp_value *list,
-					 const struct mp_value *compare_val);
+mp_value_t mp_value_intersect_list(const mp_value_t list,
+					 const mp_value_t compare_val);
 
 /**
  * Check if two values can intersect
@@ -299,7 +321,7 @@ struct mp_value *mp_value_intersect_list(const struct mp_value *list,
  * @param val2 second value
  * @return true if two values can intersect
  */
-bool mp_value_can_intersect(const struct mp_value *val1, const struct mp_value *val2);
+bool mp_value_can_intersect(const mp_value_t val1, const mp_value_t val2);
 
 /**
  * Duplicate value
@@ -308,7 +330,7 @@ bool mp_value_can_intersect(const struct mp_value *val1, const struct mp_value *
  * @return new value with same type and data as original value, or NULL on failure
  * @note For string only pointer is copied, not string itself.
  */
-struct mp_value *mp_value_duplicate(const struct mp_value *value);
+mp_value_t mp_value_duplicate(const mp_value_t value);
 
 /**
  * @brief Check if a value is a primitive type
@@ -317,7 +339,7 @@ struct mp_value *mp_value_duplicate(const struct mp_value *value);
  *
  * @return true if value is primitive, false otherwise
  */
-bool mp_value_is_primitive(const struct mp_value *value);
+bool mp_value_is_primitive(const mp_value_t value);
 
 /**
  * @brief Print a value
@@ -325,7 +347,7 @@ bool mp_value_is_primitive(const struct mp_value *value);
  * @param value Value to print, may be NULL
  * @param new_line Add newline after printing
  */
-void mp_value_print(const struct mp_value *value, bool new_line);
+void mp_value_print(const mp_value_t value, bool new_line);
 
 /** @} */
 

@@ -53,7 +53,7 @@
  * To create a new structure this one structure structure:
  * @code{.c}
  *
- * struct mp_value *list = mp_value_new(MP_TYPE_LIST, NULL);
+ * mp_value_t list = mp_value_new(MP_TYPE_LIST, NULL);
  * mp_value_list_append(list, mp_value_new(MP_TYPE_UINT, MP_PIXEL_FORMAT_RGB565, NULL));
  * mp_value_list_append(list, mp_value_new(MP_TYPE_UINT, MP_PIXEL_FORMAT_XRGB32, NULL));
  *
@@ -124,7 +124,7 @@ int mp_structure_init(struct mp_structure *structure, uint8_t media_type_id);
  * @return 0 on success, -EINVAL if arguments are invalid,
  *         -EEXIST if field_id already exists, -ENOMEM on allocation failure
  */
-int mp_structure_append(struct mp_structure *structure, uint8_t field_id, struct mp_value *value);
+int mp_structure_append(struct mp_structure *structure, uint8_t field_id, mp_value_t value);
 
 /**
  * @brief Clear all fields from an @ref mp_structure.
@@ -177,7 +177,7 @@ bool mp_structure_is_fixed(struct mp_structure *structure);
  *
  * @return Pointer to the value of the field, NULL if the field was not found.
  */
-struct mp_value *mp_structure_get_value(struct mp_structure *structure, uint8_t field_id);
+mp_value_t mp_structure_get_value(struct mp_structure *structure, uint8_t field_id);
 
 /**
  * @brief Remove a field from an @ref mp_structure.

@@ -29,7 +29,7 @@ static void mp_zvid_src_update_caps(struct mp_src *src)
 	struct mp_caps *caps = mp_zvid_src_supported_caps(src);
 
 	mp_src_update_caps(src, caps);
-	mp_caps_unref(caps);
+	//mp_caps_unref(caps);
 }
 
 static int mp_zvid_src_set_caps(struct mp_src *src, struct mp_caps *caps)

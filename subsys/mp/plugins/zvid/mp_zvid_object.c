@@ -23,17 +23,17 @@ LOG_MODULE_REGISTER(mp_zvid_object, CONFIG_MP_LOG_LEVEL);
 static int set_dimension_fields(struct mp_structure *structure, uint8_t key, uint32_t *min,
 				uint32_t *max, uint16_t *step)
 {
-	const struct mp_value *value = mp_structure_get_value(structure, key);
+	const mp_value_t value = mp_structure_get_value(structure, key);
 
 	if (value == NULL) {
 		return -EINVAL;
 	}
 
-	if (value->type == MP_TYPE_UINT_RANGE) {
+	if (mp_value_get_type(value) == MP_TYPE_UINT_RANGE) {
 		*min = mp_value_get_uint_range_min(value);
 		*max = mp_value_get_uint_range_max(value);
 		*step = (uint16_t)mp_value_get_uint_range_step(value);
-	} else if (value->type == MP_TYPE_UINT) {
+	} else if (mp_value_get_type(value) == MP_TYPE_UINT) {
 		*min = mp_value_get_uint(value);
 		*max = *min;
 		*step = 0;
@@ -47,16 +47,16 @@ static int set_dimension_fields(struct mp_structure *structure, uint8_t key, uin
 int mp_structure_to_vfc(struct mp_structure *structure, struct video_format_cap *vfc)
 {
 	int ret;
-	struct mp_value *value;
+	mp_value_t value;
 
 	/* Get pixel format field */
 	value = mp_structure_get_value(structure, MP_CAPS_PIXEL_FORMAT);
 	if (value == NULL) {
 		return -EINVAL;
 	}
-	if (value->type == MP_TYPE_UINT) {
+	if (mp_value_get_type(value) == MP_TYPE_UINT) {
 		vfc->pixelformat = mp_value_get_uint(value);
-	} else if (value->type == MP_TYPE_LIST) {
+	} else if (mp_value_get_type(value) == MP_TYPE_LIST) {
 		/* Format may be of MP_TYPE_LIST due to the intersection with a list type but it is
 		 * actually a single-value list, so take the 1st item in the list
 		 */
@@ -80,8 +80,8 @@ int mp_structure_to_vfc(struct mp_structure *structure, struct video_format_cap 
 static void append_frmrates_to_structure(const struct device *vdev, struct video_format *fmt,
 					 struct mp_structure *caps_item)
 {
-	struct mp_value *frmrates = mp_value_new(MP_TYPE_LIST, NULL);
-	struct mp_value *frmrate = NULL;
+	mp_value_t frmrates = mp_value_new(MP_TYPE_LIST, NULL);
+	mp_value_t frmrate = NULL;
 	struct video_frmival_enum fie = {0};
 
 	fie.format = fmt;
@@ -208,7 +208,7 @@ int mp_zvid_object_set_caps(struct mp_zvid_object *zvid_obj, struct mp_caps *cap
 	struct video_format fmt;
 	struct video_frmival frmival;
 	struct mp_structure *first_structure = mp_caps_get_structure(caps, 0);
-	struct mp_value *frmrate = mp_structure_get_value(first_structure, MP_CAPS_FRAME_RATE);
+	mp_value_t frmrate = mp_structure_get_value(first_structure, MP_CAPS_FRAME_RATE);
 
 	if (!mp_caps_is_fixed(caps)) {
 		return -EINVAL;

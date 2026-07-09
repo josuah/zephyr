@@ -18,7 +18,7 @@ struct caps_fixture {
 	struct sys_memory_stats stats_before;
 	struct sys_memory_stats stats_after;
 	struct mp_structure *structure;
-	struct mp_value *value;
+	mp_value_t value;
 };
 
 static void *caps_suite_setup(void)
@@ -51,35 +51,35 @@ ZTEST_SUITE(caps, NULL, caps_suite_setup, caps_before, caps_after, NULL);
 #define validate_boolean_value(value, expected)                                                    \
 	({                                                                                         \
 		zassert_not_null(value);                                                           \
-		zassert_equal((value)->type, MP_TYPE_BOOLEAN);                                     \
+		zassert_equal(mp_value_get_type(value), MP_TYPE_BOOLEAN);                          \
 		zassert_equal(mp_value_get_boolean(value), expected);                              \
 	})
 
 #define validate_int_value(value, expected)                                                        \
 	({                                                                                         \
 		zassert_not_null(value);                                                           \
-		zassert_equal((value)->type, MP_TYPE_INT);                                         \
+		zassert_equal(mp_value_get_type(value), MP_TYPE_INT);                              \
 		zassert_equal(mp_value_get_int(value), expected);                                  \
 	})
 
 #define validate_uint_value(value, expected)                                                       \
 	({                                                                                         \
 		zassert_not_null(value);                                                           \
-		zassert_equal((value)->type, MP_TYPE_UINT);                                        \
+		zassert_equal(mp_value_get_type(value), MP_TYPE_UINT);                             \
 		zassert_equal(mp_value_get_uint(value), expected);                                 \
 	})
 
 #define validate_string_value(value, expected)                                                     \
 	({                                                                                         \
 		zassert_not_null(value);                                                           \
-		zassert_equal((value)->type, MP_TYPE_STRING);                                      \
+		zassert_equal(mp_value_get_type(value), MP_TYPE_STRING);                           \
 		zassert_str_equal(mp_value_get_string(value), expected);                           \
 	})
 
 #define validate_int_fraction_value(value, num, denom)                                             \
 	({                                                                                         \
 		zassert_not_null(value);                                                           \
-		zassert_equal((value)->type, MP_TYPE_INT_FRACTION);                                \
+		zassert_equal(mp_value_get_type(value), MP_TYPE_INT_FRACTION);                     \
 		zassert_equal(mp_value_get_fraction_numerator(value), num);                        \
 		zassert_equal(mp_value_get_fraction_denominator(value), denom);                    \
 	})
@@ -87,7 +87,7 @@ ZTEST_SUITE(caps, NULL, caps_suite_setup, caps_before, caps_after, NULL);
 #define validate_uint_fraction_value(value, num, denom)                                            \
 	({                                                                                         \
 		zassert_not_null(value);                                                           \
-		zassert_equal((value)->type, MP_TYPE_UINT_FRACTION);                               \
+		zassert_equal(mp_value_get_type(value), MP_TYPE_UINT_FRACTION);                    \
 		zassert_equal(mp_value_get_fraction_numerator(value), num);                        \
 		zassert_equal(mp_value_get_fraction_denominator(value), denom);                    \
 	})
@@ -95,7 +95,7 @@ ZTEST_SUITE(caps, NULL, caps_suite_setup, caps_before, caps_after, NULL);
 #define validate_int_range_value(value, min, max, step)                                            \
 	({                                                                                         \
 		zassert_not_null(value);                                                           \
-		zassert_equal((value)->type, MP_TYPE_INT_RANGE);                                   \
+		zassert_equal(mp_value_get_type(value), MP_TYPE_INT_RANGE);                        \
 		zassert_equal(mp_value_get_int_range_min(value), min);                             \
 		zassert_equal(mp_value_get_int_range_max(value), max);                             \
 		zassert_equal(mp_value_get_int_range_step(value), step);                           \
@@ -104,7 +104,7 @@ ZTEST_SUITE(caps, NULL, caps_suite_setup, caps_before, caps_after, NULL);
 #define validate_uint_range_value(value, min, max, step)                                           \
 	({                                                                                         \
 		zassert_not_null(value);                                                           \
-		zassert_equal((value)->type, MP_TYPE_UINT_RANGE);                                  \
+		zassert_equal(mp_value_get_type(value), MP_TYPE_UINT_RANGE);                       \
 		zassert_equal(mp_value_get_uint_range_min(value), min);                            \
 		zassert_equal(mp_value_get_uint_range_max(value), max);                            \
 		zassert_equal(mp_value_get_uint_range_step(value), step);                          \
@@ -114,8 +114,8 @@ ZTEST_SUITE(caps, NULL, caps_suite_setup, caps_before, caps_after, NULL);
 				    step_denom)                                                    \
 	({                                                                                         \
 		zassert_not_null(value);                                                           \
-		zassert_equal((value)->type, MP_TYPE_INT_FRACTION_RANGE);                          \
-		const struct mp_value *frac = mp_value_get_fraction_range_min(value);              \
+		zassert_equal(mp_value_get_type(value), MP_TYPE_INT_FRACTION_RANGE);               \
+		mp_value_t frac = mp_value_get_fraction_range_min(value);                          \
 		zassert_equal(mp_value_get_fraction_numerator(frac), min_num);                     \
 		zassert_equal(mp_value_get_fraction_denominator(frac), min_denom);                 \
 		frac = mp_value_get_fraction_range_max(value);                                     \
@@ -130,8 +130,8 @@ ZTEST_SUITE(caps, NULL, caps_suite_setup, caps_before, caps_after, NULL);
 				     step_denom)                                                   \
 	({                                                                                         \
 		zassert_not_null(value);                                                           \
-		zassert_equal((value)->type, MP_TYPE_UINT_FRACTION_RANGE);                         \
-		const struct mp_value *frac = mp_value_get_fraction_range_min(value);              \
+		zassert_equal(mp_value_get_type(value), MP_TYPE_UINT_FRACTION_RANGE);              \
+		mp_value_t frac = mp_value_get_fraction_range_min(value);                          \
 		zassert_equal(mp_value_get_fraction_numerator(frac), min_num);                     \
 		zassert_equal(mp_value_get_fraction_denominator(frac), min_denom);                 \
 		frac = mp_value_get_fraction_range_max(value);                                     \
@@ -145,7 +145,7 @@ ZTEST_SUITE(caps, NULL, caps_suite_setup, caps_before, caps_after, NULL);
 #define validate_list_value_type_and_size(value, expected_size)                                    \
 	({                                                                                         \
 		zassert_not_null(value);                                                           \
-		zassert_equal((value)->type, MP_TYPE_LIST);                                        \
+		zassert_equal(mp_value_get_type(value), MP_TYPE_LIST);                             \
 		zassert_equal(mp_value_list_get_size(value), expected_size);                       \
 	})
 
@@ -320,8 +320,9 @@ ZTEST_F(caps, test_caps_uint_fraction_range_intersection)
 
 ZTEST_F(caps, test_caps_int_fraction_range)
 {
-	fixture->caps[0] = mp_caps_new(MP_MEDIA_AUDIO_PCM, TEST_FRACTION, MP_TYPE_INT_FRACTION, 1,
-				       INT32_MIN, MP_CAPS_END);
+	fixture->caps[0] =
+		mp_caps_new(MP_MEDIA_AUDIO_PCM, TEST_FRACTION, MP_TYPE_INT_FRACTION, 1,
+			    INT32_MIN, MP_CAPS_END);
 	fixture->caps[1] =
 		mp_caps_new(MP_MEDIA_AUDIO_PCM, TEST_FRACTION, MP_TYPE_INT_FRACTION_RANGE, 1,
 			    INT32_MIN, INT32_MAX, 1, 1, 1, MP_CAPS_END);
@@ -375,11 +376,11 @@ ZTEST_F(caps, test_caps_intersection_list)
 
 	fixture->caps_intersect = mp_caps_intersect(fixture->caps[0], fixture->caps[1]);
 	fixture->structure = mp_caps_get_structure(fixture->caps_intersect, 0);
-	struct mp_value *list = mp_structure_get_value(fixture->structure, TEST_LIST);
+	mp_value_t list = mp_structure_get_value(fixture->structure, TEST_LIST);
 
 	validate_list_value_type_and_size(list, 7);
 
-	struct mp_value *list_val = mp_value_list_get(list, 0);
+	mp_value_t list_val = mp_value_list_get(list, 0);
 
 	validate_int_value(list_val, 15);
 
@@ -396,7 +397,7 @@ ZTEST_F(caps, test_caps_intersection_list)
 
 ZTEST_F(caps, test_caps_video_sample)
 {
-	struct mp_value *frmrates1 = mp_value_new(MP_TYPE_LIST, NULL);
+	mp_value_t frmrates1 = mp_value_new(MP_TYPE_LIST, NULL);
 
 	for (int i = 15; i <= 60; i += 15) {
 		zassert_ok(
@@ -440,7 +441,7 @@ ZTEST_F(caps, test_caps_video_sample)
 	validate_list_value_type_and_size(fixture->value, 4);
 
 	for (int i = 15, j = 0; i <= 60; i += 15, j++) {
-		struct mp_value *frac = mp_value_list_get(fixture->value, j);
+		mp_value_t frac = mp_value_list_get(fixture->value, j);
 
 		validate_int_fraction_value(frac, i, 1);
 	}

@@ -54,12 +54,12 @@ ZTEST(mp_structure_api, test_new)
 	zassert_not_null(s, "mp_structure_new returned NULL");
 	zassert_equal(s->media_type_id, MP_MEDIA_AUDIO_PCM, "media_type_id mismatch");
 
-	struct mp_value *rate = mp_structure_get_value(s, MP_CAPS_SAMPLE_RATE);
+	mp_value_t rate = mp_structure_get_value(s, MP_CAPS_SAMPLE_RATE);
 
 	zassert_not_null(rate, "SAMPLE_RATE field not found");
 	zassert_equal(mp_value_get_int(rate), 48000, "sample rate != 48000");
 
-	struct mp_value *bw = mp_structure_get_value(s, MP_CAPS_BITWIDTH);
+	mp_value_t bw = mp_structure_get_value(s, MP_CAPS_BITWIDTH);
 
 	zassert_not_null(bw, "BITWIDTH field not found");
 	zassert_equal(mp_value_get_int(bw), 16, "bitwidth != 16");
@@ -84,10 +84,10 @@ ZTEST(mp_structure_api, test_new)
 				 48000, 8000, MP_STRUCTURE_END);
 
 	zassert_not_null(sr);
-	struct mp_value *val = mp_structure_get_value(sr, MP_CAPS_SAMPLE_RATE);
+	mp_value_t val = mp_structure_get_value(sr, MP_CAPS_SAMPLE_RATE);
 
 	zassert_not_null(val);
-	zassert_equal(val->type, MP_TYPE_INT_RANGE, "type != INT_RANGE");
+	zassert_equal(mp_value_get_type(val), MP_TYPE_INT_RANGE, "type != INT_RANGE");
 	zassert_equal(mp_value_get_int_range_min(val), 8000, "min != 8000");
 	zassert_equal(mp_value_get_int_range_max(val), 48000, "max != 48000");
 	mp_structure_destroy(sr);
@@ -97,11 +97,11 @@ ZTEST(mp_structure_api, test_new)
 	zassert_ok(mp_structure_init(&si, MP_MEDIA_AUDIO_PCM), "mp_structure_init failed");
 	zassert_equal(si.media_type_id, MP_MEDIA_AUDIO_PCM, "media_type_id mismatch");
 
-	struct mp_value *appended = mp_value_new(MP_TYPE_INT, 44100);
+	mp_value_t appended = mp_value_new(MP_TYPE_INT, 44100);
 
 	zassert_ok(mp_structure_append(&si, MP_CAPS_SAMPLE_RATE, appended), "append failed");
 
-	struct mp_value *dup_val = mp_value_new(MP_TYPE_INT, 0);
+	mp_value_t dup_val = mp_value_new(MP_TYPE_INT, 0);
 
 	zassert_equal(mp_structure_append(&si, MP_CAPS_SAMPLE_RATE, dup_val), -EEXIST,
 		      "duplicate field != -EEXIST");
@@ -114,7 +114,7 @@ ZTEST(mp_structure_api, test_new)
 	zassert_equal(mp_structure_append(&si, MP_CAPS_BITWIDTH, NULL), -EINVAL,
 		      "append(NULL value) != -EINVAL");
 
-	struct mp_value *retrieved = mp_structure_get_value(&si, MP_CAPS_SAMPLE_RATE);
+	mp_value_t retrieved = mp_structure_get_value(&si, MP_CAPS_SAMPLE_RATE);
 
 	zassert_not_null(retrieved, "appended field not found");
 	zassert_equal(mp_value_get_int(retrieved), 44100, "retrieved value != 44100");

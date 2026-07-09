@@ -14,7 +14,7 @@
 
 struct mp_structure_field {
 	uint8_t field_id;
-	struct mp_value *value;
+	mp_value_t value;
 	sys_snode_t node;
 };
 
@@ -74,7 +74,7 @@ void mp_structure_destroy(struct mp_structure *structure)
 	k_free(structure);
 }
 
-int mp_structure_append(struct mp_structure *structure, uint8_t field_id, struct mp_value *value)
+int mp_structure_append(struct mp_structure *structure, uint8_t field_id, mp_value_t value)
 {
 	struct mp_structure_field *field;
 
@@ -105,7 +105,7 @@ struct mp_structure *mp_structure_new(uint8_t media_type_id, ...)
 	va_list args;
 	struct mp_structure *structure;
 	enum mp_value_type type;
-	struct mp_value *value;
+	mp_value_t value;
 	uint8_t field_id;
 
 	if (media_type_id == MP_MEDIA_END) {
@@ -130,7 +130,7 @@ struct mp_structure *mp_structure_new(uint8_t media_type_id, ...)
 		if (type != MP_TYPE_LIST) {
 			value = mp_value_new_va_list(type, &args);
 		} else {
-			value = va_arg(args, struct mp_value *);
+			value = va_arg(args, mp_value_t );
 		}
 
 		mp_structure_append(structure, field_id, value);
@@ -152,7 +152,7 @@ void mp_structure_print(struct mp_structure *structure)
 	}
 }
 
-struct mp_value *mp_structure_get_value(struct mp_structure *structure, uint8_t field_id)
+mp_value_t mp_structure_get_value(struct mp_structure *structure, uint8_t field_id)
 {
 	struct mp_structure_field *field;
 
@@ -200,7 +200,7 @@ bool mp_structure_can_intersect(struct mp_structure *struct1, struct mp_structur
 {
 	struct mp_structure *big_structure, *small_structure;
 	struct mp_structure_field *field;
-	struct mp_value *compared_value, *intersect_value;
+	mp_value_t compared_value, intersect_value;
 
 	if (struct1 == NULL || struct2 == NULL) {
 		return false;
@@ -227,7 +227,7 @@ bool mp_structure_can_intersect(struct mp_structure *struct1, struct mp_structur
 			/* Check if there is a full intersection */
 			intersect_value = mp_value_intersect(field->value, compared_value);
 			if (intersect_value != NULL) {
-				mp_value_destroy(intersect_value);
+				//mp_value_destroy(intersect_value);
 			} else {
 				return false;
 			}
@@ -243,7 +243,7 @@ struct mp_structure *mp_structure_intersect(struct mp_structure *struct1,
 	struct mp_structure_field *field;
 	struct mp_structure *big_structure, *small_structure;
 	struct mp_structure *intersect_structure;
-	struct mp_value *compared_value, *intersect_value;
+	mp_value_t compared_value, intersect_value;
 
 	if (!mp_structure_can_intersect(struct1, struct2)) {
 		return NULL;
@@ -277,7 +277,7 @@ struct mp_structure *mp_structure_duplicate(struct mp_structure *src)
 {
 	struct mp_structure_field *field;
 	struct mp_structure *dup;
-	struct mp_value *copy_value;
+	mp_value_t copy_value;
 
 	if (src == NULL) {
 		return NULL;
@@ -309,7 +309,7 @@ struct mp_structure *mp_structure_fixate(struct mp_structure *src)
 {
 	struct mp_structure_field *field;
 	struct mp_structure *fixated_structure;
-	struct mp_value *fixated_value;
+	mp_value_t fixated_value;
 
 	if (src == NULL) {
 		return NULL;
@@ -318,7 +318,7 @@ struct mp_structure *mp_structure_fixate(struct mp_structure *src)
 	fixated_structure = mp_structure_new_empty(src->media_type_id);
 
 	SYS_SLIST_FOR_EACH_CONTAINER(&src->fields, field, node) {
-		switch (field->value->type) {
+		switch (mp_value_get_type(field->value)) {
 		case MP_TYPE_INT_RANGE:
 			fixated_value =
 				mp_value_new(MP_TYPE_INT, mp_value_get_int_range_min(field->value));
