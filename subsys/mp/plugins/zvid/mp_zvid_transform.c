@@ -28,10 +28,12 @@ static int mp_zvid_transform_chainfn(struct mp_pad *pad, struct net_buf *in_buf,
 	struct mp_zvid_transform *zvid_transform = (struct mp_zvid_transform *)transform;
 	struct mp_buffer_pool *outpool = &zvid_transform->zvid_obj_out.pool.pool;
 	struct video_buffer *in_vbuf;
+	struct video_buffer tmp_vbuf = {.type = zvid_transform->zvid_obj_in.type};
 
 	/* TODO: Ensure net_buf meta's driver_buf is always a video buffer */
 	if (mp_buffer_get_meta(in_buf)->driver_buf == NULL) {
-		in_vbuf = video_import_buffer(in_buf->data, in_buf->size);
+		video_import_buffer(in_buf->data, in_buf->size, &tmp_vbuf.index);
+		in_vbuf = &tmp_vbuf;
 	} else {
 		in_vbuf = mp_buffer_get_meta(in_buf)->driver_buf;
 	}
