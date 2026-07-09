@@ -98,8 +98,6 @@ struct mp_caps *mp_caps_new(uint8_t media_type_id, ...)
 			value = va_arg(var_args, mp_value_t);
 		}
 
-		LOG_ERR("Adding field ID %u, type %u, value %p", field_id, type, value);
-
 		if (value == NULL) {
 			break;
 		}

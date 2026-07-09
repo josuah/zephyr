@@ -227,7 +227,7 @@ bool mp_structure_can_intersect(struct mp_structure *struct1, struct mp_structur
 			/* Check if there is a full intersection */
 			intersect_value = mp_value_intersect(field->value, compared_value);
 			if (intersect_value != NULL) {
-				//mp_value_destroy(intersect_value);
+				mp_value_destroy(intersect_value);
 			} else {
 				return false;
 			}

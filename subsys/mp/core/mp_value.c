@@ -344,6 +344,7 @@ static int mp_value_set_immediate(mp_value_t *value, uintptr_t uptr)
 		}
 	}
 
+	(*value)->_type = type;
 	((struct mp_value_simple *)*value)->v_uint = uptr;
 
 	return 0;
@@ -354,6 +355,8 @@ static int mp_value_set_va_list(mp_value_t *value, int type, va_list *args)
 	if (MP_VALUE_IS_NULL(value)) {
 		return -EINVAL;
 	}
+
+	mp_value_set_type(value, type);
 
 	switch (mp_value_get_type(*value)) {
 	case MP_TYPE_BOOLEAN:
@@ -385,7 +388,7 @@ static int mp_value_set_va_list(mp_value_t *value, int type, va_list *args)
 	case MP_TYPE_LIST:
 		return mp_value_set_list(*value, args);
 	default:
-		LOG_ERR("Unknown mp_value type: %d", type);
+		LOG_ERR("Unknown mp_value type: %d - %d", type, mp_value_get_type(*value));
 		return -EINVAL;
 	}
 }
@@ -613,7 +616,13 @@ static int mp_value_copy(mp_value_t *dst, const mp_value_t src)
 		*dst = MP_VALUE_NEW_OBJECT_PTR(MP_VALUE_GET_PTR(src));
 		mp_object_ref(MP_VALUE_GET_PTR(dst));
 	} else if (MP_VALUE_IS_VALUE_PTR(src)) {
-		memcpy(dst, src, mp_value_type_sizes[mp_value_get_type(src)]);
+		if (MP_VALUE_IS_IMMEDIATE(*dst)) {
+			*dst = k_calloc(1, mp_value_type_sizes[mp_value_get_type(src)]);
+			if (*dst == NULL) {
+				return -ENOMEM;
+			}
+		}
+		memcpy(*dst, src, mp_value_type_sizes[mp_value_get_type(src)]);
 	} else if (MP_VALUE_IS_OTHER_PTR(src)) {
 		*dst = MP_VALUE_NEW_OTHER_PTR(MP_VALUE_GET_PTR(src));
 	} else if (MP_VALUE_IS_IMMEDIATE(src)) {
@@ -766,15 +775,13 @@ int mp_value_compare(const mp_value_t val1, const mp_value_t val2)
 	switch (mp_value_get_type(val1)) {
 	case MP_TYPE_BOOLEAN:
 	case MP_TYPE_ENUM:
-		return MP_VALUE_SIMPLE_CONST(val1)->v_uint == MP_VALUE_SIMPLE_CONST(val2)->v_uint
+		return mp_value_get_uint(val1) == mp_value_get_uint(val2)
 			       ? MP_VALUE_EQUAL
 			       : MP_VALUE_UNORDERED;
 	case MP_TYPE_INT:
-		return MP_COMPARE(MP_VALUE_SIMPLE_CONST(val1)->v_int,
-				  MP_VALUE_SIMPLE_CONST(val2)->v_int);
+		return MP_COMPARE(mp_value_get_int(val1), mp_value_get_int(val2));
 	case MP_TYPE_UINT:
-		return MP_COMPARE(MP_VALUE_SIMPLE_CONST(val1)->v_uint,
-				  MP_VALUE_SIMPLE_CONST(val2)->v_uint);
+		return MP_COMPARE(mp_value_get_uint(val1), mp_value_get_uint(val2));
 	case MP_TYPE_UINT_FRACTION:
 	case MP_TYPE_INT_FRACTION:
 		return mp_value_compare_fraction(val1, val2);

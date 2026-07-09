@@ -182,12 +182,12 @@ ZTEST(mp_value_api, test_intersect)
 
 ZTEST(mp_value_api, test_duplicate_and_is_primitive)
 {
-	mp_value_t original = mp_value_new(MP_TYPE_INT, 999);
+	mp_value_t original = mp_value_new(MP_TYPE_INT, INT32_MAX);
 	mp_value_t copy = mp_value_duplicate(original);
 
 	zassert_not_null(copy, "duplicate returned NULL");
 	zassert_true(copy != original, "duplicate == original");
-	zassert_equal(mp_value_get_int(copy), 999, "duplicated value != 999");
+	zassert_equal(mp_value_get_int(copy), INT32_MAX, "duplicated value != INT32_MAX");
 	mp_value_destroy(original);
 	mp_value_destroy(copy);
 
