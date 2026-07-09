@@ -142,7 +142,7 @@ static int mp_src_negotiate(struct mp_src *src)
 
 	/*
 	 * Push a caps event downstream. Don't check the returned value of
-	 * mp_pad_send_event() when caps is not fixatted (ANY) as we want to continue.
+	 * mp_pad_send_event() when caps is not fixated (ANY) as we want to continue.
 	 */
 	mp_dispatch_caps_init(&caps_event, fixated_caps);
 	ret = mp_pad_send_event(src->srcpad.peer, &caps_event);
