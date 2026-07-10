@@ -127,8 +127,8 @@ ZTEST_F(caps, test_caps_intersection_primitive)
 ZTEST_F(caps, test_caps_int_with_range)
 {
 	struct {
-		int value;
-		int expected;
+		int64_t value;
+		int64_t expected;
 	} test_cases[] = {
 		{INT_MIN, INT_MIN},
 		{INT_MAX, INT_MAX},
@@ -136,7 +136,7 @@ ZTEST_F(caps, test_caps_int_with_range)
 	};
 
 	fixture->caps[0] = mp_caps_new(MP_MEDIA_AUDIO_PCM,
-				       TEST_RANGE, MP_TYPE_RANGE, INT_MIN, INT_MAX, 1,
+				       TEST_RANGE, MP_TYPE_RANGE, INT64_MIN, INT64_MAX, 1,
 				       MP_CAPS_END);
 	zassert_not_null(fixture->caps[0], "caps[0] alloc failed");
 
@@ -185,17 +185,18 @@ ZTEST_F(caps, test_caps_intersection_list)
 	fixture->structure = mp_caps_get_structure(fixture->caps_intersect, 0);
 	mp_value_t list = mp_structure_get_value(fixture->structure, TEST_LIST);
 
-	validate_list_value_type_and_size(list, 7);
+	validate_list_value_type_and_size(list, 4);
 
-	mp_value_t list_val = mp_value_list_get(list, 0);
+	mp_value_t list_val;
 
+	list_val = mp_value_list_get(list, 0);
 	validate_int_value(list_val, 15);
 
 	list_val = mp_value_list_get(list, 1);
-	validate_int_value(list_val, 30);
+	validate_range_value(list_val, 1, 100, 1);
 
 	list_val = mp_value_list_get(list, 2);
-	validate_range_value(list_val, 1, 100, 1);
+	validate_string_value(list_val, "RGB");
 
 	mp_caps_unref(fixture->caps[0]);
 	mp_caps_unref(fixture->caps[1]);
@@ -204,20 +205,22 @@ ZTEST_F(caps, test_caps_intersection_list)
 
 ZTEST_F(caps, test_caps_video_sample)
 {
-	mp_value_t frmivals1 = mp_value_new(MP_TYPE_LIST, NULL);
+	mp_value_t frmivals0 = mp_value_new(MP_TYPE_LIST, NULL);
 
 	for (int i = 15; i <= 60; i += 15) {
-		zassert_ok(mp_value_list_append(frmivals1,
+		zassert_ok(mp_value_list_append(frmivals0,
 					        mp_value_new(MP_TYPE_INT, NSEC_PER_SEC / i, 1)),
 			  "mp_value_list_append failed");
 	}
+
+	mp_value_t frmivals1 = mp_value_duplicate(frmivals0);
 
 	fixture->caps[0] = mp_caps_new(
 		MP_MEDIA_VIDEO,
 		MP_CAPS_PIXEL_FORMAT, MP_TYPE_STRING, "xRGB",
 		MP_CAPS_IMAGE_WIDTH, MP_TYPE_RANGE, 1280, 1280, 0,
 		MP_CAPS_IMAGE_HEIGHT, MP_TYPE_RANGE, 720, 720, 0,
-		MP_CAPS_FRAME_RATE, MP_TYPE_LIST, frmivals1,
+		MP_CAPS_FRAME_RATE, MP_TYPE_LIST, frmivals0,
 		MP_CAPS_END);
 	zassert_not_null(fixture->caps[0], "caps[0] alloc failed");
 
@@ -230,6 +233,7 @@ ZTEST_F(caps, test_caps_video_sample)
 			NULL),
 		MP_CAPS_IMAGE_WIDTH, MP_TYPE_RANGE, 1280, 1280, 0,
 		MP_CAPS_IMAGE_HEIGHT, MP_TYPE_RANGE, 720, 720, 0,
+		MP_CAPS_FRAME_RATE, MP_TYPE_LIST, frmivals1,
 		MP_CAPS_END);
 	zassert_not_null(fixture->caps[1], "caps[1] alloc failed");
 
@@ -255,6 +259,9 @@ ZTEST_F(caps, test_caps_video_sample)
 
 	for (int i = 15, j = 0; i <= 60; i += 15, j++) {
 		mp_value_t value = mp_value_list_get(fixture->value, j);
+
+		printk("FPS compare test [15..60]: %llu %llu\n",
+			mp_value_get_int(value), NSEC_PER_SEC / i);
 
 		validate_int_value(value, NSEC_PER_SEC / i);
 	}

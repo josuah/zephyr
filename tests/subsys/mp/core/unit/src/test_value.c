@@ -58,7 +58,7 @@ ZTEST(mp_value_api, test_new_values)
 	zassert_false(mp_value_get_boolean(bf), "value != false");
 	mp_value_destroy(bf);
 
-	mp_value_t iv = mp_value_new(MP_TYPE_INT, -42);
+	mp_value_t iv = mp_value_new(MP_TYPE_INT, -42LL);
 
 	zassert_not_null(iv, "mp_value_new(INT) returned NULL");
 	zassert_equal(mp_value_get_type(iv), MP_TYPE_INT, "type != INT");

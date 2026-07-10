@@ -35,14 +35,14 @@ LOG_MODULE_REGISTER(mp_value, CONFIG_MP_LOG_LEVEL);
 #define MP_VALUE_IS_OTHER_PTR(value)	(((uintptr_t)(value) & 0x3U) == 0x2)
 #define MP_VALUE_IS_IMMEDIATE(value)	(((uintptr_t)(value) & 0x3U) == 0x3)
 
-#define MP_VALUE_IS_FITTING(value) ((uptr & 0xFC000000U) == 0)
+#define MP_VALUE_IS_FITTING(i) (((uint64_t)i >> 28) == 0)
 #define MP_VALUE_IS_NULL(value)                                                                    \
 	(!MP_VALUE_IS_IMMEDIATE(value) && MP_VALUE_GET_PTR(value) == NULL)
 #define MP_VALUE_IS_VALID(value)                                                                   \
 	IN_RANGE(mp_value_get_type(value), MP_TYPE_NONE, MP_TYPE_COUNT - 1)
 
 #define MP_VALUE_GET_IMMEDIATE(value)	((uintptr_t)(value) >> 4)
-#define MP_VALUE_GET_TYPE(value)	(((uintptr_t)(value) >> 2) & 0xFU)
+#define MP_VALUE_GET_TYPE(value)	(((uintptr_t)(value) >> 2) & 0x3U)
 #define MP_VALUE_GET_PTR(value)		((void *)((uintptr_t)(value) & ~0x3U))
 
 #define MP_VALUE_SET_TYPE(value, type)	((mp_value_t)(((uintptr_t)(value) & ~0x0CU) | (type << 2)))
@@ -171,7 +171,11 @@ static int mp_value_set_range(mp_value_t value, int type, va_list *args)
 
 	MP_VALUE_RANGE(value)->min = va_arg(*args, int64_t);
 	MP_VALUE_RANGE(value)->max = va_arg(*args, int64_t);
-	MP_VALUE_RANGE(value)->step = va_arg(*args, int64_t);
+	MP_VALUE_RANGE(value)->step = va_arg(*args, uint32_t);
+
+	LOG_INF("min %lld, max %lld, step %lld",
+		MP_VALUE_RANGE(value)->min, MP_VALUE_RANGE(value)->max,
+		MP_VALUE_RANGE(value)->step);
 
 	return 0;
 }
@@ -193,13 +197,14 @@ static int mp_value_set_list(mp_value_t value, va_list *args)
 	return 0;
 }
 
-static int mp_value_set_immediate(mp_value_t *value, uintptr_t uptr)
+static int mp_value_set_immediate(mp_value_t *value, int64_t i)
 {
 	enum mp_value_type type = mp_value_get_type(*value);
 
-	if (MP_VALUE_IS_FITTING(uptr)) {
+	if (MP_VALUE_IS_FITTING(i)) {
+		LOG_INF("Value %d is fitting immediate size", i);
 		mp_value_destroy(*value);
-		*value = MP_VALUE_NEW_IMMEDIATE(type, uptr);
+		*value = MP_VALUE_NEW_IMMEDIATE(type, i);
 		return 0;
 	}
 
@@ -213,7 +218,7 @@ static int mp_value_set_immediate(mp_value_t *value, uintptr_t uptr)
 	}
 
 	(*value)->_type = type;
-	((struct mp_value_simple *)*value)->v_int = uptr;
+	((struct mp_value_simple *)*value)->v_int = i;
 
 	return 0;
 }
@@ -230,7 +235,7 @@ static int mp_value_set_va_list(mp_value_t *value, int type, va_list *args)
 	case MP_TYPE_BOOLEAN:
 	case MP_TYPE_ENUM:
 	case MP_TYPE_INT:
-		return mp_value_set_immediate(value, (uintptr_t)va_arg(*args, int));
+		return mp_value_set_immediate(value, va_arg(*args, int64_t));
 	case MP_TYPE_STRING:
 		MP_VALUE_SIMPLE(*value)->v_cstring = va_arg(*args, const char *);
 		mp_value_set_type(value, MP_TYPE_STRING);
@@ -362,6 +367,8 @@ int mp_value_destroy(mp_value_t value)
 		return -EINVAL;
 	}
 
+	LOG_INF("destroying %p", value);
+
 	if (mp_value_get_type(value) == MP_TYPE_LIST) {
 		while (!sys_slist_is_empty(&MP_VALUE_LIST(value)->v_list)) {
 			node = sys_slist_get(&MP_VALUE_LIST(value)->v_list);
@@ -441,6 +448,7 @@ static int mp_value_copy(mp_value_t *dst, const mp_value_t src)
 
 			ret = mp_value_list_append(*dst, dup);
 			if (ret < 0) {
+				LOG_ERR("Failed to append value to the list");
 				mp_value_destroy(dup);
 				return ret;
 			}
@@ -499,8 +507,8 @@ int mp_value_list_append(mp_value_t list, mp_value_t append_value)
 		return -EINVAL;
 	}
 
-	node = k_malloc(sizeof(struct mp_value_node));
-	if (MP_VALUE_IS_NULL(node)) {
+	node = k_calloc(1, sizeof(struct mp_value_node));
+	if (node == NULL) {
 		return -ENOMEM;
 	}
 
@@ -560,6 +568,9 @@ static int mp_value_list_compare(const mp_value_t list1, const mp_value_t list2)
 
 int mp_value_compare(const mp_value_t val1, const mp_value_t val2)
 {
+	LOG_INF("Comparing %p type %u with %p type %u",
+		val1, mp_value_get_type(val1), val2, mp_value_get_type(val2));
+
 	if (MP_VALUE_IS_NULL(val1) || MP_VALUE_IS_NULL(val2)) {
 		return MP_VALUE_COMPARE_FAILED;
 	}
@@ -575,6 +586,8 @@ int mp_value_compare(const mp_value_t val1, const mp_value_t val2)
 			       ? MP_VALUE_EQUAL
 			       : MP_VALUE_UNORDERED;
 	case MP_TYPE_INT:
+		LOG_INF("MP_TYPE_INT: comparing %lld and %lld",
+			mp_value_get_int(val1), mp_value_get_int(val2));
 		return MP_COMPARE(mp_value_get_int(val1), mp_value_get_int(val2));
 	case MP_TYPE_STRING:
 		return strcmp(MP_VALUE_SIMPLE_CONST(val1)->v_cstring,
@@ -631,8 +644,8 @@ bool mp_value_can_intersect(const mp_value_t val1, const mp_value_t val2)
 		BIT(mp_value_get_type(val2))) != 0;
 }
 
-mp_value_t mp_value_intersect_int_range(const mp_value_t ref_val,
-					const mp_value_t compare_val)
+mp_value_t mp_value_intersect_range(const mp_value_t ref_val,
+				    const mp_value_t compare_val)
 {
 	mp_value_t intersect_value;
 
@@ -646,6 +659,9 @@ mp_value_t mp_value_intersect_int_range(const mp_value_t ref_val,
 		intersect_value =
 			mp_value_new(mp_value_get_type(compare_val),
 				     mp_value_get_int(compare_val), NULL);
+		LOG_INF("min %lld, max %lld, compare %u",
+			MP_VALUE_RANGE(ref_val)->min, MP_VALUE_RANGE(ref_val)->max,
+			mp_value_get_int(compare_val));
 	} else {
 		intersect_value = NULL;
 	}
@@ -660,13 +676,25 @@ mp_value_t mp_value_intersect_list(const mp_value_t list,
 	mp_value_t intersect_list = NULL;
 	struct mp_value_node *v_node1, *v_node2;
 
+	printk("Comparing ");
+	mp_value_print(list, false);
+	printk(" and ");
+	mp_value_print(compare_val, true);
+
 	if (MP_VALUE_IS_NULL(list) || MP_VALUE_IS_NULL(compare_val) ||
 	    !MP_VALUE_IS_VALID(list) || !MP_VALUE_IS_VALID(compare_val)) {
 		return NULL;
 	}
 
+	intersect_list = mp_value_new_empty(MP_TYPE_LIST);
+	if (intersect_list == NULL) {
+		LOG_ERR("Failed to allocate memory for result list");
+		return NULL;
+	}
+
 	SYS_SLIST_FOR_EACH_CONTAINER((sys_slist_t *)&MP_VALUE_LIST(list)->v_list, v_node1, node) {
 		intersect_value = NULL;
+
 		switch (mp_value_get_type(compare_val)) {
 		case MP_TYPE_BOOLEAN:
 		case MP_TYPE_ENUM:
@@ -677,7 +705,7 @@ mp_value_t mp_value_intersect_list(const mp_value_t list,
 			}
 			break;
 		case MP_TYPE_RANGE:
-			intersect_value = mp_value_intersect_int_range(compare_val, v_node1->value);
+			intersect_value = mp_value_intersect_range(compare_val, v_node1->value);
 			break;
 		case MP_TYPE_LIST:
 			SYS_SLIST_FOR_EACH_CONTAINER(
@@ -685,6 +713,13 @@ mp_value_t mp_value_intersect_list(const mp_value_t list,
 				if (mp_value_compare(v_node1->value, v_node2->value) ==
 				    MP_VALUE_EQUAL) {
 					intersect_value = mp_value_duplicate(v_node2->value);
+					if (intersect_value == NULL) {
+						LOG_ERR("Failed to allocate memory");
+						goto error;
+					}
+
+					mp_value_list_append(intersect_list, intersect_value);
+					intersect_value = NULL;
 					break;
 				}
 			}
@@ -694,15 +729,20 @@ mp_value_t mp_value_intersect_list(const mp_value_t list,
 		}
 
 		if (intersect_value != NULL) {
-			if (MP_VALUE_IS_NULL(intersect_list)) {
-				intersect_list = mp_value_new_empty(MP_TYPE_LIST);
-				LOG_DBG("intersect_list %p", intersect_list);
-			}
 			mp_value_list_append(intersect_list, intersect_value);
 		}
 	}
 
+	if (mp_value_list_get_size(intersect_list) == 0) {
+		LOG_WRN("No intersection between %p and %p", list, compare_val);
+		goto error;
+	}
+
 	return intersect_list;
+
+error:
+	mp_value_destroy(intersect_list);
+	return NULL;
 }
 
 mp_value_t mp_value_intersect(const mp_value_t val1, const mp_value_t val2)
@@ -731,7 +771,7 @@ mp_value_t mp_value_intersect(const mp_value_t val1, const mp_value_t val2)
 	} else {
 		switch (mp_value_get_type(ref_val)) {
 		case MP_TYPE_RANGE:
-			intersect_val = mp_value_intersect_int_range(ref_val, compare_val);
+			intersect_val = mp_value_intersect_range(ref_val, compare_val);
 			break;
 		case MP_TYPE_LIST:
 			intersect_val = mp_value_intersect_list(ref_val, compare_val);
@@ -793,7 +833,8 @@ void mp_value_print(const mp_value_t value, bool new_line)
 
 	if (MP_VALUE_IS_NULL(value) || !MP_VALUE_IS_VALID(value) ||
 	    mp_value_print_table[mp_value_get_type(value)] == NULL) {
-		LOG_ERR("Invalid mp_value to print");
+		LOG_ERR("Invalid mp_value %p to print, type %u",
+			value, mp_value_get_type(value));
 		return;
 	}
 
