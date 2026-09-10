@@ -9,6 +9,7 @@
 #include <zephyr/kernel.h>
 #include <zephyr/drivers/clock_control.h>
 #include <zephyr/drivers/otp.h>
+#include <zephyr/drivers/pinctrl.h>
 #include <zephyr/sys/minmax.h>
 #include <zephyr/sys/util.h>
 #include <zephyr/dt-bindings/clock/bflb_bl61x_clock.h>
@@ -106,6 +107,7 @@ struct clock_control_bl61x_flashclk_config {
 
 struct clock_control_bl61x_config {
 	uint32_t	crystal_id;
+	const struct pinctrl_dev_config *pcfg;
 };
 
 struct clock_control_bl61x_f32k_config {
@@ -1734,6 +1736,7 @@ static int clock_control_bl61x_get_rate(const struct device *dev, clock_control_
 
 static int clock_control_bl61x_init(const struct device *dev)
 {
+	const struct clock_control_bl61x_config *config = dev->config;
 	int ret;
 	uint32_t key;
 
@@ -1755,7 +1758,7 @@ static int clock_control_bl61x_init(const struct device *dev)
 
 	irq_unlock(key);
 
-	return 0;
+	return pinctrl_apply_state(config->pcfg, PINCTRL_STATE_DEFAULT);
 }
 
 static DEVICE_API(clock_control, clock_control_bl61x_api) = {
@@ -1765,9 +1768,12 @@ static DEVICE_API(clock_control, clock_control_bl61x_api) = {
 	.get_status = clock_control_bl61x_get_status,
 };
 
+PINCTRL_DT_INST_DEFINE(0);
+
 static const struct clock_control_bl61x_config clock_control_bl61x_config = {
 	.crystal_id = CRYSTAL_FREQ_TO_ID(DT_PROP(DT_INST_CLOCKS_CTLR_BY_NAME(0, crystal),
 						 clock_frequency)),
+	.pcfg = PINCTRL_DT_INST_DEV_CONFIG_GET(0),
 };
 
 static struct clock_control_bl61x_data clock_control_bl61x_data = {

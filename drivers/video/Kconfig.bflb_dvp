@@ -1,0 +1,22 @@
+# SPDX-FileCopyrightText: Copyright Panoramix Labs
+# SPDX-License-Identifier: Apache-2.0
+
+config VIDEO_BFLB_DVP
+	bool "BouffaloLab DVP to AXI (DVP2AX) video receiver"
+	default y
+	depends on DT_HAS_BFLB_DVP_ENABLED
+	select PINCTRL
+	help
+	  Enable driver for Bouffalo Lab DVP parallel camera (DVP) video receiver.
+
+if VIDEO_BFLB_DVP
+
+config VIDEO_BFLB_DVP_INIT_PRIORITY
+	int "Bouffalo Lab DVP initialization priority"
+	default 59
+	help
+	  System initialization priority for the BouffaloLab DVP drivers.
+	  This priority needs to be lower (earlier) than VIDEO_INIT_PRIORITY (60) so that the MCLK
+	  clock signal sent to the sensor is configured before, needed for I2C to respond.
+
+endif

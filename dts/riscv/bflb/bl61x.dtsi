@@ -514,6 +514,24 @@
 			tcap-capcode = <28 29 30 31 32 33 34 35 36 37 38>;
 		};
 
+		dvp0: dvp@20057000 {
+			compatible = "bflb,dvp";
+			reg = <20057000 DT_SIZE_K(4)>;
+			status = "disabled";
+
+			interrupts = <41 1>;
+			interrupt-parent = <&clic>;
+		};
+
+		dvp1: dvp@20058000 {
+			compatible = "bflb,dvp";
+			reg = <20058000 DT_SIZE_K(4)>;
+			status = "disabled";
+
+			interrupts = <41 1>;
+			interrupt-parent = <&clic>;
+		};
+
 		/* All contiguous fast RAM
 		 * It is kept tightly coupled by the CPU's internal cache
 		 */
