@@ -23,11 +23,16 @@
 	};
 };
 
-&i2c0 {
+dvp_24pin_i2c: &i2c0 {
 	status = "okay";
 	clock-frequency = <I2C_BITRATE_STANDARD>;
 
 	pinctrl-0 = <&i2c0_default>;
+	pinctrl-names = "default";
+};
+
+dvp_24pin_interface: &dvp0 {
+	pinctrl-0 = <&dvp0_default>;
 	pinctrl-names = "default";
 };
 
@@ -39,4 +44,10 @@
 
 	/* shared between SD card and display, use only one */
 	cs-gpios = <&gpio0 12 GPIO_ACTIVE_LOW>;
+};
+
+&clocks {
+	/* for MCLK */
+	pinctrl-0 = <&clocks_default>;
+	pinctrl-names = "default";
 };
