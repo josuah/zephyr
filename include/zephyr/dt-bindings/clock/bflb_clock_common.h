@@ -32,7 +32,7 @@
 /** Start of soc-specific clock ID entries */
 #define BFLB_CLKID_CLK_PRIVATE	7
 /** Sytem Clock (no PLL source) */
-#define BL61X_CLKID_CLK_XCLK    8
+#define BFLB_CLKID_CLK_XCLK    8
 
 /** Pass to clock API to switch root clock to RC32M  */
 #define BFLB_FORCE_ROOT_RC32M	32
