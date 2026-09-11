@@ -229,6 +229,14 @@ void video_print_ctrl(const struct video_ctrl_query *const cq);
  * Query the integer menu range for boundary checks, then get the current integer menu value,
  * resolving the index into the actual value.
  */
+int video_get_ctrl_menu(const struct device *dev, uint32_t cid, char const **val);
+
+/**
+ * @brief Return the integer-menu effective value.
+ *
+ * Query the integer menu range for boundary checks, then get the current integer menu value,
+ * resolving the index into the actual value.
+ */
 int video_get_ctrl_int_menu(const struct device *dev, uint32_t cid, int64_t *val);
 
 /**
@@ -257,13 +265,13 @@ int64_t video_get_csi_link_freq(const struct device *dev, uint8_t bpp, uint8_t l
  *
  * At first the helper will try read the @ref VIDEO_CID_LINK_FREQ and if not available will
  * approximate the link-frequency from the @ref VIDEO_CID_PIXEL_RATE value, taking into
- * consideration the bits per pixel of the format and the number of lanes.
+ * consideration the bits per pixel of the format and the bus width (number of signals).
  *
  * @param dev Video device to query.
  * @param bpp Amount of bits per pixel of the pixel format produced by the device
- * @param lane_nb Number of CSI-2 lanes used
+ * @param bus_width Number of data signals for this bus.
  */
-int64_t video_get_csi_link_freq(const struct device *dev, uint8_t bpp, uint8_t lane_nb);
+int64_t video_get_dvp_link_freq(const struct device *dev, uint8_t bpp, uint8_t lane_nb);
 
 /**
  * @}
