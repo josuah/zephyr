@@ -26,7 +26,7 @@
 	};
 
 	/* "DVP CAM" connector at the bottom */
-	dvp0_default: dvp0_default {
+	camfront_default: camfront_default {
 		group1 {
 			pinmux = <GPIO24_CAM0_DAT0>,
 				 <GPIO25_CAM0_DAT1>,

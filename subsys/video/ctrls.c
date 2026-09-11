@@ -451,21 +451,20 @@ void video_print_ctrl(const struct video_ctrl_query *const cq)
 	}
 }
 
-int64_t video_get_csi_link_freq(const struct device *dev, uint8_t bpp, uint8_t lane_nb)
+int video_get_ctrl_int_menu(const struct device *dev, uint32_t cid, int64_t *val)
 {
 	struct video_control ctrl = {
-		.id = VIDEO_CID_LINK_FREQ,
+		.id = cid,
 	};
 	struct video_ctrl_query ctrl_query = {
 		.dev = dev,
-		.id = VIDEO_CID_LINK_FREQ,
+		.id = cid,
 	};
 	int ret;
 
-	/* Try to get the LINK_FREQ value from the source device */
 	ret = video_get_ctrl(dev, &ctrl);
 	if (ret < 0) {
-		goto fallback;
+		return ret;
 	}
 
 	ret = video_query_ctrl(&ctrl_query);
@@ -481,7 +480,61 @@ int64_t video_get_csi_link_freq(const struct device *dev, uint8_t bpp, uint8_t l
 		return -EINVAL;
 	}
 
-	return (int64_t)ctrl_query.int_menu[ctrl.val];
+	*val = (int64_t)ctrl_query.int_menu[ctrl.val];
+
+	return 0;
+}
+
+int video_get_ctrl_menu(const struct device *dev, uint32_t cid, char const **val)
+{
+	struct video_control ctrl = {
+		.id = cid,
+	};
+	struct video_ctrl_query ctrl_query = {
+		.dev = dev,
+		.id = cid,
+	};
+	int ret;
+
+	ret = video_get_ctrl(dev, &ctrl);
+	if (ret < 0) {
+		return ret;
+	}
+
+	ret = video_query_ctrl(&ctrl_query);
+	if (ret < 0) {
+		return ret;
+	}
+
+	if (!IN_RANGE(ctrl.val, ctrl_query.range.min, ctrl_query.range.max)) {
+		return -ERANGE;
+	}
+
+	if (ctrl_query.menu == NULL) {
+		return -EINVAL;
+	}
+
+	*val = (int64_t)ctrl_query.menu[ctrl.val];
+
+	return 0;
+}
+
+int64_t video_get_csi_link_freq(const struct device *dev, uint8_t bpp, uint8_t lane_nb)
+{
+	struct video_control pixel_rate_ctrl = {.id = VIDEO_CID_PIXEL_RATE};
+	int64_t link_freq;
+	int ret;
+
+	/* Try to get the LINK_FREQ value from the source device */
+	ret = video_ctrl_get_int_menu(dev, VIDEO_CID_LINK_FREQ, &link_freq);
+	if (ret == -ENOTSUP) {
+		goto fallback;
+	}
+	if (ret < 0) {
+		return ret;
+	}
+
+	return link_freq;
 
 fallback:
 	/* If VIDEO_CID_LINK_FREQ is not available, approximate from VIDEO_CID_PIXEL_RATE */
@@ -493,4 +546,32 @@ fallback:
 
 	/* CSI D-PHY is using a DDR data bus so bitrate is twice the frequency */
 	return ctrl.val64 * bpp / (2 * lane_nb);
+}
+
+int64_t video_get_dvp_link_freq(const struct device *dev, uint8_t bpp, uint8_t bus_width)
+{
+	struct video_control pixel_rate_ctrl = {.id = VIDEO_CID_PIXEL_RATE};
+	int64_t link_freq = 0;
+	int ret;
+
+	/* Try to get the LINK_FREQ value from the source device */
+	ret = video_ctrl_get_int_menu(dev, VIDEO_CID_LINK_FREQ, &link_freq);
+	if (ret == -ENOTSUP) {
+		goto fallback;
+	}
+	if (ret < 0) {
+		return ret;
+	}
+
+	return link_freq;
+
+fallback:
+	/* If VIDEO_CID_LINK_FREQ is not available, approximate from VIDEO_CID_PIXEL_RATE */
+	ret = video_get_ctrl(dev, &pixel_rate_ctrl);
+	if (ret < 0) {
+		return ret;
+	}
+
+	/* DVP is using a parallel data bus with one bit per lane per clock */
+	return pixel_rate_ctrl.val64 * bpp / bus_width;
 }
