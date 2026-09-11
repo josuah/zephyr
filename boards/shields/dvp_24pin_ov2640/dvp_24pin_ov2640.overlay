@@ -9,6 +9,10 @@
 	};
 };
 
+&dvp_24pin_interface {
+	status = "okay";
+};
+
 &dvp_24pin_i2c {
 	status = "okay";
 
@@ -26,16 +30,10 @@
 	};
 };
 
-&dvp_24pin_interface {
-	status = "okay";
-
-	port {
-		dvp_24pin_ep_in: endpoint {
-			remote-endpoint-label = "ov2640_ep_out";
-			bus-width = <8>;
-			hsync-active = <0>;
-			vsync-active = <0>;
-			pclk-sample = <1>;
-		};
-	};
+&dvp_24pin_ep_in {
+	remote-endpoint-label = "ov2640_ep_out";
+	bus-width = <8>;
+	hsync-active = <0>;
+	vsync-active = <0>;
+	pclk-sample = <1>;
 };
