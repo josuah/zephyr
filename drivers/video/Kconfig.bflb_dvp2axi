@@ -13,10 +13,10 @@ if VIDEO_BFLB_DVP2AXI
 
 config VIDEO_BFLB_DVP2AXI_INIT_PRIORITY
 	int "Bouffalo Lab DVP2AXI initialization priority"
-	default 62
+	default 61
 	help
 	  System initialization priority for the BouffaloLab CAMFRONT drivers.
-	  This priority needs to be higher (later) than VIDEO_BFLB_DVP2AXI_INIT_PRIORITY (61) so
+	  This priority needs to be higher (later) than VIDEO_BFLB_DVP2AXI_INIT_PRIORITY (59) so
 	  that CANFRONT is initiialized before.
 
 config VIDEO_BFLB_DVP2AXI_MAX_FORMATS

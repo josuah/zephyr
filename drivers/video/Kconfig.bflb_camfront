@@ -13,11 +13,11 @@ if VIDEO_BFLB_CAMFRONT
 
 config VIDEO_BFLB_CAMFRONT_INIT_PRIORITY
 	int "Bouffalo Lab CAMFRONT initialization priority"
-	default 61
+	default 59
 	help
 	  System initialization priority for the BouffaloLab DVP2AXI drivers.
-	  This priority needs to be higher (later) than VIDEO_INIT_PRIORITY (60) so that image
-	  sensors are configured before.
+	  This priority needs to be lower (earlier) than VIDEO_INIT_PRIORITY (60) so that image
+	  sensors can have their MCLK/XCLK clock signal configured.
 
 config VIDEO_BFLB_CAMFRONT_MAX_FORMATS
 	int "Maximum number of formats listed"
