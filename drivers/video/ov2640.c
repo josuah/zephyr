@@ -13,6 +13,7 @@
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
 #include <zephyr/video/video.h>
+#include <zephyr/sys/util.h>
 
 #include "video_common.h"
 
@@ -195,6 +196,10 @@ struct ov2640_win_size {
 		{ZMHH, FIELD_PREP(GENMASK(1, 0), (x) >> (8 + 2)) |                                 \
 			       FIELD_PREP(GENMASK(2, 2), (y) >> (8 + 2))},                         \
 		{R_DVP_SP, pclk_div}, {RESET, 0x00}
+
+const int64_t ov2640_link_freq[] = {
+	MHZ(12), // MHZ(48)
+};
 
 static const struct ov2640_reg ov2640_qqvga_regs[] = {
 	OV2640_ZOOM_CONFIG(QQVGA_WIDTH, QQVGA_HEIGHT, 3, 3, 8),
@@ -548,6 +553,7 @@ struct ov2640_ctrls {
 	struct video_ctrl saturation;
 	struct video_ctrl jpeg;
 	struct video_ctrl test_pattern;
+	struct video_ctrl link_freq;
 };
 
 struct ov2640_data {
@@ -1106,8 +1112,20 @@ static int ov2640_init_controls(const struct device *dev)
 		return ret;
 	}
 
-	return video_init_ctrl(&ctrls->test_pattern, dev, VIDEO_CID_TEST_PATTERN,
-			       (struct video_ctrl_range){.min = 0, .max = 1, .step = 1, .def = 0});
+	ret = video_init_ctrl(&ctrls->test_pattern, dev, VIDEO_CID_TEST_PATTERN,
+			      (struct video_ctrl_range){.min = 0, .max = 1, .step = 1, .def = 0});
+	if (ret) {
+		return ret;
+	}
+
+	ret = video_init_int_menu_ctrl(&ctrls->link_freq, dev, VIDEO_CID_LINK_FREQ,
+				       0, ov2640_link_freq, ARRAY_SIZE(ov2640_link_freq));
+	if (ret < 0) {
+		return ret;
+	}
+	ctrls->link_freq.flags |= VIDEO_CTRL_FLAG_READ_ONLY;
+
+	return 0;
 }
 
 static int ov2640_init(const struct device *dev)

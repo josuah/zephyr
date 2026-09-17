@@ -18,6 +18,8 @@ LOG_MODULE_REGISTER(bflb_dvp2axi, CONFIG_VIDEO_LOG_LEVEL);
 #include <bflb_soc.h>
 #include <glb_reg.h>
 
+#include "video_common.h"
+
 #define CAM_REG_DVP_DATA_MODE_NONE		0
 #define CAM_REG_DVP_DATA_MODE_888_TO_565	2
 #define CAM_REG_DVP_DATA_MODE_888_TO_888X	3
@@ -25,7 +27,6 @@ LOG_MODULE_REGISTER(bflb_dvp2axi, CONFIG_VIDEO_LOG_LEVEL);
 
 struct bflb_dvp2axi_config {
 	uintptr_t base;
-	const struct pinctrl_dev_config *pcfg;
 	const struct device *source_dev;
 	void (*irq_config_func)(const struct device *dev);
 	uint8_t axi_burst_length;
@@ -50,14 +51,11 @@ static void bflb_dvp2axi_add_format_cap(const struct device *dev,
 	const struct bflb_dvp2axi_config *config = dev->config;
 	struct bflb_dvp2axi_data *data = dev->data;
 
-	if (0) {
-		LOG_DBG("%s's format %s [%ux%u - %ux%u] not supported, skipping",
-			config->source_dev->name,
-			VIDEO_FOURCC_TO_STR(fmt_cap->pixelformat),
-			fmt_cap->width_min, fmt_cap->height_min,
-			fmt_cap->width_max, fmt_cap->height_max);
-		return;
-	}
+	LOG_DBG("%s's format %s [%ux%u - %ux%u] not supported, skipping",
+		config->source_dev->name,
+		VIDEO_FOURCC_TO_STR(fmt_cap->pixelformat),
+		fmt_cap->width_min, fmt_cap->height_min,
+		fmt_cap->width_max, fmt_cap->height_max);
 
 	if (data->num_fmts + 1 >= CONFIG_VIDEO_BFLB_DVP2AXI_MAX_FORMATS) {
 		LOG_WRN("CONFIG_VIDEO_BFLB_DVP2AXI_MAX_FORMATS too small, raise above %u",
@@ -71,26 +69,11 @@ static void bflb_dvp2axi_add_format_cap(const struct device *dev,
 
 static int bflb_dvp2axi_get_caps(const struct device *dev, struct video_caps *caps)
 {
-	const struct bflb_dvp2axi_config *config = dev->config;
 	struct bflb_dvp2axi_data *data = dev->data;
-	struct video_caps tmp_caps = {};
-	int ret;
-
-	if (data->num_fmts == 0) {
-		ret = video_get_caps(config->source_dev, &tmp_caps);
-		if (ret != 0) {
-			LOG_ERR("Failed to get %s capabilities", config->source_dev->name);
-			return ret;
-		}
-
-		for (size_t i = 0; tmp_caps.format_caps[i].pixelformat != 0; i++) {
-			bflb_dvp2axi_add_format_cap(dev, &tmp_caps.format_caps[i]);
-		}
-	}
 
 	caps->format_caps = data->fmts;
 	caps->min_vbuf_count = 1;
-	//caps->buf_align = 16;
+	caps->buf_align = 16;
 
 	return 0;
 }
@@ -167,13 +150,18 @@ static void bflb_dvp2axi_trigger(const struct device *dev)
 	}
 
 	if (data->active_vbuf != NULL) {
+		LOG_DBG("Already busy with %p, skipping", data->active_vbuf->buffer);
 		goto end;
 	}
 
 	data->active_vbuf = k_fifo_get(&data->fifo_in, K_NO_WAIT);
 	if (data->active_vbuf == NULL) {
+		LOG_DBG("No buffer submitted yet");
 		goto end;
 	}
+
+	LOG_DBG("Submitting new buffer %p, size %u",
+		data->active_vbuf->buffer, data->active_vbuf->size);
 
 	tmp = (uintptr_t)data->active_vbuf->buffer;
 	sys_write32(tmp, config->base + CAM_DVP2AXI_ADDR_START_OFFSET);
@@ -226,7 +214,7 @@ static int bflb_dvp2axi_apply_format(const struct device *dev)
 	const struct bflb_dvp2axi_config *config = dev->config;
 	struct bflb_dvp2axi_data *data = dev->data;
 	struct video_format source_fmt = {.type = VIDEO_BUF_TYPE_OUTPUT};
-	struct video_caps caps;
+	struct video_caps caps = {.type = VIDEO_BUF_TYPE_OUTPUT};
 	uint32_t data_mode;
 	size_t fmt_idx;
 	uint32_t tmp;
@@ -250,7 +238,7 @@ static int bflb_dvp2axi_apply_format(const struct device *dev)
 
 	ret = video_format_caps_index(data->fmts, &data->fmt, &fmt_idx);
 	if (ret < 0) {
-		/* Format not found, try to data_mode */
+		/* Format not found, try to convert */
 
 		switch (data->fmt.pixelformat) {
 
@@ -287,11 +275,15 @@ static int bflb_dvp2axi_apply_format(const struct device *dev)
 			break;
 
 		default:
+			LOG_WRN("Unsupported conversion, usingunmodified input format %s",
+				VIDEO_FOURCC_TO_STR(data->fmt.pixelformat));
 			source_fmt.pixelformat = data->fmt.pixelformat;
 			data_mode = CAM_REG_DVP_DATA_MODE_NONE;
 			break;
 		}
 	} else {
+		LOG_INF("No conversion needed, using %s directly",
+			VIDEO_FOURCC_TO_STR(data->fmt.pixelformat));
 		data_mode = CAM_REG_DVP_DATA_MODE_NONE;
 	}
 
@@ -384,19 +376,13 @@ static int bflb_dvp2axi_init(const struct device *dev)
 {
 	const struct bflb_dvp2axi_config *config = dev->config;
 	struct bflb_dvp2axi_data *data = dev->data;
+	struct video_format fmt = {};
+	struct video_caps caps = {.type = VIDEO_BUF_TYPE_OUTPUT};
 	uint32_t tmp;
 	int ret;
 
-	config->irq_config_func(dev);
-
 	k_fifo_init(&data->fifo_in);
 	k_fifo_init(&data->fifo_out);
-
-	ret = pinctrl_apply_state(config->pcfg, PINCTRL_STATE_DEFAULT);
-	if (ret != 0) {
-		LOG_ERR("Failed to apply %s default pin config", dev->name);
-		return ret;
-	}
 
 	/* axi-burst-length */
 	tmp = sys_read32(config->base + CAM_DVP2AXI_CONFIGUE_OFFSET);
@@ -426,7 +412,7 @@ static int bflb_dvp2axi_init(const struct device *dev)
 	}
 	sys_write32(tmp, config->base + CAM_DVP2AXI_CONFIGUE_OFFSET);
 
-	/* vsync-active */
+	/* vsync-active high/low */
 	tmp = sys_read32(config->base + CAM_DVP2AXI_CONFIGUE_OFFSET);
 	if (config->vsync_active) {
 		tmp |= CAM_REG_FRAM_VLD_POL;
@@ -435,7 +421,7 @@ static int bflb_dvp2axi_init(const struct device *dev)
 	}
 	sys_write32(tmp, config->base + CAM_DVP2AXI_CONFIGUE_OFFSET);
 
-	/* hsync-active */
+	/* hsync-active high/low */
 	tmp = sys_read32(config->base + CAM_DVP2AXI_CONFIGUE_OFFSET);
 	if (config->hsync_active) {
 		tmp |= CAM_REG_LINE_VLD_POL;
@@ -443,6 +429,30 @@ static int bflb_dvp2axi_init(const struct device *dev)
 		tmp &= ~CAM_REG_LINE_VLD_POL;
 	}
 	sys_write32(tmp, config->base + CAM_DVP2AXI_CONFIGUE_OFFSET);
+
+	/* generate format caps */
+	ret = video_get_caps(config->source_dev, &caps);
+	if (ret != 0) {
+		LOG_ERR("Failed to get %s capabilities", config->source_dev->name);
+		return ret;
+	}
+	for (size_t i = 0; caps.format_caps[i].pixelformat != 0; i++) {
+		bflb_dvp2axi_add_format_cap(dev, &caps.format_caps[i]);
+	}
+
+	/* set default format */
+	fmt.pixelformat = caps.format_caps[0].pixelformat,
+	fmt.width = caps.format_caps[0].width_min,
+	fmt.height = caps.format_caps[0].height_min,
+	ret = video_set_format(dev, &fmt);
+	if (ret != 0) {
+		LOG_ERR("Failed to set default format to %s %ux%u",
+			VIDEO_FOURCC_TO_STR(fmt.pixelformat), fmt.width, fmt.height);
+		return ret;
+	}
+
+	/* enable */
+	config->irq_config_func(dev);
 
 	return 0;
 }
@@ -501,8 +511,7 @@ static DEVICE_API(video, bflb_dvp2axi_api) = {
 					 POST_KERNEL, CONFIG_VIDEO_BFLB_DVP2AXI_INIT_PRIORITY,	\
 					 &bflb_dvp2axi_api);					\
 												\
-
-	//VIDEO_DEVICE_DEFINE(dvp2axi##n, DEVICE_INST_DT_GET(n), DEVICE_DT_GET(SOURCE_NODE(n)));
+	VIDEO_DEVICE_DEFINE(dvp2axi##n, DEVICE_DT_INST_GET(n), DEVICE_DT_GET(SOURCE_NODE(n)));
 
 DT_INST_FOREACH_STATUS_OKAY(BFLB_DVP2AXI_INIT)
 
