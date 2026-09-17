@@ -4,10 +4,21 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <zephyr/dt-bindings/gpio/gpio.h>
 #include "aipi_cam_d200-pinctrl.dtsi"
 
 / {
 	model = "AiPi-Cam-200";
+
+	regulator-3v3-cam {
+		compatible = "regulator-gpio";
+
+		regulator-name = "3v3-cam";
+		regulator-boot-on;
+		gpios = <&gpio0 19 GPIO_ACTIVE_HIGH>;
+		states = <3300000 0x1>;
+		startup-delay-us = <10>;
+	};
 };
 
 dvp_24pin_i2c: &i2c0 {
