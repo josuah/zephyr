@@ -78,6 +78,7 @@ enum bl61x_clkid {
 	bl61x_clkid_clk_wifipll = BL61X_CLKID_CLK_WIFIPLL,
 	bl61x_clkid_clk_aupll = BL61X_CLKID_CLK_AUPLL,
 	bl61x_clkid_clk_bclk = BL61X_CLKID_CLK_BCLK,
+	bl61x_clkid_clk_xclk = BL61X_CLKID_CLK_XCLK,
 	bl61x_clkid_clk_160mux = BL61X_CLKID_CLK_160M,
 	bl61x_clkid_clk_f32k = BL61X_CLKID_CLK_F32K,
 	bl61x_clkid_clk_xtal32k = BL61X_CLKID_CLK_XTAL32K,
@@ -1685,6 +1686,8 @@ static enum clock_control_status clock_control_bl61x_get_status(const struct dev
 		return CLOCK_CONTROL_STATUS_ON;
 	} else if ((enum bl61x_clkid)sys == bl61x_clkid_clk_bclk) {
 		return CLOCK_CONTROL_STATUS_ON;
+	} else if ((enum bl61x_clkid)sys == bl61x_clkid_clk_xclk) {
+		return CLOCK_CONTROL_STATUS_ON;
 	} else if ((enum bl61x_clkid)sys == bl61x_clkid_clk_crystal) {
 		if (data->crystal_enabled) {
 			return CLOCK_CONTROL_STATUS_ON;
@@ -1718,6 +1721,8 @@ static int clock_control_bl61x_get_rate(const struct device *dev, clock_control_
 		*rate = clock_control_bl61x_get_hclk(dev);
 	} else if  ((enum bl61x_clkid)sys == bl61x_clkid_clk_bclk) {
 		*rate = clock_control_bl61x_get_bclk(dev);
+	} else if  ((enum bl61x_clkid)sys == bl61x_clkid_clk_xclk) {
+		*rate = clock_control_bl61x_get_xclk(dev);
 	} else if  ((enum bl61x_clkid)sys == bl61x_clkid_clk_crystal) {
 		*rate = DT_PROP(DT_INST_CLOCKS_CTLR_BY_NAME(0, crystal), clock_frequency);
 	} else if  ((enum bl61x_clkid)sys == bl61x_clkid_clk_160mux) {

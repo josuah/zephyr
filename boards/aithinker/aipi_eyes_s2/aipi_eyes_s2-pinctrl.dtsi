@@ -20,8 +20,8 @@
 		group1 {
 			pinmux = <GPIO15_SPI_MOSI>,
 				 <GPIO17_SPI_SCLK>;
-			bias-pull-up;
-			input-schmitt-enable;
+				 bias-pull-up;
+				 input-schmitt-enable;
 		};
 	};
 
@@ -46,6 +46,7 @@
 	clocks_default: clocks_default {
 		group1 {
 			pinmux = <GPIO23_CLOCK_OUT3_CAM_REF>;
+			bias-pull-up;
 			input-schmitt-enable;
 		};
 	};

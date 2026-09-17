@@ -24,7 +24,9 @@ LOG_MODULE_REGISTER(bflb_camfront, CONFIG_VIDEO_LOG_LEVEL);
 #include <bflb_soc.h>
 #include <glb_reg.h>
 
-#define BFLB_CAMFRONT_REF_CLK_DIV 3
+#define GLB_CAM_CLK_XCLK		0
+#define GLB_CAM_CLK_WIFIPLL_96M		1
+#define GLB_CAM_CLK_TOP_AUPLL_DIV5	2
 
 struct bflb_camfront_config {
 	uintptr_t base;
@@ -32,6 +34,7 @@ struct bflb_camfront_config {
 	const struct device *source_dev;
 	void (*irq_config_func)(const struct device *dev);
 	uint8_t bus_width;
+	uint8_t clock_divider;
 };
 
 struct bflb_camfront_data {
@@ -85,9 +88,9 @@ static int bflb_camfront_get_caps(const struct device *dev, struct video_caps *c
 
 	caps->format_caps = data->fmts;
 	caps->min_vbuf_count = 1;
-	//caps->buf_align = 16;
+	//caps->buf_align = 16; /* TODO */
 
-	if (data->num_fmts == 0) {
+	if (data->num_fmts > 0) {
 		return 0;
 	}
 
@@ -175,7 +178,7 @@ static int bflb_camfront_apply_format(const struct device *dev)
 		LOG_ERR("Failed to query BL61X_CLKID_CLK_XCLK speed");
 		return ret;
 	}
-	cam_ref_clk_hz /= BFLB_CAMFRONT_REF_CLK_DIV;
+	cam_ref_clk_hz /= config->clock_divider;
 
 	pix_clk_hz = video_get_dvp_link_freq(
 		dev, video_bits_per_pixel(data->fmt.pixelformat), config->bus_width);
@@ -184,11 +187,14 @@ static int bflb_camfront_apply_format(const struct device *dev)
 		return -ENOTSUP;
 	}
 
-	threshold_x = data->fmt.width - (data->fmt.width * pix_clk_hz / cam_ref_clk_hz) / 2 + 10;
+	threshold_x = data->fmt.width - (data->fmt.width * pix_clk_hz * 1000 / cam_ref_clk_hz)
+		/ 2 + 10;
 	threshold_x = CLAMP(threshold_x, 2, data->fmt.width);
 	threshold_x = CLAMP(threshold_x, 2, 1024);
 
-	LOG_ERR("for sensor %s, x threshold is %u", config->source_dev->name, threshold_x);
+	LOG_DBG("setting %s x threshold to %u (format %s %ux%u, pix clk %llu hz, cam clk %u hz)",
+		config->source_dev->name, threshold_x, VIDEO_FOURCC_TO_STR(data->fmt.pixelformat),
+		data->fmt.width, data->fmt.height, pix_clk_hz, cam_ref_clk_hz);
 
 	tmp = sys_read32(config->base + CAM_FRONT_CONFIG_OFFSET);
 	tmp &= ~CAM_FRONT_RG_DVPAS_FIFO_TH_MASK;
@@ -272,6 +278,7 @@ static int bflb_camfront_set_stream(const struct device *dev, bool stream, enum 
 
 static void bflb_camfront_init_clock(const struct device *dev)
 {
+	const struct bflb_camfront_config *config = dev->config;
 	uint32_t tmp;
 
 	/* disable clock routing */
@@ -279,12 +286,12 @@ static void bflb_camfront_init_clock(const struct device *dev)
 	tmp &= ~GLB_REG_CAM_REF_CLK_EN_MSK;
 	sys_write32(tmp, GLB_BASE + GLB_CAM_CFG0_OFFSET);
 
-	/* src=xclk, div=3 */
+	/* SRC_SEL=3 is XCLK */
 	tmp = sys_read32(GLB_BASE + GLB_CAM_CFG0_OFFSET);
 	tmp &= ~GLB_REG_CAM_REF_CLK_SRC_SEL_MSK;
-	tmp |= 3 << GLB_REG_CAM_REF_CLK_SRC_SEL_POS;
+	tmp |= GLB_CAM_CLK_TOP_AUPLL_DIV5 << GLB_REG_CAM_REF_CLK_SRC_SEL_POS;
 	tmp &= ~GLB_REG_CAM_REF_CLK_DIV_MSK;
-	tmp |= BFLB_CAMFRONT_REF_CLK_DIV << GLB_REG_CAM_REF_CLK_DIV_POS;
+	tmp |= (config->clock_divider - 1) << GLB_REG_CAM_REF_CLK_DIV_POS;
 	sys_write32(tmp, GLB_BASE + GLB_CAM_CFG0_OFFSET);
 
 	/* enable clock routing */
@@ -314,6 +321,8 @@ static int bflb_camfront_init(const struct device *dev)
 	tmp |= CAM_FRONT_RG_DVPAS_ENABLE;
 	sys_write32(tmp, config->base + CAM_FRONT_CONFIG_OFFSET);
 
+	/* Default format set by dvp2axi */
+
 	return 0;
 }
 
@@ -342,6 +351,7 @@ static DEVICE_API(video, bflb_camfront_api) = {
 	const struct bflb_camfront_config bflb_camfront_config_##n = {				\
 		.base = DT_INST_REG_ADDR(n),							\
 		.pcfg = PINCTRL_DT_INST_DEV_CONFIG_GET(n),					\
+		.clock_divider= DT_INST_PROP(n, clock_divider),					\
 		.source_dev = SOURCE_DEV(n),							\
 		.bus_width = DT_PROP(DT_INST_ENDPOINT_BY_ID(n, 0, 0), bus_width),		\
 	};											\

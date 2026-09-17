@@ -18,6 +18,13 @@ properties:
   reg:
     required: true
 
+  clock-divider:
+    type: int
+    description: The selected camera clock source is further divided by this value.
+    default: 3
+    min: 1
+    max: 4
+
 child-binding:
   child-binding:
     include: video-interfaces.yaml

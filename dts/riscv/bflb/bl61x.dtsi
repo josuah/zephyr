@@ -516,7 +516,7 @@
 
 		dvp2axi0: dvp2axi@20057000 {
 			compatible = "bflb,dvp2axi";
-			reg = <20057000 DT_SIZE_K(4)>;
+			reg = <0x20057000 DT_SIZE_K(4)>;
 			status = "disabled";
 
 			interrupts = <32 1>;
@@ -533,7 +533,7 @@
 
 		dvp2axi1: dvp2axi@20058000 {
 			compatible = "bflb,dvp2axi";
-			reg = <20058000 DT_SIZE_K(4)>;
+			reg = <0x20058000 DT_SIZE_K(4)>;
 			status = "disabled";
 
 			interrupts = <34 1>;
@@ -559,7 +559,7 @@
 
 				camfront_ep_in: endpoint@0 {
 					reg = <0>;
-					/* remote-endpoint-label = "image_sensor_ep" */
+					remote-endpoint-label = "placeholder";
 				};
 
 				camfront_ep_out0: endpoint@1 {

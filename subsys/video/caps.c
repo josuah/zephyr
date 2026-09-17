@@ -13,6 +13,8 @@ int video_get_caps(const struct device *dev, struct video_caps *caps)
 {
 	if (dev == NULL || caps == NULL ||
 	    (caps->type != VIDEO_BUF_TYPE_INPUT && caps->type != VIDEO_BUF_TYPE_OUTPUT)) {
+		LOG_ERR("Invalid capabilities call: dev %p, capos %p, type %u",
+			dev, caps, caps == NULL ? 0 : caps->type);
 		return -EINVAL;
 	}
 
@@ -23,6 +25,8 @@ int video_format_caps_index(const struct video_format_cap *fmts, const struct vi
 			    size_t *idx)
 {
 	if (fmts == NULL || fmt == NULL || idx == NULL) {
+		LOG_ERR("Invalid format caps index call: fmts %p, fmt %p, idx %p",
+			fmts, fmt, idx);
 		return -EINVAL;
 	}
 
@@ -44,6 +48,8 @@ int video_transform_cap(const struct device *const dev,
 {
 	if (dev == NULL || cap == NULL || res_cap == NULL ||
 	    (type != VIDEO_BUF_TYPE_INPUT && type != VIDEO_BUF_TYPE_OUTPUT)) {
+		LOG_ERR("Invalid transform caps call: dev %p, cap %p, res_cap %p, type %u",
+			dev, cap, res_cap, type);
 		return -EINVAL;
 	}
 
