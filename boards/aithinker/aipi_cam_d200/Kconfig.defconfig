@@ -16,4 +16,10 @@ configdefault UART_CONSOLE
 configdefault MEMC
 	default y
 
+configdefault GPIO
+	default y
+
+config REGULATOR_GPIO_INIT_PRIORITY
+	default 41 # GPIO_INIT_PRIORITY + 1
+
 endif
