@@ -276,7 +276,11 @@ static int cmd_video_capture(const struct shell *sh, size_t argc, char **argv)
 
 	first_uptime = prev_uptime = this_uptime = k_uptime_get_32();
 
+	shell_print(sh, "Video stream started");
+
 	for (unsigned long i = 0; i < num_buffers;) {
+		shell_print(sh, "Waiting completion of buffer %lu", i);
+
 		ret = video_dequeue(dev, &vbuf, K_FOREVER);
 		if (ret < 0) {
 			shell_error(sh, "Failed to dequeue this buffer: %s", strerror(-ret));

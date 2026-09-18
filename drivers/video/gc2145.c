@@ -1094,7 +1094,6 @@ static int gc2145_config_csi(const struct device *dev, uint32_t pixelformat,
 		return -EINVAL;
 	}
 
-	/* Only VGA & UXGA work (currently) in CSI */
 	if (width == RESOLUTION_VGA_W && height == RESOLUTION_VGA_H) {
 		ctrls->linkfreq.val = GC2145_640_480_LINK_FREQ_ID;
 	} else if (width == RESOLUTION_UXGA_W && height == RESOLUTION_UXGA_H) {

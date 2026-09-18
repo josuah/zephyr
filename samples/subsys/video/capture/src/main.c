@@ -315,6 +315,8 @@ static int app_setup_video_buffers(const struct device *const camera_dev,
 		return -EINVAL;
 	}
 
+	LOG_INF("Allocating %u buffers for %s", CONFIG_VIDEO_CAM_NUM_BUFS, camera_dev->name);
+
 	for (uint8_t i = 0; i < CONFIG_VIDEO_CAM_NUM_BUFS; i++) {
 		struct video_buffer *vbuf;
 

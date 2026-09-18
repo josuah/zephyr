@@ -141,6 +141,8 @@ GTEXT(z_riscv_custom_stack_guard_enable)
 GTEXT(z_riscv_custom_stack_guard_disable)
 #endif /* CONFIG_CUSTOM_STACK_GUARD */
 
+GTEXT(__debug_probe)
+
 /* exports */
 GTEXT(_isr_wrapper)
 
@@ -222,14 +224,14 @@ SECTION_FUNC(exception.entry, _isr_wrapper)
 
 	/* retrieve original s0 and restore _current_cpu in RV_SCRATCH */
 	csrrw s0, RV_SCRATCH, s0
-#endif
+#endif /* CONFIG_USERSPACE */
 
 #ifdef CONFIG_RISCV_SOC_HAS_ISR_STACKING
 	SOC_ISR_SW_STACKING
 #else
 	/* Save caller-saved registers on current thread stack. */
 	addi sp, sp, -__struct_arch_esf_SIZEOF
-	DO_CALLER_SAVED(sr)		;
+	DO_CALLER_SAVED(sr);
 #endif /* CONFIG_RISCV_SOC_HAS_ISR_STACKING */
 
 	/* Save s0 in the esf and load it with &_current_cpu. */
@@ -394,6 +396,8 @@ no_fp:	/* increment _current->arch.exception_depth */
 	addi a0, sp, __struct_arch_esf_soc_context_OFFSET
 	jal ra, __soc_save_context
 #endif /* CONFIG_RISCV_SOC_CONTEXT_SAVE */
+
+	/*call __debug_probe*/
 
 	/*
 	 * Check if exception is the result of an interrupt or not.
