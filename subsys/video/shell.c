@@ -258,7 +258,7 @@ static int cmd_video_capture(const struct shell *sh, size_t argc, char **argv)
 		    caps.min_vbuf_count, fmt.size);
 
 	for (unsigned int i = 0; i < caps.min_vbuf_count; i++) {
-		vbuf = video_buffer_aligned_alloc(fmt.size * 2, caps.buf_align, K_NO_WAIT);
+		vbuf = video_buffer_aligned_alloc(fmt.size, caps.buf_align, K_NO_WAIT);
 		if (vbuf == NULL) {
 			shell_error(sh, "Failed to allocate buffer %u", i);
 			goto end;
