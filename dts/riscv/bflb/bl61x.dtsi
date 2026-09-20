@@ -521,7 +521,7 @@
 
 			interrupts = <32 1>;
 			interrupt-parent = <&clic>;
-			axi-data-width = <64>;
+			axi-data-width = <32>;
 			axi-burst-length = <16>;
 
 			port {
