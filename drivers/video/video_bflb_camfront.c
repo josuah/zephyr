@@ -241,6 +241,10 @@ static int bflb_camfront_apply_config(const struct device *dev)
 	sys_write32(tmp, config->base + CAM_FRONT_CONFIG_OFFSET);
 #endif
 
+	tmp = sys_read32(config->base + CAM_FRONT_CONFIG_OFFSET);
+	tmp |= CAM_FRONT_RG_DVPAS_ENABLE;
+	sys_write32(tmp, config->base + CAM_FRONT_CONFIG_OFFSET);
+
 	return 0;
 }
 
