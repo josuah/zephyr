@@ -287,7 +287,6 @@ static int cmd_video_capture(const struct shell *sh, size_t argc, char **argv)
 	shell_print(sh, "Video stream started, format %s %ux%u",
 		    VIDEO_FOURCC_TO_STR(fmt.pixelformat), fmt.width, fmt.height);
 
-#if 0
 	vbuf = &vbuf0;
 	for (unsigned int i = 0; i < num_frames;) {
 		shell_print(sh, "Waiting buffer completion for frame %u", i);
@@ -329,11 +328,12 @@ end:
 		video_buffer_release(vbuf);
 	}
 
+#if 0
 	while (video_dequeue(dev, &vbuf, K_NO_WAIT) == 0) {
 		video_buffer_release(vbuf);
 	}
 #endif
-end:
+
 	return ret;
 }
 
