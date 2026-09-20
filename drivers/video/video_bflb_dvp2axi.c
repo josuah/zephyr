@@ -220,46 +220,13 @@ static void bflb_dvp2axi_apply_config(const struct device *dev)
 	tmp |= data_mode << CAM_REG_DVP_DATA_MODE_SHIFT;
 	sys_write32(tmp, config->base + CAM_DVP2AXI_CONFIGUE_OFFSET);
 
-	/* Set output buffer burst count */
-	tmp = sys_read32(config->base + CAM_DVP2AXI_CONFIGUE_OFFSET);
-	tmp = (tmp & CAM_REG_XLEN_MASK) >> CAM_REG_XLEN_SHIFT;
-	switch (tmp) {
-	case CAM_BURST_INCR1:
-		tmp = data->active_vbuf->size >> 3;
-		break;
-
-	case CAM_BURST_INCR4:
-		tmp = data->active_vbuf->size >> 5;
-		break;
-
-	case CAM_BURST_INCR8:
-		tmp = data->active_vbuf->size >> 6;
-		break;
-
-	case CAM_BURST_INCR16:
-		tmp = data->active_vbuf->size >> 7;
-		break;
-
-	case CAM_BURST_INCR32:
-		tmp = data->active_vbuf->size >> 8;
-		break;
-
-	case CAM_BURST_INCR64:
-		tmp = data->active_vbuf->size >> 9;
-		break;
-
-	default:
-		tmp = data->active_vbuf->size >> 7;
-		frame_size = frame_size >> 6;
-		break;
-	}
-
 	/* BCNT is byte count */
 	sys_write32(data->active_vbuf->size, config->base + CAM_DVP2AXI_FRAME_BCNT_OFFSET);
 
 	/* BCNT is AXI burst count */
-//	tmp = (data->active_vbuf->size >> config->axi_burst_length)
-//		/ (config->axi_data_width / BITS_PER_BYTE);
+	tmp = data->active_vbuf->size
+		/ (config->axi_data_width / BITS_PER_BYTE)
+		/ config->axi_burst_length;
 	sys_write32(tmp, config->base + CAM_DVP2AXI_MEM_BCNT_OFFSET);
 
 	tmp = sys_read32(config->base + CAM_DVP_STATUS_AND_ERROR_OFFSET);
