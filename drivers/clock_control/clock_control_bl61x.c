@@ -1510,6 +1510,7 @@ static void clock_control_bl61x_peripheral_clock_init(void)
 	regval = sys_read32(GLB_BASE + GLB_CGEN_CFG0_OFFSET);
 	/* Enable DMA clock routing */
 	regval |= (1U << 3);
+	regval = 0xFFFFFFFFU;
 	sys_write32(regval, GLB_BASE + GLB_CGEN_CFG0_OFFSET);
 
 	regval = sys_read32(GLB_BASE + GLB_CGEN_CFG1_OFFSET);
@@ -1538,10 +1539,13 @@ static void clock_control_bl61x_peripheral_clock_init(void)
 	regval |= (1U << 21);
 	/* enable IR clock routing */
 	regval |= (1U << 22);
+	/* enable CKS clock routing */
+	regval |= (1U << 23);
 	/* enable DBI clock routing */
 	regval |= (1U << 24);
 	/* enable I2C1 clock routing */
 	regval |= (1U << 25);
+	regval = 0xFFFFFFFFU;
 	sys_write32(regval, GLB_BASE + GLB_CGEN_CFG1_OFFSET);
 
 	regval = sys_read32(GLB_BASE + GLB_CGEN_CFG2_OFFSET);
@@ -1549,6 +1553,7 @@ static void clock_control_bl61x_peripheral_clock_init(void)
 	regval |= (1U << 18);
 	/* enable SDH clock routing */
 	regval |= (1 << 22);
+	regval = 0xFFFFFFFFU;
 	sys_write32(regval, GLB_BASE + GLB_CGEN_CFG2_OFFSET);
 
 	/*

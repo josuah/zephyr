@@ -325,6 +325,8 @@ static void bflb_camfront_init_clock(const struct device *dev)
 	sys_write32(tmp, GLB_BASE + GLB_CAM_CFG0_OFFSET);
 }
 
+extern bool pinctrl_log;
+
 static int bflb_camfront_init(const struct device *dev)
 {
 	const struct bflb_camfront_config *config = dev->config;
@@ -334,6 +336,8 @@ static int bflb_camfront_init(const struct device *dev)
 
 	bflb_camfront_init_clock(dev);
 
+	pinctrl_log = true;
+
 	ret = pinctrl_apply_state(config->pcfg, PINCTRL_STATE_DEFAULT);
 	if (ret != 0) {
 		LOG_ERR("Failed to apply %s default pin config", dev->name);
@@ -342,7 +346,7 @@ static int bflb_camfront_init(const struct device *dev)
 
 	/* TODO: loop over sinks and convifure them one by one */
 	/* Select the sink to which related config applies */
-	sys_write32(0, config->base + CAM_FRONT_DVP2BUS_SRC_SEL_1_OFFSET);
+	//sys_write32(0, config->base + CAM_FRONT_DVP2BUS_SRC_SEL_1_OFFSET);
 
 	/* Default format is set by dvp2axi */
 
