@@ -16,7 +16,6 @@
 LOG_MODULE_REGISTER(bflb_dvp2axi, CONFIG_VIDEO_LOG_LEVEL);
 
 #include <bouffalolab/common/cam_reg.h>
-#include <bouffalolab/common/cam_front_reg.h>
 
 #include <bflb_soc.h>
 #include <glb_reg.h>
@@ -76,8 +75,6 @@ LOG_MODULE_REGISTER(bflb_dvp2axi, CONFIG_VIDEO_LOG_LEVEL);
 #define CAM_BURST_INCR16 3
 #define CAM_BURST_INCR32 5
 #define CAM_BURST_INCR64 6
-
-#define CAM_FRONT_BASE 0x20050000
 
 struct bflb_dvp2axi_config {
 	uintptr_t base;
@@ -213,11 +210,6 @@ static void bflb_dvp2axi_apply_config(const struct device *dev)
 
 	sys_write32(0, config->base + CAM_DVP_DEBUG_OFFSET);
 
-	tmp = sys_read32(CAM_FRONT_BASE + CAM_FRONT_CONFIG_OFFSET);
-	tmp &= ~CAM_FRONT_RG_DVPAS_FIFO_TH_MASK;
-	tmp |= 906 << CAM_FRONT_RG_DVPAS_FIFO_TH_SHIFT;
-	sys_write32(tmp, CAM_FRONT_BASE + CAM_FRONT_CONFIG_OFFSET);
-
 	/* Set output format */
 	tmp = sys_read32(config->base + CAM_DVP2AXI_CONFIGUE_OFFSET);
 	tmp |= CAM_REG_SW_MODE;
@@ -278,10 +270,6 @@ static void bflb_dvp2axi_apply_config(const struct device *dev)
 	tmp |= CAM_REG_INT_FRAME_EN;
 	tmp |= CAM_REG_INT_FIFO_EN;
 	sys_write32(tmp, config->base + CAM_DVP_STATUS_AND_ERROR_OFFSET);
-
-	tmp = sys_read32(CAM_FRONT_BASE + CAM_FRONT_CONFIG_OFFSET);
-	tmp |= CAM_FRONT_RG_DVPAS_ENABLE;
-	sys_write32(tmp, CAM_FRONT_BASE + CAM_FRONT_CONFIG_OFFSET);
 
 	tmp = sys_read32(config->base + CAM_DVP2AXI_CONFIGUE_OFFSET);
 	tmp |= CAM_REG_DVP_ENABLE;
@@ -395,13 +383,29 @@ static int bflb_dvp2axi_dequeue(const struct device *dev, struct video_buffer **
 		sys_read32(config->base + CAM_FRAME_START_ADDR0_OFFSET),
 		sys_read32(config->base + CAM_DVP2AXI_FRAME_BCNT_OFFSET));
 	LOG_HEXDUMP_DBG((*vbuf)->buffer, 32, "first frame slot");
-	LOG_HEXDUMP_DBG((*vbuf)->buffer + (*vbuf)->size / 2, 32, "second frame slot");
 
 	return 0;
 }
 
 static int bflb_dvp2axi_flush(const struct device *dev, bool cancel)
 {
+	struct bflb_dvp2axi_data *data = dev->data;
+	struct video_buffer *vbuf = NULL;
+
+	if (cancel) {
+		if (data->active_vbuf != NULL) {
+			k_fifo_put(&data->fifo_out, data->active_vbuf);
+			data->active_vbuf = NULL;
+		}
+		while ((vbuf = k_fifo_get(&data->fifo_in, K_NO_WAIT)) != NULL) {
+			k_fifo_put(&data->fifo_out, vbuf);
+		}
+	} else {
+		while (!k_fifo_is_empty(&data->fifo_in)) {
+			k_sleep(K_MSEC(1));
+		}
+	}
+
 	return 0;
 }
 
@@ -520,11 +524,11 @@ static void bflb_dvp2axi_add_format_cap(const struct device *dev,
 	const struct bflb_dvp2axi_config *config = dev->config;
 	struct bflb_dvp2axi_data *data = dev->data;
 
-	LOG_DBG("%s's format %s [%ux%u - %ux%u] not supported, skipping",
+	LOG_INF("%s's format %s [%ux%u - %ux%u] not supported, skipping",
 		config->source_dev->name,
-	 VIDEO_FOURCC_TO_STR(fmt_cap->pixelformat),
+		VIDEO_FOURCC_TO_STR(fmt_cap->pixelformat),
 		fmt_cap->width_min, fmt_cap->height_min,
-	 fmt_cap->width_max, fmt_cap->height_max);
+		fmt_cap->width_max, fmt_cap->height_max);
 
 	if (data->num_fmts + 1 >= CONFIG_VIDEO_BFLB_DVP2AXI_MAX_FORMATS) {
 		LOG_WRN("CONFIG_VIDEO_BFLB_DVP2AXI_MAX_FORMATS too small, raise above %u",
@@ -622,10 +626,11 @@ static const int bflb_dvp2axi_deinit(const struct device *dev)
 	};											\
 												\
 	DEVICE_DT_INST_DEINIT_DEFINE(n, &bflb_dvp2axi_init, &bflb_dvp2axi_deinit, NULL,		\
-					 &bflb_dvp2axi_data_##n, &bflb_dvp2axi_config_##n,	\
-					 POST_KERNEL, CONFIG_VIDEO_BFLB_DVP2AXI_INIT_PRIORITY,	\
-					 &bflb_dvp2axi_api);					\
+				    &bflb_dvp2axi_data_##n, &bflb_dvp2axi_config_##n,		\
+				    POST_KERNEL, CONFIG_VIDEO_BFLB_DVP2AXI_INIT_PRIORITY,	\
+				    &bflb_dvp2axi_api);						\
 												\
-	VIDEO_DEVICE_DEFINE(bflb_dvp2axi_##n, DEVICE_DT_INST_GET(n), DEVICE_DT_GET(SOURCE_NODE(n)));
+	VIDEO_DEVICE_DEFINE(bflb_dvp2axi_##n, DEVICE_DT_INST_GET(n),				\
+			    DEVICE_DT_GET(SOURCE_NODE(n)));
 
 DT_INST_FOREACH_STATUS_OKAY(BFLB_DVP2AXI_INIT)
