@@ -229,9 +229,7 @@ static int bflb_camfront_apply_config(const struct device *dev)
 	sys_write32(tmp, config->base + CAM_FRONT_CONFIG_OFFSET);
 
 #if 0
-	/* TODO handle pixel format conversion at camfront level */
-	/* 16-bit endianess swap in the front-end */
-	/* If image sensor output format is YUYV, it will be changed to UYVY */
+	/* TODO handle pixel format conversion (endianness swap) at camfront level */
 	tmp = sys_read32(config->base + CAM_FRONT_CONFIG_OFFSET);
 	if (arg) {
 		tmp |= CAM_FRONT_RG_DVPAS_DA_ORDER;
