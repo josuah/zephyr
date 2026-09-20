@@ -286,6 +286,8 @@ static int bflb_dvp2axi_enqueue(const struct device *dev, struct video_buffer *v
 {
 	struct bflb_dvp2axi_data *data = dev->data;
 
+	LOG_DBG("Enqueueing frame %p of %u bytes", (void *)vbuf->buffer, vbuf->size);
+
 	/* TODO */
 	memset(vbuf->buffer, 0x00, vbuf->size);
 
@@ -355,21 +357,25 @@ static int bflb_dvp2axi_set_stream(const struct device *dev, bool stream, enum v
 	}
 
 	if (stream) {
-		bflb_dvp2axi_trigger(dev);
+		LOG_INF("Starting %s", dev->name);
 
 		ret = video_stream_start(config->source_dev, type);
 		if (ret < 0) {
 			LOG_ERR("Failed to start source device %s", config->source_dev->name);
 			return ret;
 		}
+
+		bflb_dvp2axi_trigger(dev);
 	} else {
+		LOG_INF("Stopping %s", dev->name);
+
+		bflb_dvp2axi_detrigger(dev);
+
 		ret = video_stream_stop(config->source_dev, type);
 		if (ret < 0) {
 			LOG_ERR("Failed to start source device %s", config->source_dev->name);
 			return ret;
 		}
-
-		bflb_dvp2axi_detrigger(dev);
 	}
 
 	data->is_streaming = stream;
