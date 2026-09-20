@@ -37,7 +37,7 @@
 				 <GPIO33_CAM0_DAT6>,
 				 <GPIO34_CAM0_DAT7>,
 				 <GPIO28_CAM0_HSYNC>,
-				 <GPIO29_CAM0_VSYNC>
+				 <GPIO29_CAM0_VSYNC>,
 				 <GPIO30_CAM0_CLK>;
 			input-schmitt-enable;
 		};
