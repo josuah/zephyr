@@ -422,12 +422,12 @@ static const void bflb_dvp2axi_isr(const void *p)
 	if (tmp & CAM_STS_HCNT_INT) {
 		sys_write32(CAM_INTCLR_HSYNC_MISMATCH,
 			    config->base + CAM_DVP_FRAME_FIFO_POP_OFFSET);
-		LOG_WRN("HSYNC bytes/pixel mismatch occured");
+		LOG_WRN("HSYNC mismatch occured");
 	}
 	if (tmp & CAM_STS_VCNT_INT) {
 		sys_write32(CAM_INTCLR_VSYNC_MISMATCH,
 			    config->base + CAM_DVP_FRAME_FIFO_POP_OFFSET);
-		LOG_WRN("VSYNC bytes/pixel mismatch occured");
+		LOG_WRN("VSYNC mismatch occured");
 	}
 	if (tmp & CAM_STS_NORMAL_INT) {
 		sys_write32(CAM_INTCLR_NORMAL,
@@ -457,14 +457,7 @@ static const void bflb_dvp2axi_isr(const void *p)
 static void bflb_dvp2axi_add_format_cap(const struct device *dev,
 					const struct video_format_cap *fmt_cap)
 {
-	const struct bflb_dvp2axi_config *config = dev->config;
 	struct bflb_dvp2axi_data *data = dev->data;
-
-	LOG_INF("%s's format %s [%ux%u - %ux%u] not supported, skipping",
-		config->source_dev->name,
-		VIDEO_FOURCC_TO_STR(fmt_cap->pixelformat),
-		fmt_cap->width_min, fmt_cap->height_min,
-		fmt_cap->width_max, fmt_cap->height_max);
 
 	if (data->num_fmts + 1 >= CONFIG_VIDEO_BFLB_DVP2AXI_MAX_FORMATS) {
 		LOG_WRN("CONFIG_VIDEO_BFLB_DVP2AXI_MAX_FORMATS too small, raise above %u",

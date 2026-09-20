@@ -211,7 +211,7 @@ static int bflb_camfront_apply_config(const struct device *dev)
 	}
 
 	/* TODO get from sensor control */
-	pix_clk_hz = 48000000;
+	pix_clk_hz = MHZ(140);
 
 	/* possibly a threshold for the FIFO between camfront and dvp2axi */
 	threshold = data->fmt.width - data->fmt.width * pix_clk_hz / cam_ref_clk_hz / 2 + 10;
