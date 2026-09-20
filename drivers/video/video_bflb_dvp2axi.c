@@ -276,47 +276,6 @@ static void bflb_dvp2axi_apply_config(const struct device *dev)
 	sys_write32(tmp, config->base + CAM_DVP2AXI_CONFIGUE_OFFSET);
 }
 
-#if 0
-static int bflb_dvp2axi_apply_config(const struct device *dev)
-{
-	const struct bflb_dvp2axi_config *config = dev->config;
-	struct bflb_dvp2axi_data *data = dev->data;
-	uint32_t data_mode;
-	uint32_t tmp;
-	int ret;
-
-	data_mode = 0;
-	tmp = sys_read32(config->base + CAM_DVP2AXI_CONFIGUE_OFFSET);
-	tmp &= ~CAM_REG_DVP_DATA_MODE_MASK;
-	tmp |= data_mode << CAM_REG_DVP_DATA_MODE_SHIFT;
-	sys_write32(tmp, config->base + CAM_DVP2AXI_CONFIGUE_OFFSET);
-
-	tmp = sys_read32(config->base + CAM_DVP2AXI_CONFIGUE_OFFSET);
-	tmp &= ~(CAM_REG_DROP_EN | CAM_REG_DROP_EVEN | CAM_REG_DVP_DATA_MODE_MASK
-		| CAM_REG_DVP_DATA_BSEL | CAM_REG_V_SUBSAMPLE_EN | CAM_REG_V_SUBSAMPLE_POL
- 		); // | CAM_REG_XLEN_MASK | CAM_REG_LINE_VLD_POL | CAM_REG_FRAM_VLD_POL
-	tmp &= ~CAM_REG_SW_MODE; /* TODO: use wrap/continuous mode for JPEG? */
-#if 0
-	tmp |=	(config->axi_burst_length == 1)  ? (0 << CAM_REG_XLEN_SHIFT) :
-		(config->axi_burst_length == 4)  ? (1 << CAM_REG_XLEN_SHIFT) :
-		(config->axi_burst_length == 8)  ? (2 << CAM_REG_XLEN_SHIFT) :
-		(config->axi_burst_length == 16) ? (3 << CAM_REG_XLEN_SHIFT) :
-		(config->axi_burst_length == 32) ? (5 << CAM_REG_XLEN_SHIFT) :
-		(config->axi_burst_length == 64) ? (6 << CAM_REG_XLEN_SHIFT) : 0;
-	//tmp |= config->vsync_active ? CAM_REG_FRAM_VLD_POL : 0;
-	//tmp |= config->hsync_active ? CAM_REG_LINE_VLD_POL : 0;
-#endif
-	sys_write32(tmp, config->base + CAM_DVP2AXI_CONFIGUE_OFFSET);
-
-	/* Start the DVP engine now that it is fully configured */
-	tmp = sys_read32(config->base + CAM_DVP2AXI_CONFIGUE_OFFSET);
-	tmp |= CAM_REG_DVP_ENABLE;
-	sys_write32(tmp, config->base + CAM_DVP2AXI_CONFIGUE_OFFSET);
-
-	return 0;
-}
-#endif
-
 static void bflb_dvp2axi_trigger(const struct device *dev)
 {
 	struct bflb_dvp2axi_data *data = dev->data;
