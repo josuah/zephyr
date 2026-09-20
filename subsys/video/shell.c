@@ -206,6 +206,8 @@ static void video_shell_print_buffer(const struct shell *sh, struct video_buffer
 		    /* Bytes */ byte_offset, byte_offset + bytes_in_buf, fmt->height * fmt->pitch,
 		    /* Lines */ line_offset, line_offset + lines_in_buf, fmt->height,
 		    /* Rate */ frmrate_fps, frmival_msec);
+	shell_hexdump(sh, vbuf->buffer, MIN(vbuf->size, 32));
+	shell_print(sh, "...");
 }
 
 static int cmd_video_capture(const struct shell *sh, size_t argc, char **argv)
@@ -289,8 +291,6 @@ static int cmd_video_capture(const struct shell *sh, size_t argc, char **argv)
 
 	vbuf = &vbuf0;
 	for (unsigned int i = 0; i < num_frames;) {
-		shell_print(sh, "Waiting buffer completion for frame %u", i);
-
 		ret = video_dequeue(dev, &vbuf, K_FOREVER);
 		if (ret < 0) {
 			shell_error(sh, "Failed to dequeue this buffer: %s", strerror(-ret));
@@ -324,15 +324,10 @@ static int cmd_video_capture(const struct shell *sh, size_t argc, char **argv)
 end:
 	video_stream_stop(dev, VIDEO_BUF_TYPE_OUTPUT);
 
-	if (vbuf != NULL) {
-		video_buffer_release(vbuf);
-	}
-
-#if 0
+	/* Assume the buffer queues were flushed */
 	while (video_dequeue(dev, &vbuf, K_NO_WAIT) == 0) {
 		video_buffer_release(vbuf);
 	}
-#endif
 
 	return ret;
 }
