@@ -28,6 +28,7 @@ LOG_MODULE_REGISTER(bflb_dvp2axi, CONFIG_VIDEO_LOG_LEVEL);
 #define CAM_REG_DVP_DATA_MODE_888_TO_888X	3
 #define CAM_REG_DVP_DATA_MODE_YUV		4
 
+#define CAM_INTCLR_POP_FRAME			(1 << 0)
 #define CAM_INTCLR_NORMAL			(1 << 4)
 #define CAM_INTCLR_MEMORY_OVERWRITE		(1 << 5)
 #define CAM_INTCLR_FRAME_OVERWRITE		(1 << 6)
@@ -98,39 +99,6 @@ struct bflb_dvp2axi_data {
 	bool is_streaming;
 };
 
-void bflb_dvp2axi_dump_regs(const struct device *dev)
-{
-	const struct bflb_dvp2axi_config *config = dev->config;
-
-	printk("CAM_DVP2AXI_CONFIGUE_OFFSET     0x%08x\n", sys_read32(config->base + 0x0));
-	printk("CAM_DVP2AXI_ADDR_START_OFFSET   0x%08x\n", sys_read32(config->base + 0x4));
-	printk("CAM_DVP2AXI_MEM_BCNT_OFFSET     0x%08x\n", sys_read32(config->base + 0x8));
-	printk("CAM_DVP2AXI_HSYNC_CROP_OFFSET   0x%08x\n", sys_read32(config->base + 0x30));
-	printk("CAM_DVP2AXI_VSYNC_CROP_OFFSET   0x%08x\n", sys_read32(config->base + 0x34));
-	printk("CAM_DVP2AXI_FRAM_EXM_OFFSET     0x%08x\n", sys_read32(config->base + 0x38));
-	printk("CAM_FRAME_START_ADDR0_OFFSET    0x%08x\n", sys_read32(config->base + 0x40));
-	printk("CAM_FRAME_START_ADDR1_OFFSET    0x%08x\n", sys_read32(config->base + 0x48));
-	printk("CAM_FRAME_START_ADDR2_OFFSET    0x%08x\n", sys_read32(config->base + 0x50));
-	printk("CAM_FRAME_START_ADDR3_OFFSET    0x%08x\n", sys_read32(config->base + 0x58));
-	printk("CAM_DVP_STATUS_AND_ERROR_OFFSET 0x%08x\n", sys_read32(config->base + 0xC));
-	printk("CAM_DVP2AXI_FRAME_BCNT_OFFSET   0x%08x\n", sys_read32(config->base + 0x10));
-	printk("CAM_DVP_FRAME_FIFO_POP_OFFSET   0x%08x\n", sys_read32(config->base + 0x14));
-	printk("CAM_DVP2AXI_FRAME_VLD_OFFSET    0x%08x\n", sys_read32(config->base + 0x18));
-	printk("CAM_DVP2AXI_FRAME_PERIOD_OFFSET 0x%08x\n", sys_read32(config->base + 0x1C));
-	printk("CAM_DVP2AXI_MISC_OFFSET         0x%08x\n", sys_read32(config->base + 0x20));
-	printk("CAM_FRAME_ID_STS01_OFFSET       0x%08x\n", sys_read32(config->base + 0x60));
-	printk("CAM_FRAME_ID_STS23_OFFSET       0x%08x\n", sys_read32(config->base + 0x64));
-	printk("CAM_DVP_DEBUG_OFFSET            0x%08x\n", sys_read32(config->base + 0xF0));
-	printk("AM_DVP_DUMMY_REG_OFFSET         0x%08x\n", sys_read32(config->base + 0xFC));
-
-	printk("CAM_FRONT_CONFIG_OFFSET             %08x\n", sys_read32(CAM_FRONT_BASE + 0x0));
-	printk("CAM_FRONT_DVP2BUS_SRC_SEL_1_OFFSET  %08x\n", sys_read32(CAM_FRONT_BASE + 0x8));
-	printk("CAM_FRONT_SNSR_CTRL_OFFSET          %08x\n", sys_read32(CAM_FRONT_BASE + 0xC) );
-	printk("CAM_FRONT_EMI_MISC_OFFSET           %08x\n", sys_read32(CAM_FRONT_BASE + 0x10));
-	printk("CAM_FRONT_ISP_ID_YUV_OFFSET         %08x\n", sys_read32(CAM_FRONT_BASE + 0x14));
-
-}
-
 void bflb_cam_start(const struct device *dev)
 {
 	const struct bflb_dvp2axi_config *config = dev->config;
@@ -151,13 +119,6 @@ void bflb_cam_stop(const struct device *dev)
 	sys_write32(tmp, config->base + CAM_DVP2AXI_CONFIGUE_OFFSET);
 }
 
-void bflb_cam_pop_one_frame(const struct device *dev)
-{
-	const struct bflb_dvp2axi_config *config = dev->config;
-
-	sys_write32(1, config->base + CAM_DVP_FRAME_FIFO_POP_OFFSET);
-}
-
 uint8_t bflb_cam_get_frame_count(const struct device *dev)
 {
 	const struct bflb_dvp2axi_config *config = dev->config;
@@ -166,16 +127,6 @@ uint8_t bflb_cam_get_frame_count(const struct device *dev)
 	tmp = sys_read32(config->base + CAM_DVP_STATUS_AND_ERROR_OFFSET);
 	tmp &= CAM_FRAME_VALID_CNT_MASK;
 	return (tmp >> CAM_FRAME_VALID_CNT_SHIFT);
-}
-
-static void bflb_dvp2axi_dump_status(const struct device *dev, char const *label)
-{
-	const struct bflb_dvp2axi_config *config = dev->config;
-	uint32_t tmp;
-
-	tmp = sys_read32(config->base + CAM_DVP_STATUS_AND_ERROR_OFFSET);
-	printk("status and error: 0x%08x, frames %u (%s)\n",
-		tmp, bflb_cam_get_frame_count(dev), label);
 }
 
 static int bflb_dvp2axi_get_caps(const struct device *dev, struct video_caps *caps)
@@ -222,8 +173,6 @@ static int bflb_dvp2axi_get_format(const struct device *dev, struct video_format
 {
 	const struct bflb_dvp2axi_config *config = dev->config;
 
-	bflb_dvp2axi_dump_status(dev, __func__);
-
 	return video_get_format(config->source_dev, fmt);
 }
 
@@ -248,120 +197,95 @@ static int bflb_dvp2axi_enum_frmival(const struct device *dev, struct video_frmi
 	return video_enum_frmival(config->source_dev, fie);
 }
 
-#define CAM_FRONT_BASE 0x20050000
-
 static void bflb_dvp2axi_apply_config(const struct device *dev)
 {
-    const struct bflb_dvp2axi_config *config = dev->config;
-    struct bflb_dvp2axi_data*data= dev->data;
-    uint8_t data_mode = 0;
-    uint16_t resolution_x, resolution_y;
-    uint32_t frame_size;
-    uint32_t threshold;
-    uint32_t tmp;
+	const struct bflb_dvp2axi_config *config = dev->config;
+	struct bflb_dvp2axi_data*data= dev->data;
+	uint8_t data_mode = 0;
+	uint32_t frame_size;
+	uint32_t tmp;
 
-    tmp = (uintptr_t)data->active_vbuf->buffer;
-    sys_write32(tmp, config->base + CAM_DVP2AXI_ADDR_START_OFFSET);
+	tmp = (uintptr_t)data->active_vbuf->buffer;
+	sys_write32(tmp, config->base + CAM_DVP2AXI_ADDR_START_OFFSET);
 
-    tmp = data->fmt.height << 16 | data->fmt.width;
-    sys_write32(tmp, config->base + CAM_DVP2AXI_FRAM_EXM_OFFSET);
+	tmp = data->fmt.height << 16 | data->fmt.width;
+	sys_write32(tmp, config->base + CAM_DVP2AXI_FRAM_EXM_OFFSET);
 
-    sys_write32(0, config->base + CAM_DVP_DEBUG_OFFSET);
+	sys_write32(0, config->base + CAM_DVP_DEBUG_OFFSET);
 
-    tmp = sys_read32(config->base + CAM_DVP2AXI_HSYNC_CROP_OFFSET);
-    if ((tmp & 0xffff) > data->fmt.width) {
-        resolution_x = data->fmt.width;
-    } else {
-        resolution_x = (tmp & 0xffff) - (tmp >> 16 & 0xffff);
-    }
+	tmp = sys_read32(CAM_FRONT_BASE + CAM_FRONT_CONFIG_OFFSET);
+	tmp &= ~CAM_FRONT_RG_DVPAS_FIFO_TH_MASK;
+	tmp |= 906 << CAM_FRONT_RG_DVPAS_FIFO_TH_SHIFT;
+	sys_write32(tmp, CAM_FRONT_BASE + CAM_FRONT_CONFIG_OFFSET);
 
-    tmp = sys_read32(config->base + CAM_DVP2AXI_VSYNC_CROP_OFFSET);
-    if ((tmp & 0xffff) > data->fmt.height) {
-        resolution_y = data->fmt.height;
-    } else {
-        resolution_y = (tmp & 0xffff) - (tmp >> 16 & 0xffff);
-    }
+	/* Set output format */
+	tmp = sys_read32(config->base + CAM_DVP2AXI_CONFIGUE_OFFSET);
+	tmp |= CAM_REG_SW_MODE;
+	tmp &= ~(CAM_REG_DROP_EN | CAM_REG_DROP_EVEN | CAM_REG_DVP_DATA_MODE_MASK |
+	         CAM_REG_DVP_DATA_BSEL | CAM_REG_V_SUBSAMPLE_EN | CAM_REG_V_SUBSAMPLE_POL);
 
-    sys_write32(0, CAM_FRONT_BASE + CAM_FRONT_DVP2BUS_SRC_SEL_1_OFFSET);
+	data_mode = 0;
+	tmp |= data_mode << CAM_REG_DVP_DATA_MODE_SHIFT;
+	sys_write32(tmp, config->base + CAM_DVP2AXI_CONFIGUE_OFFSET);
 
-#if 0
-    threshold = data->fmt.width - data->fmt.width * pix_clk / cam_ref_clk / 2 + 10;
-    if (threshold > (data->fmt.width - 1)) {
-        threshold = data->fmt.width - 1;
-    }
-    if (threshold < 2) {
-        threshold = 2;
-    } else if (threshold > 1024) {
-        threshold = 1024;
-    }
-#endif
-    threshold = 906;
+	/* Set output buffer burst count */
+	tmp = sys_read32(config->base + CAM_DVP2AXI_CONFIGUE_OFFSET);
+	tmp = (tmp & CAM_REG_XLEN_MASK) >> CAM_REG_XLEN_SHIFT;
+	switch (tmp) {
+	case CAM_BURST_INCR1:
+		tmp = data->active_vbuf->size >> 3;
+		break;
 
-    tmp = sys_read32(CAM_FRONT_BASE + CAM_FRONT_CONFIG_OFFSET);
-    tmp &= ~CAM_FRONT_RG_DVPAS_FIFO_TH_MASK;
-    tmp |= threshold << CAM_FRONT_RG_DVPAS_FIFO_TH_SHIFT;
-    sys_write32(tmp, CAM_FRONT_BASE + CAM_FRONT_CONFIG_OFFSET);
+	case CAM_BURST_INCR4:
+		tmp = data->active_vbuf->size >> 5;
+		break;
 
-    /* Set output format */
-    frame_size = resolution_x * resolution_y * 2;
-    tmp = sys_read32(config->base + CAM_DVP2AXI_CONFIGUE_OFFSET);
-    tmp |= CAM_REG_SW_MODE;
-    tmp &= ~(CAM_REG_DROP_EN | CAM_REG_DROP_EVEN | CAM_REG_DVP_DATA_MODE_MASK | CAM_REG_DVP_DATA_BSEL |
-        CAM_REG_V_SUBSAMPLE_EN | CAM_REG_V_SUBSAMPLE_POL);
+	case CAM_BURST_INCR8:
+		tmp = data->active_vbuf->size >> 6;
+		break;
 
-    frame_size = resolution_x * resolution_y * 2;
-    sys_write32(frame_size, config->base + CAM_DVP2AXI_FRAME_BCNT_OFFSET);
+	case CAM_BURST_INCR16:
+		tmp = data->active_vbuf->size >> 7;
+		break;
 
-    data_mode = 0;
-    tmp |= data_mode << CAM_REG_DVP_DATA_MODE_SHIFT;
-    sys_write32(tmp, config->base + CAM_DVP2AXI_CONFIGUE_OFFSET);
+	case CAM_BURST_INCR32:
+		tmp = data->active_vbuf->size >> 8;
+		break;
 
-    /* Set output buffer burst count */
-    tmp = sys_read32(config->base + CAM_DVP2AXI_CONFIGUE_OFFSET);
-    tmp = (tmp & CAM_REG_XLEN_MASK) >> CAM_REG_XLEN_SHIFT;
-    switch (tmp) {
-        case CAM_BURST_INCR1:
-            tmp = data->active_vbuf->size >> 3;
-            break;
+	case CAM_BURST_INCR64:
+		tmp = data->active_vbuf->size >> 9;
+		break;
 
-        case CAM_BURST_INCR4:
-            tmp = data->active_vbuf->size >> 5;
-            break;
+	default:
+		tmp = data->active_vbuf->size >> 7;
+		frame_size = frame_size >> 6;
+		break;
+	}
 
-        case CAM_BURST_INCR8:
-            tmp = data->active_vbuf->size >> 6;
-            break;
+	/* BCNT is byte count */
+	sys_write32(data->active_vbuf->size / 2, config->base + CAM_DVP2AXI_FRAME_BCNT_OFFSET);
 
-        case CAM_BURST_INCR16:
-            tmp = data->active_vbuf->size >> 7;
-            break;
+	/* BCNT is AXI burst count */
+//	tmp = (data->active_vbuf->size >> config->axi_burst_length)
+//		/ (config->axi_data_width / BITS_PER_BYTE);
+	sys_write32(tmp, config->base + CAM_DVP2AXI_MEM_BCNT_OFFSET);
 
-        case CAM_BURST_INCR32:
-            tmp = data->active_vbuf->size >> 8;
-            break;
+	tmp = sys_read32(config->base + CAM_DVP_STATUS_AND_ERROR_OFFSET);
+	tmp |= CAM_REG_INT_HCNT_EN;
+	tmp |= CAM_REG_INT_VCNT_EN;
+	tmp |= CAM_REG_INT_NORMAL_EN;
+	tmp |= CAM_REG_INT_MEM_EN;
+	tmp |= CAM_REG_INT_FRAME_EN;
+	tmp |= CAM_REG_INT_FIFO_EN;
+	sys_write32(tmp, config->base + CAM_DVP_STATUS_AND_ERROR_OFFSET);
 
-        case CAM_BURST_INCR64:
-            tmp = data->active_vbuf->size >> 9;
-            break;
+	tmp = sys_read32(CAM_FRONT_BASE + CAM_FRONT_CONFIG_OFFSET);
+	tmp |= CAM_FRONT_RG_DVPAS_ENABLE;
+	sys_write32(tmp, CAM_FRONT_BASE + CAM_FRONT_CONFIG_OFFSET);
 
-        default:
-            tmp = data->active_vbuf->size >> 7;
-            frame_size = frame_size >> 6;
-            break;
-    }
-
-    sys_write32(tmp, config->base + CAM_DVP2AXI_MEM_BCNT_OFFSET);
-
-    tmp = sys_read32(CAM_FRONT_BASE + CAM_FRONT_CONFIG_OFFSET);
-    tmp |= CAM_FRONT_RG_DVPAS_ENABLE;
-    sys_write32(tmp, CAM_FRONT_BASE + CAM_FRONT_CONFIG_OFFSET);
-
-    tmp = sys_read32(config->base + CAM_DVP2AXI_CONFIGUE_OFFSET);
-    tmp |= CAM_REG_DVP_ENABLE;
-    sys_write32(tmp, config->base + CAM_DVP2AXI_CONFIGUE_OFFSET);
-
-    bflb_dvp2axi_dump_regs(dev);
-    bflb_dvp2axi_dump_status(dev, __func__);
+	tmp = sys_read32(config->base + CAM_DVP2AXI_CONFIGUE_OFFSET);
+	tmp |= CAM_REG_DVP_ENABLE;
+	sys_write32(tmp, config->base + CAM_DVP2AXI_CONFIGUE_OFFSET);
 }
 
 #if 0
@@ -372,23 +296,6 @@ static int bflb_dvp2axi_apply_config(const struct device *dev)
 	uint32_t data_mode;
 	uint32_t tmp;
 	int ret;
-
-	bflb_dvp2axi_dump_status(dev, __func__);
-
-	tmp = (uintptr_t)data->active_vbuf->buffer;
-	sys_write32(tmp, config->base + CAM_DVP2AXI_ADDR_START_OFFSET);
-
-	sys_write32(data->fmt.height << 16 | data->fmt.width << 0,
-		    config->base + CAM_DVP2AXI_FRAM_EXM_OFFSET);
-
-	/* BCNT is byte count */
-	tmp = data->active_vbuf->size;
-	sys_write32(tmp, config->base + CAM_DVP2AXI_FRAME_BCNT_OFFSET);
-
-	/* BCNT is AXI burst count */
-	tmp = (data->active_vbuf->size >> config->axi_burst_length)
-	/ (config->axi_data_width / BITS_PER_BYTE);
-	sys_write32(tmp, config->base + CAM_DVP2AXI_MEM_BCNT_OFFSET);
 
 	data_mode = 0;
 	tmp = sys_read32(config->base + CAM_DVP2AXI_CONFIGUE_OFFSET);
@@ -413,44 +320,21 @@ static int bflb_dvp2axi_apply_config(const struct device *dev)
 #endif
 	sys_write32(tmp, config->base + CAM_DVP2AXI_CONFIGUE_OFFSET);
 
-	tmp = sys_read32(config->base + CAM_DVP_STATUS_AND_ERROR_OFFSET);
-	tmp |= CAM_REG_INT_HCNT_EN;
-	tmp |= CAM_REG_INT_VCNT_EN;
-	tmp |= CAM_REG_INT_NORMAL_EN;
-	tmp |= CAM_REG_INT_MEM_EN;
-	tmp |= CAM_REG_INT_FRAME_EN;
-	tmp |= CAM_REG_INT_FIFO_EN;
-	sys_write32(tmp, config->base + CAM_DVP_STATUS_AND_ERROR_OFFSET);
-
-	bflb_dvp2axi_dump_status(dev, __func__);
-
-	/* TODO move to camfront driver */
-	tmp = sys_read32(CAM_FRONT_BASE + CAM_FRONT_CONFIG_OFFSET);
-	tmp |= CAM_FRONT_RG_DVPAS_ENABLE;
-	sys_write32(tmp, CAM_FRONT_BASE + CAM_FRONT_CONFIG_OFFSET);
-
 	/* Start the DVP engine now that it is fully configured */
 	tmp = sys_read32(config->base + CAM_DVP2AXI_CONFIGUE_OFFSET);
 	tmp |= CAM_REG_DVP_ENABLE;
 	sys_write32(tmp, config->base + CAM_DVP2AXI_CONFIGUE_OFFSET);
 
-	bflb_dvp2axi_dump_status(dev, __func__);
-
 	return 0;
 }
 #endif
 
-static int bflb_dvp2axi_trigger(const struct device *dev)
+static void bflb_dvp2axi_trigger(const struct device *dev)
 {
 	struct bflb_dvp2axi_data *data = dev->data;
 	int key;
 
 	key = k_irq_lock();
-
-	if (data->fmt.pixelformat == 0 || data->fmt.width == 0 || data->fmt.height == 0)  {
-		LOG_ERR("Format not conifgured");
-		return -EINVAL;
-	}
 
 	if (data->active_vbuf != NULL) {
 		LOG_DBG("Already busy with %p, skipping", (void *)data->active_vbuf->buffer);
@@ -471,39 +355,27 @@ static int bflb_dvp2axi_trigger(const struct device *dev)
 
 end:
 	k_irq_unlock(key);
-
-	return 0;
 }
 
 static int bflb_dvp2axi_enqueue(const struct device *dev, struct video_buffer *vbuf)
 {
 	struct bflb_dvp2axi_data *data = dev->data;
-	int ret;
 
+	/* TODO */
 	memset(vbuf->buffer, 0x00, vbuf->size);
-	compiler_barrier();
-	__asm__ volatile("fence");
-	sys_cache_data_flush_range(vbuf->buffer, vbuf->size);
+
+	if (data->fmt.pixelformat == 0 || data->fmt.width == 0 || data->fmt.height == 0)  {
+		LOG_ERR("Format not conifgured");
+		return -EINVAL;
+	}
 
 	k_fifo_put(&data->fifo_in, vbuf);
 
 	if (data->is_streaming) {
-		ret = bflb_dvp2axi_trigger(dev);
-		if (ret < 0) {
-			return ret;
-		}
+		bflb_dvp2axi_trigger(dev);
 	}
 
 	return 0;
-}
-
-static uint8_t bflb_dvp2axi_frame_count(const struct device *dev)
-{
-	const struct bflb_dvp2axi_config *config = dev->config;
-	uint32_t tmp;
-
-	tmp = sys_read32(config->base + CAM_DVP_STATUS_AND_ERROR_OFFSET);
-	return (tmp & CAM_FRAME_VALID_CNT_MASK) >> CAM_FRAME_VALID_CNT_SHIFT;
 }
 
 static int bflb_dvp2axi_dequeue(const struct device *dev, struct video_buffer **vbuf,
@@ -512,40 +384,18 @@ static int bflb_dvp2axi_dequeue(const struct device *dev, struct video_buffer **
 	const struct bflb_dvp2axi_config *config = dev->config;
 	struct bflb_dvp2axi_data *data = dev->data;
 
-	bflb_dvp2axi_dump_regs(dev);
-
-	for (int i = 0; i < 100; i++) {
-		if (bflb_cam_get_frame_count(dev) > 0) {
-			printk("FRAME\n");
-			break;
-		}
-
-		k_sleep(K_MSEC(100));
-
-		bflb_dvp2axi_dump_status(dev, __func__);
-	}
-
-	sys_write32(1, config->base + CAM_DVP_FRAME_FIFO_POP_OFFSET);
-
-	printk("Dumping %p of size %u\n",
-	       (void *)data->active_vbuf->buffer, data->active_vbuf->size);
-
-	sys_cache_data_invd_range(data->active_vbuf->buffer, data->active_vbuf->size);
-	__asm__ volatile("fence");
-	compiler_barrier();
-	LOG_HEXDUMP_DBG(data->active_vbuf->buffer, 128, "active_vbuf");
-
 	*vbuf = k_fifo_get(&data->fifo_out, timeout);
 	if (*vbuf == NULL) {
 		LOG_ERR("Failed to retreive a buffer from %s FIFO", dev->name);
 		return -ETIMEDOUT;
 	}
 
-	LOG_DBG("frame addr 0x%08x, size 0x%08x",
+	LOG_DBG("Dumping %p of size %u, start addr 0x%08x, bcnt size %u\n",
+		(void *)(*vbuf)->buffer, (*vbuf)->size,
 		sys_read32(config->base + CAM_FRAME_START_ADDR0_OFFSET),
 		sys_read32(config->base + CAM_DVP2AXI_FRAME_BCNT_OFFSET));
-
-	LOG_DBG("Buffer completed");
+	LOG_HEXDUMP_DBG((*vbuf)->buffer, 32, "first frame slot");
+	LOG_HEXDUMP_DBG((*vbuf)->buffer + (*vbuf)->size / 2, 32, "second frame slot");
 
 	return 0;
 }
@@ -570,8 +420,6 @@ static int bflb_dvp2axi_set_stream(const struct device *dev, bool stream, enum v
 		return 0;
 	}
 
-	bflb_dvp2axi_dump_status(dev, __func__);
-
 	if (stream) {
 		ret = video_stream_start(config->source_dev, type);
 		if (ret < 0) {
@@ -579,14 +427,7 @@ static int bflb_dvp2axi_set_stream(const struct device *dev, bool stream, enum v
 			return ret;
 		}
 
-		bflb_dvp2axi_dump_status(dev, __func__);
-
-		ret = bflb_dvp2axi_trigger(dev);
-		if (ret < 0) {
-			return ret;
-		}
-
-		bflb_dvp2axi_dump_status(dev, __func__);
+		bflb_dvp2axi_trigger(dev);
 	} else {
 		ret = video_stream_stop(config->source_dev, type);
 		if (ret < 0) {
@@ -620,7 +461,41 @@ static const void bflb_dvp2axi_isr(const void *p)
 	struct bflb_dvp2axi_data *data = dev->data;
 	uint32_t tmp;
 
-	LOG_INF("ISR");
+	tmp = sys_read32(config->base + CAM_DVP_STATUS_AND_ERROR_OFFSET);
+	if (tmp & CAM_STS_MEM_INT) {
+		sys_write32(CAM_INTCLR_MEMORY_OVERWRITE,
+			    config->base + CAM_DVP_FRAME_FIFO_POP_OFFSET);
+		LOG_WRN("Memory overwrite occured");
+	}
+	if (tmp & CAM_STS_FRAME_INT) {
+		sys_write32(CAM_INTCLR_FRAME_OVERWRITE,
+			    config->base + CAM_DVP_FRAME_FIFO_POP_OFFSET);
+		LOG_WRN("Frame overwrite occured");
+	}
+	if (tmp & CAM_STS_FRAME_INT) {
+		sys_write32(CAM_INTCLR_FIFO_OVERWRITE,
+			    config->base + CAM_DVP_FRAME_FIFO_POP_OFFSET);
+		LOG_WRN("Fifo overwrite occured");
+	}
+	if (tmp & CAM_STS_HCNT_INT) {
+		sys_write32(CAM_INTCLR_HSYNC_MISMATCH,
+			    config->base + CAM_DVP_FRAME_FIFO_POP_OFFSET);
+		LOG_WRN("HSYNC bytes/pixel mismatch occured");
+	}
+	if (tmp & CAM_STS_VCNT_INT) {
+		sys_write32(CAM_INTCLR_VSYNC_MISMATCH,
+			    config->base + CAM_DVP_FRAME_FIFO_POP_OFFSET);
+		LOG_WRN("VSYNC bytes/pixel mismatch occured");
+	}
+	if (tmp & CAM_STS_NORMAL_INT) {
+		sys_write32(CAM_INTCLR_NORMAL,
+			    config->base + CAM_DVP_FRAME_FIFO_POP_OFFSET);
+	} else {
+		return;
+	}
+
+	sys_write32(CAM_INTCLR_POP_FRAME,
+		    config->base + CAM_DVP_FRAME_FIFO_POP_OFFSET);
 
 	tmp = sys_read32(config->base + CAM_DVP2AXI_CONFIGUE_OFFSET);
 	tmp &= ~CAM_REG_DVP_ENABLE;
@@ -631,18 +506,12 @@ static const void bflb_dvp2axi_isr(const void *p)
 		return;
 	}
 
-	sys_write32(1, config->base + CAM_DVP_FRAME_FIFO_POP_OFFSET);
-	sys_write32(CAM_INTCLR_HSYNC_MISMATCH, config->base + CAM_DVP_FRAME_FIFO_POP_OFFSET);
-
+	sys_cache_data_invd_range(data->active_vbuf->buffer, data->active_vbuf->size);
+	data->active_vbuf->bytesused = data->active_vbuf->size;
 	k_fifo_put(&data->fifo_out, data->active_vbuf);
 	data->active_vbuf = NULL;
 
-#if 0
-	ret = bflb_dvp2axi_trigger(dev);
-	if (ret != 0) {
-		LOG_ERR("Failed to trigger the next frame");
-	}
-#endif
+	bflb_dvp2axi_trigger(dev);
 }
 
 static void bflb_dvp2axi_add_format_cap(const struct device *dev,
@@ -667,6 +536,11 @@ static void bflb_dvp2axi_add_format_cap(const struct device *dev,
 	data->num_fmts++;
 }
 
+static void bflb_dvp2axi_init_clock(const struct device *dev)
+{
+	/* Done by camfront to initialize first */
+}
+
 static int bflb_dvp2axi_init(const struct device *dev)
 {
 	const struct bflb_dvp2axi_config *config = dev->config;
@@ -681,6 +555,8 @@ static int bflb_dvp2axi_init(const struct device *dev)
 		LOG_ERR("%s source %s is not ready", dev->name, config->source_dev->name);
 		return -ENODEV;
 	}
+
+	bflb_dvp2axi_init_clock(dev);
 
 	k_fifo_init(&data->fifo_in);
 	k_fifo_init(&data->fifo_out);
@@ -706,7 +582,7 @@ static int bflb_dvp2axi_init(const struct device *dev)
 		return ret;
 	}
 
-	//config->irq_config_func(dev);
+	config->irq_config_func(dev);
 
 	return 0;
 }
