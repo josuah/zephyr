@@ -99,16 +99,6 @@ void bflb_cam_start(const struct device *dev)
 	sys_write32(tmp, config->base + CAM_DVP2AXI_CONFIGUE_OFFSET);
 }
 
-void bflb_cam_stop(const struct device *dev)
-{
-	const struct bflb_dvp2axi_config *config = dev->config;
-	uint32_t tmp;
-
-	tmp = sys_read32(config->base + CAM_DVP2AXI_CONFIGUE_OFFSET);
-	tmp &= ~CAM_REG_DVP_ENABLE;
-	sys_write32(tmp, config->base + CAM_DVP2AXI_CONFIGUE_OFFSET);
-}
-
 uint8_t bflb_cam_get_frame_count(const struct device *dev)
 {
 	const struct bflb_dvp2axi_config *config = dev->config;
@@ -247,15 +237,13 @@ static void bflb_dvp2axi_apply_config(const struct device *dev)
 		tmp &= ~CAM_REG_FRAM_VLD_POL;
 	}
 	sys_write32(tmp, config->base + CAM_DVP2AXI_CONFIGUE_OFFSET);
-
-	tmp = sys_read32(config->base + CAM_DVP2AXI_CONFIGUE_OFFSET);
-	tmp |= CAM_REG_DVP_ENABLE;
-	sys_write32(tmp, config->base + CAM_DVP2AXI_CONFIGUE_OFFSET);
 }
 
 static void bflb_dvp2axi_trigger(const struct device *dev)
 {
+	const struct bflb_dvp2axi_config *config = dev->config;
 	struct bflb_dvp2axi_data *data = dev->data;
+	uint32_t tmp;
 	int key;
 
 	key = k_irq_lock();
@@ -277,8 +265,21 @@ static void bflb_dvp2axi_trigger(const struct device *dev)
 
 	bflb_dvp2axi_apply_config(dev);
 
+	tmp = sys_read32(config->base + CAM_DVP2AXI_CONFIGUE_OFFSET);
+	tmp |= CAM_REG_DVP_ENABLE;
+	sys_write32(tmp, config->base + CAM_DVP2AXI_CONFIGUE_OFFSET);
 end:
 	k_irq_unlock(key);
+}
+
+void bflb_dvp2axi_detrigger(const struct device *dev)
+{
+	const struct bflb_dvp2axi_config *config = dev->config;
+	uint32_t tmp;
+
+	tmp = sys_read32(config->base + CAM_DVP2AXI_CONFIGUE_OFFSET);
+	tmp &= ~CAM_REG_DVP_ENABLE;
+	sys_write32(tmp, config->base + CAM_DVP2AXI_CONFIGUE_OFFSET);
 }
 
 static int bflb_dvp2axi_enqueue(const struct device *dev, struct video_buffer *vbuf)
@@ -305,20 +306,13 @@ static int bflb_dvp2axi_enqueue(const struct device *dev, struct video_buffer *v
 static int bflb_dvp2axi_dequeue(const struct device *dev, struct video_buffer **vbuf,
 				  k_timeout_t timeout)
 {
-	const struct bflb_dvp2axi_config *config = dev->config;
 	struct bflb_dvp2axi_data *data = dev->data;
 
 	*vbuf = k_fifo_get(&data->fifo_out, timeout);
 	if (*vbuf == NULL) {
-		LOG_ERR("Failed to retreive a buffer from %s FIFO", dev->name);
+		LOG_INF("Failed to get a buffer from %s FIFO", dev->name);
 		return -ETIMEDOUT;
 	}
-
-	LOG_DBG("Dumping %p of size %u, start addr 0x%08x, bcnt size %u\n",
-		(void *)(*vbuf)->buffer, (*vbuf)->size,
-		sys_read32(config->base + CAM_FRAME_START_ADDR0_OFFSET),
-		sys_read32(config->base + CAM_DVP2AXI_FRAME_BCNT_OFFSET));
-	LOG_HEXDUMP_DBG((*vbuf)->buffer, 32, "first frame slot");
 
 	return 0;
 }
@@ -361,19 +355,21 @@ static int bflb_dvp2axi_set_stream(const struct device *dev, bool stream, enum v
 	}
 
 	if (stream) {
+		bflb_dvp2axi_trigger(dev);
+
 		ret = video_stream_start(config->source_dev, type);
 		if (ret < 0) {
 			LOG_ERR("Failed to start source device %s", config->source_dev->name);
 			return ret;
 		}
-
-		bflb_dvp2axi_trigger(dev);
 	} else {
 		ret = video_stream_stop(config->source_dev, type);
 		if (ret < 0) {
 			LOG_ERR("Failed to start source device %s", config->source_dev->name);
 			return ret;
 		}
+
+		bflb_dvp2axi_detrigger(dev);
 	}
 
 	data->is_streaming = stream;
@@ -434,17 +430,15 @@ static const void bflb_dvp2axi_isr(const void *p)
 		return;
 	}
 
-	sys_write32(CAM_INTCLR_POP_FRAME,
-		    config->base + CAM_DVP_FRAME_FIFO_POP_OFFSET);
-
-	tmp = sys_read32(config->base + CAM_DVP2AXI_CONFIGUE_OFFSET);
-	tmp &= ~CAM_REG_DVP_ENABLE;
-	sys_write32(tmp, config->base + CAM_DVP2AXI_CONFIGUE_OFFSET);
+	bflb_dvp2axi_detrigger(dev);
 
 	if (data->active_vbuf == NULL) {
 		LOG_ERR("%s got ISR without active buffer", dev->name);
 		return;
 	}
+
+	sys_write32(CAM_INTCLR_POP_FRAME,
+		    config->base + CAM_DVP_FRAME_FIFO_POP_OFFSET);
 
 	sys_cache_data_invd_range(data->active_vbuf->buffer, data->active_vbuf->size);
 	data->active_vbuf->bytesused = data->active_vbuf->size;
@@ -530,6 +524,12 @@ static int bflb_dvp2axi_init(const struct device *dev)
 #if CONFIG_DEVICE_DEINIT_SUPPORT
 static const int bflb_dvp2axi_deinit(const struct device *dev)
 {
+	const struct bflb_dvp2axi_config *config = dev->config;
+
+	tmp = sys_read32(config->base + CAM_DVP2AXI_CONFIGUE_OFFSET);
+	tmp &= ~CAM_REG_DVP_ENABLE;
+	sys_write32(tmp, config->base + CAM_DVP2AXI_CONFIGUE_OFFSET);
+
 	return 0;
 }
 #endif
