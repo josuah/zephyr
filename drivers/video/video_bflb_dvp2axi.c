@@ -69,13 +69,6 @@ LOG_MODULE_REGISTER(bflb_dvp2axi, CONFIG_VIDEO_LOG_LEVEL);
 #define CAM_POLARITY_ACTIVE_LOW			0
 #define CAM_POLARITY_ACTIVE_HIGH		1
 
-#define CAM_BURST_INCR1  0
-#define CAM_BURST_INCR4  1
-#define CAM_BURST_INCR8  2
-#define CAM_BURST_INCR16 3
-#define CAM_BURST_INCR32 5
-#define CAM_BURST_INCR64 6
-
 struct bflb_dvp2axi_config {
 	uintptr_t base;
 	const struct device *source_dev;
@@ -199,7 +192,6 @@ static void bflb_dvp2axi_apply_config(const struct device *dev)
 	const struct bflb_dvp2axi_config *config = dev->config;
 	struct bflb_dvp2axi_data*data= dev->data;
 	uint8_t data_mode = 0;
-	uint32_t frame_size;
 	uint32_t tmp;
 
 	tmp = (uintptr_t)data->active_vbuf->buffer;
@@ -209,16 +201,6 @@ static void bflb_dvp2axi_apply_config(const struct device *dev)
 	sys_write32(tmp, config->base + CAM_DVP2AXI_FRAM_EXM_OFFSET);
 
 	sys_write32(0, config->base + CAM_DVP_DEBUG_OFFSET);
-
-	/* Set output format */
-	tmp = sys_read32(config->base + CAM_DVP2AXI_CONFIGUE_OFFSET);
-	tmp |= CAM_REG_SW_MODE;
-	tmp &= ~(CAM_REG_DROP_EN | CAM_REG_DROP_EVEN | CAM_REG_DVP_DATA_MODE_MASK |
-	         CAM_REG_DVP_DATA_BSEL | CAM_REG_V_SUBSAMPLE_EN | CAM_REG_V_SUBSAMPLE_POL);
-
-	data_mode = 0;
-	tmp |= data_mode << CAM_REG_DVP_DATA_MODE_SHIFT;
-	sys_write32(tmp, config->base + CAM_DVP2AXI_CONFIGUE_OFFSET);
 
 	/* BCNT is byte count */
 	sys_write32(data->active_vbuf->size, config->base + CAM_DVP2AXI_FRAME_BCNT_OFFSET);
@@ -238,7 +220,17 @@ static void bflb_dvp2axi_apply_config(const struct device *dev)
 	tmp |= CAM_REG_INT_FIFO_EN;
 	sys_write32(tmp, config->base + CAM_DVP_STATUS_AND_ERROR_OFFSET);
 
-	tmp = sys_read32(config->base + CAM_DVP2AXI_CONFIGUE_OFFSET);
+	tmp = 0;
+	tmp |= CAM_REG_SW_MODE;
+	tmp |= data_mode << CAM_REG_DVP_DATA_MODE_SHIFT;
+	tmp |= config->axi_burst_length == 1 ? (0 << CAM_REG_XLEN_SHIFT) :
+		config->axi_burst_length == 4 ? (1 << CAM_REG_XLEN_SHIFT) :
+		config->axi_burst_length == 8 ? (2 << CAM_REG_XLEN_SHIFT) :
+		config->axi_burst_length == 16 ? (3 << CAM_REG_XLEN_SHIFT) :
+		config->axi_burst_length == 32 ? (5 << CAM_REG_XLEN_SHIFT) :
+		config->axi_burst_length == 64 ? (6 << CAM_REG_XLEN_SHIFT) : 0;
+	tmp |= config->hsync_active ? CAM_REG_LINE_VLD_POL : 0;
+	tmp |= config->vsync_active ? CAM_REG_FRAM_VLD_POL : 0;
 	tmp |= CAM_REG_DVP_ENABLE;
 	sys_write32(tmp, config->base + CAM_DVP2AXI_CONFIGUE_OFFSET);
 }
