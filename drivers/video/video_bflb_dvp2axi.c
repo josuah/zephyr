@@ -263,7 +263,7 @@ static void bflb_dvp2axi_apply_config(const struct device *dev)
 	}
 
 	/* BCNT is byte count */
-	sys_write32(data->active_vbuf->size / 2, config->base + CAM_DVP2AXI_FRAME_BCNT_OFFSET);
+	sys_write32(data->active_vbuf->size, config->base + CAM_DVP2AXI_FRAME_BCNT_OFFSET);
 
 	/* BCNT is AXI burst count */
 //	tmp = (data->active_vbuf->size >> config->axi_burst_length)
