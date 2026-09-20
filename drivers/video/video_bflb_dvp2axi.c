@@ -220,17 +220,35 @@ static void bflb_dvp2axi_apply_config(const struct device *dev)
 	tmp |= CAM_REG_INT_FIFO_EN;
 	sys_write32(tmp, config->base + CAM_DVP_STATUS_AND_ERROR_OFFSET);
 
-	tmp = 0;
+	tmp = sys_read32(config->base + CAM_DVP2AXI_CONFIGUE_OFFSET);
+	/* continuous/trigger mode */
 	tmp |= CAM_REG_SW_MODE;
+	/* format conversion */
+	tmp &= CAM_REG_DVP_DATA_MODE_SHIFT;
 	tmp |= data_mode << CAM_REG_DVP_DATA_MODE_SHIFT;
+	/* burst length */
+	tmp &= ~CAM_REG_XLEN_MASK;
 	tmp |= config->axi_burst_length == 1 ? (0 << CAM_REG_XLEN_SHIFT) :
 		config->axi_burst_length == 4 ? (1 << CAM_REG_XLEN_SHIFT) :
 		config->axi_burst_length == 8 ? (2 << CAM_REG_XLEN_SHIFT) :
 		config->axi_burst_length == 16 ? (3 << CAM_REG_XLEN_SHIFT) :
 		config->axi_burst_length == 32 ? (5 << CAM_REG_XLEN_SHIFT) :
 		config->axi_burst_length == 64 ? (6 << CAM_REG_XLEN_SHIFT) : 0;
-	tmp |= config->hsync_active ? CAM_REG_LINE_VLD_POL : 0;
-	tmp |= config->vsync_active ? CAM_REG_FRAM_VLD_POL : 0;
+	/* hsync active high/low */
+	if (config->hsync_active) {
+		tmp |= CAM_REG_LINE_VLD_POL;
+	} else {
+		tmp &= ~CAM_REG_LINE_VLD_POL;
+	}
+	/* vsync active high/low */
+	if (config->vsync_active) {
+		tmp |= CAM_REG_FRAM_VLD_POL;
+	} else {
+		tmp &= ~CAM_REG_FRAM_VLD_POL;
+	}
+	sys_write32(tmp, config->base + CAM_DVP2AXI_CONFIGUE_OFFSET);
+
+	tmp = sys_read32(config->base + CAM_DVP2AXI_CONFIGUE_OFFSET);
 	tmp |= CAM_REG_DVP_ENABLE;
 	sys_write32(tmp, config->base + CAM_DVP2AXI_CONFIGUE_OFFSET);
 }
