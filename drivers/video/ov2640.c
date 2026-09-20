@@ -116,7 +116,7 @@ LOG_MODULE_REGISTER(video_ov2640, CONFIG_VIDEO_LOG_LEVEL);
 #define REG04_SET(x)    (REG04_DEFAULT | x)
 
 #define COM2              0x09
-#define COM2_OUT_DRIVE_3x 0x02
+#define COM2_OUT_DRIVE_X2 0x00
 
 #define COM3             0x0C
 #define COM3_DEFAULT     0x38
@@ -268,7 +268,7 @@ static const struct ov2640_reg default_regs[] = {
 	{BANK_SEL, BANK_SEL_SENSOR},
 	{0x3c, 0x32},
 	{CLKRC, 0x80},             /* Set PCLK divider */
-	{COM2, COM2_OUT_DRIVE_3x}, /* Output drive x2 */
+	{COM2, COM2_OUT_DRIVE_X2}, /* Output drive x2 */
 	{REG04, REG04_SET(REG04_HREF_EN)},
 	{COM8, COM8_SET(COM8_BNDF_EN | COM8_AGC_EN | COM8_AEC_EN)},
 	{COM9, COM9_AGC_SET(COM9_AGC_GAIN_8x)},

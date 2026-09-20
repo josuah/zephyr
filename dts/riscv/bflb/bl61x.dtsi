@@ -552,6 +552,7 @@
 			compatible = "bflb,camfront";
 			reg = <0x20050000 DT_SIZE_K(4)>;
 			status = "disabled";
+			clock-divider = <4>;
 
 			port {
 				#address-cells = <1>;

@@ -182,7 +182,8 @@ static int bflb_camfront_enum_frmival(const struct device *dev, struct video_frm
 	return video_enum_frmival(config->source_dev, fie);
 }
 
-static int bflb_camfront_apply_format(const struct device *dev)
+#if 0
+static int bflb_camfront_apply_config(const struct device *dev)
 {
 	const struct bflb_camfront_config *config = dev->config;
 	struct bflb_camfront_data *data = dev->data;
@@ -193,10 +194,6 @@ static int bflb_camfront_apply_format(const struct device *dev)
 	int64_t pix_clk_hz;
 	uint32_t tmp;
 	int ret;
-
-	/* TODO: loop over sinks and convifure them one by one */
-	/* Select the sink to which related config applies */
-	sys_write32(0, config->base + CAM_FRONT_DVP2BUS_SRC_SEL_1_OFFSET);
 
 	/* source clock */
 	ret = clock_control_get_rate(clock_dev, (void *)BL61X_CLKID_CLK_AUPLL, &src_clk_hz);
@@ -212,11 +209,12 @@ static int bflb_camfront_apply_format(const struct device *dev)
 	pix_clk_hz = video_get_dvp_link_freq(
 		dev, video_bits_per_pixel(data->fmt.pixelformat), config->bus_width);
 	if (pix_clk_hz < 0) {
-		//LOG_ERR("%s needs the link frequency to configure the theshold", dev->name);
-		//return -ENOTSUP;
+		LOG_ERR("%s needs the link frequency to configure the theshold", dev->name);
+		return -ENOTSUP;
 	}
-	/* TODO this is measured value for gc2145 in some resolution */
-	pix_clk_hz = KHZ(6500);
+
+	/* TODO get from sensor control */
+	pix_clk_hz = 48000000;
 
 	/* Set the line-buffer threshold past the half of the width, depending on the ratio between
 	 * this peripheral clock (processing speed) and the pixel clock (input data speed).
@@ -227,6 +225,7 @@ static int bflb_camfront_apply_format(const struct device *dev)
 	threshold = data->fmt.width - data->fmt.width * pix_clk_hz / cam_ref_clk_hz / 2 + 10;
 	threshold = CLAMP(threshold, 2, data->fmt.width);
 	threshold = CLAMP(threshold, 2, 1024);
+	threshold = 900; /* TODO experimental */
 
 	LOG_DBG("setting %s x threshold to %u (format %s %ux%u, pix clk %llu hz, cam clk %u hz)",
 		config->source_dev->name, threshold, VIDEO_FOURCC_TO_STR(data->fmt.pixelformat),
@@ -237,7 +236,6 @@ static int bflb_camfront_apply_format(const struct device *dev)
 	tmp |= threshold << CAM_FRONT_RG_DVPAS_FIFO_TH_SHIFT;
 	sys_write32(tmp, config->base + CAM_FRONT_CONFIG_OFFSET);
 
-#if 0
 	/* TODO handle pixel format conversion at camfront level */
 	/* 16-bit endianess swap in the front-end */
 	/* If image sensor output format is YUYV, it will be changed to UYVY */
@@ -248,16 +246,10 @@ static int bflb_camfront_apply_format(const struct device *dev)
 		tmp &= ~CAM_FRONT_RG_DVPAS_DA_ORDER;
 	}
 	sys_write32(tmp, config->base + CAM_FRONT_CONFIG_OFFSET);
-#endif
-
-#if 0
-	tmp = sys_read32(config->base + CAM_FRONT_CONFIG_OFFSET);
-	tmp |= CAM_FRONT_RG_DVPAS_ENABLE;
-	sys_write32(tmp, config->base + CAM_FRONT_CONFIG_OFFSET);
-#endif
 
 	return 0;
 }
+#endif
 
 static int bflb_camfront_set_stream(const struct device *dev, bool stream, enum video_buf_type type)
 {
@@ -275,10 +267,12 @@ static int bflb_camfront_set_stream(const struct device *dev, bool stream, enum 
 	}
 
 	if (stream) {
-		ret = bflb_camfront_apply_format(dev);
+#if 0
+		ret = bflb_camfront_apply_config(dev);
 		if (ret < 0) {
 			return ret;
 		}
+#endif
 
 		ret = video_stream_start(config->source_dev, type);
 		if (ret < 0) {
@@ -298,25 +292,34 @@ static int bflb_camfront_set_stream(const struct device *dev, bool stream, enum 
 	return 0;
 }
 
+static DEVICE_API(video, bflb_camfront_api) = {
+	.set_format = bflb_camfront_set_format,
+	.get_format = bflb_camfront_get_format,
+	.set_stream = bflb_camfront_set_stream,
+	.get_caps = bflb_camfront_get_caps,
+	.set_frmival = bflb_camfront_set_frmival,
+	.get_frmival = bflb_camfront_get_frmival,
+	.enum_frmival = bflb_camfront_enum_frmival,
+};
+
 static void bflb_camfront_init_clock(const struct device *dev)
 {
 	const struct bflb_camfront_config *config = dev->config;
 	uint32_t tmp;
 
-	/* disable clock routing */
+	/* clock off */
 	tmp = sys_read32(GLB_BASE + GLB_CAM_CFG0_OFFSET);
 	tmp &= ~GLB_REG_CAM_REF_CLK_EN_MSK;
 	sys_write32(tmp, GLB_BASE + GLB_CAM_CFG0_OFFSET);
 
-	/* SRC_SEL=3 is XCLK */
 	tmp = sys_read32(GLB_BASE + GLB_CAM_CFG0_OFFSET);
 	tmp &= ~GLB_REG_CAM_REF_CLK_SRC_SEL_MSK;
-	tmp |= GLB_CAM_CLK_TOP_AUPLL_DIV5 << GLB_REG_CAM_REF_CLK_SRC_SEL_POS;
+	tmp |= GLB_CAM_CLK_WIFIPLL_96M<< GLB_REG_CAM_REF_CLK_SRC_SEL_POS;
 	tmp &= ~GLB_REG_CAM_REF_CLK_DIV_MSK;
 	tmp |= (config->clock_divider - 1) << GLB_REG_CAM_REF_CLK_DIV_POS;
 	sys_write32(tmp, GLB_BASE + GLB_CAM_CFG0_OFFSET);
 
-	/* enable clock routing */
+	/* clock on */
 	tmp = sys_read32(GLB_BASE + GLB_CAM_CFG0_OFFSET);
 	tmp |= GLB_REG_CAM_REF_CLK_EN_MSK;
 	sys_write32(tmp, GLB_BASE + GLB_CAM_CFG0_OFFSET);
@@ -336,6 +339,10 @@ static int bflb_camfront_init(const struct device *dev)
 		LOG_ERR("Failed to apply %s default pin config", dev->name);
 		return ret;
 	}
+
+	/* TODO: loop over sinks and convifure them one by one */
+	/* Select the sink to which related config applies */
+	sys_write32(0, config->base + CAM_FRONT_DVP2BUS_SRC_SEL_1_OFFSET);
 
 	/* Default format is set by dvp2axi */
 
@@ -377,16 +384,6 @@ K_THREAD_DEFINE(debug_report, 1024,
 		__debug_report, NULL, NULL, NULL,
 		0, K_ESSENTIAL, 0);
 #endif
-
-static DEVICE_API(video, bflb_camfront_api) = {
-	.set_format = bflb_camfront_set_format,
-	.get_format = bflb_camfront_get_format,
-	.set_stream = bflb_camfront_set_stream,
-	.get_caps = bflb_camfront_get_caps,
-	.set_frmival = bflb_camfront_set_frmival,
-	.get_frmival = bflb_camfront_get_frmival,
-	.enum_frmival = bflb_camfront_enum_frmival,
-};
 
 #define SOURCE_DEV(n) DEVICE_DT_GET(DT_NODE_REMOTE_DEVICE(DT_INST_ENDPOINT_BY_ID(n, 0, 0)))
 
@@ -439,42 +436,4 @@ static void bflb_cam_init(const struct device *dev)
 	tmp |= threshold << CAM_FRONT_RG_DVPAS_FIFO_TH_SHIFT;
 	sys_write32(tmp, config->base + CAM_FRONT_CONFIG_OFFSET);
 }
-#endif
-
-#if 0
-	case CAM_CMD_FRAME_ID_RESET:
-		tmp = sys_read32(config->base + CAM_FRONT_ISP_ID_YUV_OFFSET);
-		tmp |= CAM_FRONT_REG_YUV_IDGEN_RST;
-		sys_write32(tmp, config->base + CAM_FRONT_ISP_ID_YUV_OFFSET);
-		break;
-
-	case CAM_CMD_INVERSE_VSYNC_POLARITY:
-		tmp = sys_read32(config->base + CAM_FRONT_CONFIG_OFFSET);
-		if (arg) {
-			tmp |= CAM_FRONT_RG_DVPAS_VS_INV;
-		} else {
-			tmp &= ~CAM_FRONT_RG_DVPAS_VS_INV;
-		}
-		sys_write32(tmp, config->base + CAM_FRONT_CONFIG_OFFSET);
-		break;
-
-	case CAM_CMD_INVERSE_HSYNC_POLARITY:
-		tmp = sys_read32(config->base + CAM_FRONT_CONFIG_OFFSET);
-		if (arg) {
-			tmp |= CAM_FRONT_RG_DVPAS_HS_INV;
-		} else {
-			tmp &= ~CAM_FRONT_RG_DVPAS_HS_INV;
-		}
-		sys_write32(tmp, config->base + CAM_FRONT_CONFIG_OFFSET);
-		break;
-
-	case CAM_CMD_INVERSE_YUYV2UYVY: /* YUYV <-> UYVY */
-		tmp = sys_read32(config->base + CAM_FRONT_CONFIG_OFFSET);
-		if (arg) {
-			tmp |= CAM_FRONT_RG_DVPAS_DA_ORDER;
-		} else {
-			tmp &= ~CAM_FRONT_RG_DVPAS_DA_ORDER;
-		}
-		sys_write32(tmp, config->base + CAM_FRONT_CONFIG_OFFSET);
-		break;
 #endif
