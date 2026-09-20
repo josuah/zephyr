@@ -20,8 +20,8 @@
 		group1 {
 			pinmux = <GPIO15_SPI_MOSI>,
 				 <GPIO17_SPI_SCLK>;
-				 bias-pull-up;
-				 input-schmitt-enable;
+			bias-pull-up;
+			input-schmitt-enable;
 		};
 	};
 
@@ -37,7 +37,9 @@
 				 <GPIO33_CAM0_DAT6>,
 				 <GPIO34_CAM0_DAT7>,
 				 <GPIO28_CAM0_HSYNC>,
-				 <GPIO29_CAM0_VSYNC>;
+				 <GPIO29_CAM0_VSYNC>,
+				 <GPIO30_CAM0_CLK>;
+			bias-pull-up;
 			input-schmitt-enable;
 		};
 	};
