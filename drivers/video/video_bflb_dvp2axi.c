@@ -261,12 +261,12 @@ static void bflb_dvp2axi_apply_config(const struct device *dev)
     uint32_t tmp;
 
     tmp = (uintptr_t)data->active_vbuf->buffer;
-    tmp = 0xa8000ce0; /* TODO */
     sys_write32(tmp, config->base + CAM_DVP2AXI_ADDR_START_OFFSET);
 
-    sys_write32(data->fmt.height << 16 | data->fmt.width, config->base + CAM_DVP2AXI_FRAM_EXM_OFFSET);
-    sys_write32(data_mode, config->base + CAM_DVP_DEBUG_OFFSET);
+    tmp = data->fmt.height << 16 | data->fmt.width;
+    sys_write32(tmp, config->base + CAM_DVP2AXI_FRAM_EXM_OFFSET);
 
+    sys_write32(0, config->base + CAM_DVP_DEBUG_OFFSET);
 
     tmp = sys_read32(config->base + CAM_DVP2AXI_HSYNC_CROP_OFFSET);
     if ((tmp & 0xffff) > data->fmt.width) {
@@ -512,6 +512,8 @@ static int bflb_dvp2axi_dequeue(const struct device *dev, struct video_buffer **
 	const struct bflb_dvp2axi_config *config = dev->config;
 	struct bflb_dvp2axi_data *data = dev->data;
 
+	bflb_dvp2axi_dump_regs(dev);
+
 	for (int i = 0; i < 100; i++) {
 		if (bflb_cam_get_frame_count(dev) > 0) {
 			printk("FRAME\n");
@@ -538,6 +540,10 @@ static int bflb_dvp2axi_dequeue(const struct device *dev, struct video_buffer **
 		LOG_ERR("Failed to retreive a buffer from %s FIFO", dev->name);
 		return -ETIMEDOUT;
 	}
+
+	LOG_DBG("frame addr 0x%08x, size 0x%08x",
+		sys_read32(config->base + CAM_FRAME_START_ADDR0_OFFSET),
+		sys_read32(config->base + CAM_DVP2AXI_FRAME_BCNT_OFFSET));
 
 	LOG_DBG("Buffer completed");
 
