@@ -90,8 +90,6 @@ static int bflb_camfront_get_caps(const struct device *dev, struct video_caps *c
 	int ret;
 
 	caps->format_caps = data->fmts;
-	caps->min_vbuf_count = 1;
-	//caps->buf_align = 16; /* TODO */
 
 	if (data->num_fmts > 0) {
 		return 0;
@@ -110,10 +108,10 @@ static int bflb_camfront_get_caps(const struct device *dev, struct video_caps *c
 
 		conv = bflb_camfront_convert_pixfmt(source_caps.format_caps[i].pixelformat);
 		if (source_caps.format_caps[i].pixelformat != conv) {
-			struct video_format_cap new_format_cap = source_caps.format_caps[i];
+			struct video_format_cap new = source_caps.format_caps[i];
 
-			new_format_cap.pixelformat = conv;
-			bflb_camfront_add_format_cap(dev, &new_format_cap);
+			new.pixelformat = conv;
+			bflb_camfront_add_format_cap(dev, &new);
 		}
 	}
 
@@ -182,7 +180,6 @@ static int bflb_camfront_enum_frmival(const struct device *dev, struct video_frm
 	return video_enum_frmival(config->source_dev, fie);
 }
 
-#if 0
 static int bflb_camfront_apply_config(const struct device *dev)
 {
 	const struct bflb_camfront_config *config = dev->config;
@@ -216,16 +213,11 @@ static int bflb_camfront_apply_config(const struct device *dev)
 	/* TODO get from sensor control */
 	pix_clk_hz = 48000000;
 
-	/* Set the line-buffer threshold past the half of the width, depending on the ratio between
-	 * this peripheral clock (processing speed) and the pixel clock (input data speed).
-	 *
-	 * This is likely the trigger for starting to flush the line to the next core (DVP2AXI)
-	 * in the video pipeline.
-	 */
+	/* possibly a threshold for the FIFO between camfront and dvp2axi */
 	threshold = data->fmt.width - data->fmt.width * pix_clk_hz / cam_ref_clk_hz / 2 + 10;
 	threshold = CLAMP(threshold, 2, data->fmt.width);
 	threshold = CLAMP(threshold, 2, 1024);
-	threshold = 900; /* TODO experimental */
+	threshold = 906; /* TODO experimental */
 
 	LOG_DBG("setting %s x threshold to %u (format %s %ux%u, pix clk %llu hz, cam clk %u hz)",
 		config->source_dev->name, threshold, VIDEO_FOURCC_TO_STR(data->fmt.pixelformat),
@@ -236,6 +228,7 @@ static int bflb_camfront_apply_config(const struct device *dev)
 	tmp |= threshold << CAM_FRONT_RG_DVPAS_FIFO_TH_SHIFT;
 	sys_write32(tmp, config->base + CAM_FRONT_CONFIG_OFFSET);
 
+#if 0
 	/* TODO handle pixel format conversion at camfront level */
 	/* 16-bit endianess swap in the front-end */
 	/* If image sensor output format is YUYV, it will be changed to UYVY */
@@ -246,10 +239,10 @@ static int bflb_camfront_apply_config(const struct device *dev)
 		tmp &= ~CAM_FRONT_RG_DVPAS_DA_ORDER;
 	}
 	sys_write32(tmp, config->base + CAM_FRONT_CONFIG_OFFSET);
+#endif
 
 	return 0;
 }
-#endif
 
 static int bflb_camfront_set_stream(const struct device *dev, bool stream, enum video_buf_type type)
 {
@@ -267,12 +260,10 @@ static int bflb_camfront_set_stream(const struct device *dev, bool stream, enum 
 	}
 
 	if (stream) {
-#if 0
 		ret = bflb_camfront_apply_config(dev);
 		if (ret < 0) {
 			return ret;
 		}
-#endif
 
 		ret = video_stream_start(config->source_dev, type);
 		if (ret < 0) {
@@ -325,8 +316,6 @@ static void bflb_camfront_init_clock(const struct device *dev)
 	sys_write32(tmp, GLB_BASE + GLB_CAM_CFG0_OFFSET);
 }
 
-extern bool pinctrl_log;
-
 static int bflb_camfront_init(const struct device *dev)
 {
 	const struct bflb_camfront_config *config = dev->config;
@@ -334,9 +323,8 @@ static int bflb_camfront_init(const struct device *dev)
 
 	LOG_DBG("Initializing %s", dev->name);
 
+	/* Configure clock for both camfront and dvp2axi */
 	bflb_camfront_init_clock(dev);
-
-	pinctrl_log = true;
 
 	ret = pinctrl_apply_state(config->pcfg, PINCTRL_STATE_DEFAULT);
 	if (ret != 0) {
@@ -344,9 +332,9 @@ static int bflb_camfront_init(const struct device *dev)
 		return ret;
 	}
 
-	/* TODO: loop over sinks and convifure them one by one */
+	/* TODO: loop over sinks and configure them one by one */
 	/* Select the sink to which related config applies */
-	//sys_write32(0, config->base + CAM_FRONT_DVP2BUS_SRC_SEL_1_OFFSET);
+	sys_write32(0, config->base + CAM_FRONT_DVP2BUS_SRC_SEL_1_OFFSET);
 
 	/* Default format is set by dvp2axi */
 
@@ -358,35 +346,6 @@ static const int bflb_camfront_deinit(const struct device *dev)
 {
 	return 0;
 }
-#endif
-
-#if 0
-#include <zephyr/drivers/uart.h>
-
-static uint64_t __debug_num_isr;
-static uint32_t __debug_last_mcause;
-
-void __debug_probe(int n) {
-	//uint32_t mcause_val;
-
-	//__asm__ volatile ("csrr %0, mcause" : "=r"(mcause_val) : : );
-	__debug_num_isr++;
-	//__debug_last_mcause = mcause_val;
-}
-
-static void __debug_report(void *p0, void *p1, void *p2) {
-	k_sleep(K_SECONDS(1));
-	while (true) {
-		printk("%%");
-		//uart_poll_out(DEVICE_DT_GET(DT_CHOSEN(zephyr_console)), '%');
-		//printk("num_isr: %llu\n", __debug_num_isr);
-		//printk("last_mcause: %u\n", __debug_last_mcause);
-		k_sleep(K_SECONDS(1));
-	}
-}
-K_THREAD_DEFINE(debug_report, 1024,
-		__debug_report, NULL, NULL, NULL,
-		0, K_ESSENTIAL, 0);
 #endif
 
 #define SOURCE_DEV(n) DEVICE_DT_GET(DT_NODE_REMOTE_DEVICE(DT_INST_ENDPOINT_BY_ID(n, 0, 0)))
@@ -413,31 +372,3 @@ K_THREAD_DEFINE(debug_report, 1024,
 	VIDEO_DEVICE_DEFINE(camfront_##n, DEVICE_DT_INST_GET(n), SOURCE_DEV(n));
 
 DT_INST_FOREACH_STATUS_OKAY(VIDEO_BFLB_CAMFRONT_INIT)
-
-
-#if 0
-static void bflb_cam_init(const struct device *dev)
-{
-	const struct camfront_config *config = dev->config;
-	uint32_t threshold;
-	uint64_t cam_ref_clk;
-	uint32_t tmp;
-
-	cam_ref_clk = bflb_clk_get_peripheral_clock(BFLB_DEVICE_TYPE_CAMERA, 0) / 1000;
-	threshold = fmt->width - fmt->width * config->pixel_clock / cam_ref_clk / 2 + 10;
-	if (threshold > (fmt->width - 1)) {
-		threshold = fmt->width - 1;
-	}
-	if (threshold < 2) {
-		threshold = 2;
-	}
-	if (threshold > 1024) {
-		threshold = 1024;
-	}
-
-	tmp = sys_read32(config->base + CAM_FRONT_CONFIG_OFFSET);
-	tmp &= ~CAM_FRONT_RG_DVPAS_FIFO_TH_MASK;
-	tmp |= threshold << CAM_FRONT_RG_DVPAS_FIFO_TH_SHIFT;
-	sys_write32(tmp, config->base + CAM_FRONT_CONFIG_OFFSET);
-}
-#endif

@@ -168,11 +168,6 @@ void pinctrl_bflb_configure_sf_pads(pinctrl_soc_pin_t pin)
 }
 #endif
 
-#include <zephyr/logging/log.h>
-LOG_MODULE_REGISTER(bflb_pinctrl, LOG_LEVEL_DBG);
-
-bool pinctrl_log;
-
 void pinctrl_bflb_init_pin(pinctrl_soc_pin_t pin)
 {
 	uint8_t drive;
@@ -185,11 +180,6 @@ void pinctrl_bflb_init_pin(pinctrl_soc_pin_t pin)
 	function = BFLB_PINMUX_GET_FUN(pin);
 	mode = BFLB_PINMUX_GET_MODE(pin);
 	drive = BFLB_PINMUX_GET_DRIVER_STRENGTH(pin);
-
-	if (pinctrl_log) {
-		printk("pin %u, func %u, mode %u, drive %u\n",
-			real_pin, function, mode, drive);
-	}
 
 	/* gpio pad check goes here */
 
