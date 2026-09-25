@@ -18,7 +18,7 @@
 #include <wl_api.h>
 #include <rfparam/rfparam_adapter.h>
 
-LOG_MODULE_REGISTER(bflb_rf, LOG_LEVEL_ERR);
+LOG_MODULE_REGISTER(bflb_rf, LOG_LEVEL_DBG);
 
 #define XTAL_FREQ DT_PROP(DT_NODELABEL(clk_crystal), clock_frequency)
 
@@ -325,6 +325,10 @@ int bflb_rf_init(void)
 	static atomic_t initialized;
 	struct wl_cfg_t *cfg;
 	int ret;
+
+	uint32_t mstatus;
+	__asm__ volatile("csrr %0, mstatus" : "=r" (mstatus));
+	LOG_INF("mstatus 0x%08x", mstatus);
 
 	if (!atomic_cas(&initialized, 0, 1)) {
 		return 0;

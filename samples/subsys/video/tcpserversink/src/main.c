@@ -17,7 +17,9 @@
 #include <zephyr/posix/unistd.h>
 #include <zephyr/video/video.h>
 
-LOG_MODULE_REGISTER(main, CONFIG_LOG_DEFAULT_LEVEL);
+#include "net_sample_common.h"
+
+LOG_MODULE_REGISTER(main, LOG_LEVEL_DBG);
 
 #define MY_PORT          5000
 #define MAX_CLIENT_QUEUE 1
@@ -208,23 +210,23 @@ void stop_encoder(void)
 
 int main(void)
 {
-	struct sockaddr_in addr, client_addr;
-	socklen_t client_addr_len = sizeof(client_addr);
+	static struct sockaddr_in addr, client_addr;
+	static socklen_t client_addr_len = sizeof(client_addr);
 	struct video_buffer *buffers[CONFIG_VIDEO_CAPTURE_N_BUFFERING];
-	struct video_buffer *vbuf = &(struct video_buffer){};
+	struct video_buffer *vbuf = &(static struct video_buffer){};
 #if DT_HAS_CHOSEN(zephyr_videoenc)
 	struct video_buffer *vbuf_out = &(struct video_buffer){};
 #endif
 	int ret, sock, client;
-	struct video_format fmt;
-	struct video_caps caps;
-	struct video_frmival frmival;
-	struct video_frmival_enum fie;
+	static struct video_format fmt;
+	static struct video_caps caps;
+	static struct video_frmival frmival;
+	static struct video_frmival_enum fie;
 	enum video_buf_type type = VIDEO_BUF_TYPE_OUTPUT;
 	const struct device *video_dev;
 #if (CONFIG_VIDEO_SOURCE_CROP_WIDTH && CONFIG_VIDEO_SOURCE_CROP_HEIGHT) || \
 	CONFIG_VIDEO_FRAME_HEIGHT || CONFIG_VIDEO_FRAME_WIDTH
-	struct video_selection sel = {
+	static struct video_selection sel = {
 		.type = VIDEO_BUF_TYPE_OUTPUT,
 	};
 #endif
@@ -242,6 +244,18 @@ int main(void)
 		LOG_ERR("%s: video device not ready.", video_dev->name);
 		return 0;
 	}
+
+	k_sleep(K_MSEC(1000));
+
+	uint32_t mstatus;
+	__asm__ volatile("csrr %0, mstatus" : "=r" (mstatus));
+	for (int i = 0; i < 10; i++) {
+	LOG_INF("mstatus 0x%08x", mstatus);
+	}
+	k_sleep(K_FOREVER);
+	return 0;
+
+	wait_for_network();
 
 	/* Prepare Network */
 	(void)memset(&addr, 0, sizeof(addr));

@@ -5,10 +5,13 @@
  */
 
 #include <stdio.h>
+#include <stdint.h>
 
 int main(void)
 {
 	printf("Hello World! %s\n", CONFIG_BOARD_TARGET);
+
+	//printf("[0x90000000] = 0x%08x\n", *(volatile uint32_t *)0x90000000);
 
 	return 0;
 }
