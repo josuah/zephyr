@@ -596,6 +596,8 @@ zephyr_library_sources_ifdef(CONFIG_WIFI_NM_WPA_SUPPLICANT_EAPOL
 
 zephyr_library_compile_definitions_ifdef(CONFIG_WIFI_NM_WPA_SUPPLICANT_EAPOL
   IEEE8021X_EAPOL
+  CONFIG_IEEE8021X_AUTH
+  CONFIG_PMKSA_PRIVACY
 )
 
 zephyr_library_compile_definitions_ifdef(CONFIG_WIFI_NM_WPA_SUPPLICANT_NW_SEL_RELIABILITY
