@@ -21,6 +21,8 @@
 
 LOG_MODULE_REGISTER(main, LOG_LEVEL_DBG);
 
+#include <net_private.h>
+
 #define MY_PORT          5000
 #define MAX_CLIENT_QUEUE 1
 
@@ -245,16 +247,6 @@ int main(void)
 		return 0;
 	}
 
-	k_sleep(K_MSEC(1000));
-
-	uint32_t mstatus;
-	__asm__ volatile("csrr %0, mstatus" : "=r" (mstatus));
-	for (int i = 0; i < 10; i++) {
-	LOG_INF("mstatus 0x%08x", mstatus);
-	}
-	k_sleep(K_FOREVER);
-	return 0;
-
 	wait_for_network();
 
 	/* Prepare Network */
@@ -281,6 +273,8 @@ int main(void)
 		close(sock);
 		return 0;
 	}
+
+	LOG_INF("Bound to %s:%d, listenning", net_sprint_ipv4_addr(&addr), MY_PORT);
 
 	/* Get capabilities */
 	caps.type = type;

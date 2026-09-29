@@ -9,4 +9,6 @@ target_sources(app PRIVATE ${app_sources})
 
 include(${ZEPHYR_BASE}/samples/net/common/common.cmake)
 
+zephyr_include_directories(${ZEPHYR_BASE}/subsys/net/ip)
+
 #zephyr_code_relocate(LIBRARY subsys__net__ip FILTER "^\\.(noinit)\\.*" LOCATION PSRAM NOKEEP)
