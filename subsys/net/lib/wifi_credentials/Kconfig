@@ -58,7 +58,7 @@ config WIFI_CREDENTIALS_SHELL
 	depends on SHELL
 	select SHELL_GETOPT
 	select GETOPT_LONG
-	depends on !WIFI_CREDENTIALS_BACKEND_NONE
+	#depends on !WIFI_CREDENTIALS_BACKEND_NONE
 
 config WIFI_CREDENTIALS_CONNECT_STORED
 	bool "Add command to connect to stored networks directly."

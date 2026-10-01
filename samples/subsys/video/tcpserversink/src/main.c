@@ -247,6 +247,7 @@ int main(void)
 		return 0;
 	}
 
+	LOG_INF("Waiting for network... (main)");
 	wait_for_network();
 
 	/* Prepare Network */
@@ -466,7 +467,7 @@ int main(void)
 
 		/* Capture loop */
 		i = 0;
-		vbuf->type = type;
+		vbuf = &(struct video_buffer){.type = VIDEO_BUF_TYPE_OUTPUT};
 		do {
 			ret = video_dequeue(video_dev, &vbuf, K_FOREVER);
 			if (ret) {

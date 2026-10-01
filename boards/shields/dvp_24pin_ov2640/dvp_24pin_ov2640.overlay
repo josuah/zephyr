@@ -25,6 +25,10 @@
 		port {
 			ov2640_ep_out: endpoint {
 				remote-endpoint-label = "dvp_24pin_ep_in";
+				bus-width = <8>;
+				hsync-active = <1>;
+				vsync-active = <0>;
+				pclk-sample = <1>;
 			};
 		};
 	};
@@ -33,7 +37,7 @@
 &dvp_24pin_ep_in {
 	remote-endpoint-label = "ov2640_ep_out";
 	bus-width = <8>;
-	hsync-active = <0>;
+	hsync-active = <1>;
 	vsync-active = <0>;
 	pclk-sample = <1>;
 };

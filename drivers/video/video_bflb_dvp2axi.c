@@ -198,7 +198,7 @@ static void bflb_dvp2axi_apply_config(const struct device *dev)
 	/* BCNT is AXI burst count */
 	tmp = data->active_vbuf->size
 		/ (config->axi_data_width / BITS_PER_BYTE)
-		/ config->axi_burst_length;
+		/ 1; //config->axi_burst_length;
 	sys_write32(tmp, config->base + CAM_DVP2AXI_MEM_BCNT_OFFSET);
 
 	tmp = sys_read32(config->base + CAM_DVP_STATUS_AND_ERROR_OFFSET);
@@ -211,10 +211,14 @@ static void bflb_dvp2axi_apply_config(const struct device *dev)
 	sys_write32(tmp, config->base + CAM_DVP_STATUS_AND_ERROR_OFFSET);
 
 	tmp = sys_read32(config->base + CAM_DVP2AXI_CONFIGUE_OFFSET);
+	/*  */
+	tmp &= ~CAM_REG_DROP_EN;
 	/* continuous/trigger mode */
-	tmp |= CAM_REG_SW_MODE;
+	tmp &= ~CAM_REG_SW_MODE;
+	/* Pixel selection for i.e. splitting YUV in Y and UV */
+	tmp &= ~CAM_REG_DVP_DATA_BSEL;
 	/* format conversion */
-	tmp &= CAM_REG_DVP_DATA_MODE_SHIFT;
+	tmp &= ~CAM_REG_DVP_DATA_MODE_MASK;
 	tmp |= data_mode << CAM_REG_DVP_DATA_MODE_SHIFT;
 	/* burst length */
 	tmp &= ~CAM_REG_XLEN_MASK;

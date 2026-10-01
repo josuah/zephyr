@@ -45,6 +45,7 @@ struct bflb_camfront_data {
 	size_t num_fmts;
 	struct video_format fmt;
 	bool is_streaming;
+	bool swap_16bit;
 };
 
 static void bflb_camfront_add_format_cap(const struct device *dev,
@@ -62,7 +63,7 @@ static void bflb_camfront_add_format_cap(const struct device *dev,
 	data->num_fmts++;
 }
 
-static uint32_t bflb_camfront_convert_pixfmt(uint32_t pixfmt)
+static uint32_t bflb_camfront_swapped_pixfmt(uint32_t pixfmt)
 {
 	switch (pixfmt) {
 	case VIDEO_PIX_FMT_YUYV:
@@ -106,7 +107,7 @@ static int bflb_camfront_get_caps(const struct device *dev, struct video_caps *c
 
 		bflb_camfront_add_format_cap(dev, &source_caps.format_caps[i]);
 
-		conv = bflb_camfront_convert_pixfmt(source_caps.format_caps[i].pixelformat);
+		conv = bflb_camfront_swapped_pixfmt(source_caps.format_caps[i].pixelformat);
 		if (source_caps.format_caps[i].pixelformat != conv) {
 			struct video_format_cap new = source_caps.format_caps[i];
 
@@ -121,6 +122,8 @@ static int bflb_camfront_get_caps(const struct device *dev, struct video_caps *c
 static int bflb_camfront_set_format(const struct device *dev, struct video_format *fmt)
 {
 	const struct bflb_camfront_config *config = dev->config;
+	struct video_caps source_caps = {.type = VIDEO_BUF_TYPE_OUTPUT};
+	struct video_format source_fmt = *fmt;
 	struct bflb_camfront_data *data = dev->data;
 	size_t fmt_idx;
 	int ret;
@@ -134,7 +137,40 @@ static int bflb_camfront_set_format(const struct device *dev, struct video_forma
 
 	ret = video_estimate_fmt_size(fmt);
 	if (ret < 0) {
+		LOG_ERR("Failed to estimate the format size for %s %ux%u",
+			VIDEO_FOURCC_TO_STR(fmt->pixelformat), fmt->width, fmt->height);
 		return ret;
+	}
+
+	video_get_caps(config->source_dev, &source_caps);
+	if (ret < 0) {
+		LOG_ERR("Failed to get %s capabilities", config->source_dev->name);
+		return ret;
+	}
+
+	/* Support swapped bytes */
+	ret = video_format_caps_index(source_caps.format_caps, &source_fmt, &fmt_idx);
+	if (ret < 0) {
+		data->swap_16bit = true;
+		source_fmt.pixelformat = bflb_camfront_swapped_pixfmt(fmt->pixelformat);
+
+		LOG_DBG("Source %s does not support %s %ux%u, trying to convert to %s %ux%u",
+			config->source_dev->name,
+			VIDEO_FOURCC_TO_STR(fmt->pixelformat), fmt->width, fmt->height,
+			VIDEO_FOURCC_TO_STR(source_fmt.pixelformat), source_fmt.width,
+			source_fmt.height);
+
+		ret = video_format_caps_index(data->fmts, &source_fmt, &fmt_idx);
+		if (ret < 0) {
+			LOG_ERR("Source %s does not support %s or %s at %ux%u",
+				config->source_dev->name,
+				VIDEO_FOURCC_TO_STR(fmt->pixelformat),
+				VIDEO_FOURCC_TO_STR(source_fmt.pixelformat),
+				fmt->width, fmt->height);
+			return ret;
+		}
+	} else {
+		data->swap_16bit = false;
 	}
 
 	ret = video_set_format(config->source_dev, fmt);
@@ -147,6 +183,7 @@ static int bflb_camfront_set_format(const struct device *dev, struct video_forma
 
 	data->fmt = *fmt;
 
+	/* Format applied in bflb_camfront_apply_config() */
 	return 0;
 }
 
@@ -228,16 +265,16 @@ static int bflb_camfront_apply_config(const struct device *dev)
 	tmp |= threshold << CAM_FRONT_RG_DVPAS_FIFO_TH_SHIFT;
 	sys_write32(tmp, config->base + CAM_FRONT_CONFIG_OFFSET);
 
-#if 0
-	/* TODO handle pixel format conversion (endianness swap) at camfront level */
+	/* Pixel format conversion (endianness swap) at camfront level */
 	tmp = sys_read32(config->base + CAM_FRONT_CONFIG_OFFSET);
-	if (arg) {
+	if (!data->swap_16bit) {
+		LOG_WRN("Swapping bytes");
 		tmp |= CAM_FRONT_RG_DVPAS_DA_ORDER;
 	} else {
+		LOG_WRN("Not bytes");
 		tmp &= ~CAM_FRONT_RG_DVPAS_DA_ORDER;
 	}
 	sys_write32(tmp, config->base + CAM_FRONT_CONFIG_OFFSET);
-#endif
 
 	tmp = sys_read32(config->base + CAM_FRONT_CONFIG_OFFSET);
 	tmp |= CAM_FRONT_RG_DVPAS_ENABLE;
