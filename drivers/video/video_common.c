@@ -350,6 +350,25 @@ static int video_write_reg_retry(const struct i2c_dt_spec *i2c, uint8_t *buf_w, 
 	return 0;
 }
 
+static void video_verify_cci_reg(const struct i2c_dt_spec *i2c, uint32_t reg_addr,
+				 uint32_t reg_data)
+{
+	uint16_t addr = FIELD_GET(VIDEO_REG_ADDR_MASK, reg_addr);
+	uint32_t feedback;
+	int ret;
+
+	ret = video_read_cci_reg(i2c, reg_addr, &feedback);
+	if (ret < 0) {
+		LOG_WRN("Cannot verify register 0x%02x value, could not read", reg_addr);
+		return;
+	}
+
+	if (feedback != reg_addr) {
+		LOG_WRN("Register 0x%02x not read back (0x%02x) as written (0x%02x)",
+			addr, feedback, reg_data);
+	}
+}
+
 int video_write_cci_reg(const struct i2c_dt_spec *i2c, uint32_t reg_addr, uint32_t reg_data)
 {
 	size_t addr_size = FIELD_GET(VIDEO_REG_ADDR_SIZE_MASK, reg_addr);
@@ -391,6 +410,10 @@ int video_write_cci_reg(const struct i2c_dt_spec *i2c, uint32_t reg_addr, uint32
 			LOG_ERR("Failed to write to register 0x%x", addr + i);
 			return ret;
 		}
+	}
+
+	if (IS_ENABLED(CONFIG_VIDEO_I2C_VERIFY)) {
+		video_verify_cci_reg(i2c, reg_addr, reg_data);
 	}
 
 	return 0;

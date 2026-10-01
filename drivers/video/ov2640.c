@@ -603,8 +603,8 @@ static int ov2640_write_reg(const struct i2c_dt_spec *spec, uint8_t reg_addr, ui
 verify:
 	feedback = ov2640_read_reg(spec, reg_addr);
 	if (feedback != value) {
-		LOG_ERR("Value not read back as written");
-		return -EIO;
+		LOG_WRN("Reg 0x%02x not read back as written 0x%02x got 0x%02x",
+			reg_addr, feedback, value);
 	}
 
 	k_msleep(15);

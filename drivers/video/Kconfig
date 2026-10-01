@@ -65,6 +65,12 @@ config VIDEO_I2C_RETRY_NUM
 	  The default is to not retry. Board configuration files or user project can then
 	  use the number of retries that matches their situation.
 
+config VIDEO_I2C_VERIFY
+	bool "Read the I2C values just written to confirm it worked"
+	help
+	  For debug purpose, for every register written, read it back and print a warning messagae
+	  if it does not match.
+
 config VIDEO_ENCODER_H264
 	bool "H264 video encoder support"
 
