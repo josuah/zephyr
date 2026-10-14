@@ -404,7 +404,7 @@ static int stm32_venc_enable_clock(const struct device *dev)
 	return 0;
 }
 
-static int stm32_venc_set_fmt(const struct device *dev, struct video_format *fmt)
+static int stm32_venc_set_fmt(const struct device *dev, struct video_format *fmt, size_t idx)
 {
 	struct stm32_venc_data *data = dev->data;
 
