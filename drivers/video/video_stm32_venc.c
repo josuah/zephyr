@@ -415,7 +415,6 @@ static int stm32_venc_set_fmt(const struct device *dev, struct video_format *fmt
 			return -EINVAL;
 		}
 
-		fmt->pitch = fmt->width * video_bits_per_pixel(fmt->pixelformat) / BITS_PER_BYTE;
 		data->in_fmt = *fmt;
 	} else {
 		if (fmt->pixelformat != VIDEO_PIX_FMT_H264) {
