@@ -1522,7 +1522,8 @@ static int continue_transfer(struct uvc_host_data *const host_data,
 }
 
 static bool complete_transfer(struct uhc_transfer *const xfer,
-			      struct video_buffer *const vbuf)
+			      struct video_buffer *const vbuf,
+			      bool *drop_frame)
 {
 	struct uvc_host_data *const host_data = (void *)xfer->priv;
 	struct uvc_payload_header *payload_header = NULL;
@@ -1544,7 +1545,8 @@ static bool complete_transfer(struct uhc_transfer *const xfer,
 		goto cleanup;
 	} else if (xfer->err) {
 		LOG_WRN("ISO request failed, err %d, mps %u, size %u, len %u, start %d",
-			xfer->err, xfer->mps, xfer->buf->size, xfer->buf->len, xfer->start_frame);
+			xfer->err, xfer->mps, xfer->buf->size, xfer->buf->len,
+			xfer->start_microframe);
 		goto cleanup;
 	} else {
 		/* Transfer successful, continue processing */
@@ -1569,14 +1571,14 @@ static bool complete_transfer(struct uhc_transfer *const xfer,
 				host_data->current_frame_timestamp = presentation_time;
 			}
 		} else if (presentation_time != host_data->current_frame_timestamp) {
-			host_data->save_picture = false;
+			*drop_frame = true;
 			LOG_WRN("presentation time mismatch, expected %u, got %u - discarding",
 				host_data->current_frame_timestamp, presentation_time);
 		} else {
 			/* Normal frame continuation */
 		}
 
-		if (host_data->save_picture) {
+		if (!*drop_frame) {
 			if (data_size > (vbuf->size - vbuf->bytesused)) {
 				LOG_WRN("Buffer overflow: used=%u, payload=%u, capacity=%u",
 					vbuf->bytesused, data_size, vbuf->size);
@@ -1591,7 +1593,7 @@ static bool complete_transfer(struct uhc_transfer *const xfer,
 				LOG_DBG("Processed %u payload bytes (FID:%u), total: %u, EOF: %u",
 					data_size, frame_id, vbuf->bytesused, end_frame);
 			} else {
-				host_data->save_picture = false;
+				*drop_frame = true;
 				LOG_DBG("Frame ID mismatch: expected %u, got %u - discarding",
 					host_data->expect_frame_id, frame_id);
 			}
@@ -1603,15 +1605,11 @@ static bool complete_transfer(struct uhc_transfer *const xfer,
 		goto cleanup;
 	}
 
-	if (!host_data->save_picture) {
-
-		if (vbuf->bytesused != 0) {
-			host_data->discard_frame_cnt++;
-		}
+	if (*drop_frame) {
 		vbuf->bytesused = 0U;
 		host_data->vbuf_offset = 0;
 		host_data->expect_frame_id = frame_id ^ 1;
-		host_data->save_picture = true;
+		*drop_frame = false;
 		goto cleanup;
 	}
 
@@ -1629,8 +1627,8 @@ static bool complete_transfer(struct uhc_transfer *const xfer,
 	k_mutex_lock(&host_data->lock, K_FOREVER);
 
 	host_data->expect_frame_id = host_data->expect_frame_id ^ 1;
-	host_data->save_picture = true;
 	host_data->vbuf_offset = 0;
+	*drop_frame = false;
 
 	if (IS_ENABLED(CONFIG_POLL) && host_data->sig != NULL) {
 		LOG_DBG("Raising VIDEO_BUF_DONE signal");
@@ -1654,6 +1652,7 @@ static void uvc_thread(void *p1, void *p2, void *p3)
 	struct uvc_host_data *const host_data = p1;
 	struct video_buffer *vbuf;
 	struct uhc_transfer *xfer;
+	bool drop_frame = false;
 
 	while (true) {
 		/* Wait that we have a new buffer */
@@ -1665,7 +1664,7 @@ static void uvc_thread(void *p1, void *p2, void *p3)
 			xfer = k_fifo_get(&host_data->completed, K_FOREVER);
 
 			k_mutex_lock(&host_data->lock, K_FOREVER);
-			done = complete_transfer(xfer, vbuf);
+			done = complete_transfer(xfer, vbuf, &drop_frame);
 			k_mutex_unlock(&host_data->lock);
 		}
 
