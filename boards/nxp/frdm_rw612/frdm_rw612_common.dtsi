@@ -218,10 +218,6 @@ mikrobus_serial: &flexcomm0 {};
 		size = <DT_SIZE_M(8 * 8)>;
 		reg = <2>;
 		spi-max-frequency = <DT_FREQ_M(109)>;
-		/* PSRAM cannot be enabled while board is in default XIP
-		 * configuration, as it will conflict with flash chip.
-		 */
-		status = "disabled";
 		cs-interval-unit = <1>;
 		cs-interval = <2>;
 		cs-hold-time = <3>;

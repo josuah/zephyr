@@ -197,6 +197,13 @@ config MCUX_SYSINIT_KEEP_WATCHDOG
 	  watchdog driver manages it. Otherwise CMSIS disables it at boot,
 	  which is its default behavior.
 
+config MCUX_FLEXSPI_RELOCATE
+	bool
+	depends on DT_HAS_NXP_IMX_FLEXSPI_ENABLED
+	help
+	  Relocate all files needed to allow FlexSPI driver to be configured without any XIP
+	  access so that XIP can be reconfigured during that time.
+
 config HAS_MCUX_MCM_LPCAC
 	bool
 	help

@@ -8,13 +8,13 @@
   * Based on memc_mcux_flexspi_s27ks0641, which is: Copyright 2021 Basalte bv
   */
 
- #define DT_DRV_COMPAT nxp_imx_flexspi_aps6404l
+#define DT_DRV_COMPAT nxp_imx_flexspi_aps6404l
 
- #include <zephyr/kernel.h>
- #include <zephyr/logging/log.h>
- #include <zephyr/sys/util.h>
+#include <zephyr/kernel.h>
+#include <zephyr/logging/log.h>
+#include <zephyr/sys/util.h>
 
- #include "memc_mcux_flexspi.h"
+#include "memc_mcux_flexspi.h"
 
 
 /*

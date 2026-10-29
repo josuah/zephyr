@@ -162,3 +162,16 @@ add_subdirectory_ifdef(CONFIG_IEEE802154_KW41Z
 add_subdirectory(${ZEPHYR_CURRENT_MODULE_DIR}/mcux/middleware
   ${CMAKE_CURRENT_BINARY_DIR}/middleware
   )
+
+# When FlexSPI is run in a system using it for XIP, it needs the driver to be relocated
+# in RAM so that it can be reconfigured, which is required for instance for using an external
+# PSRAM besides the XIP flash
+
+if(CONFIG_MCUX_FLEXSPI_RELOCATE)
+  set(files
+    ${ZEPHYR_HAL_NXP_MODULE_DIR}/mcux/mcux-sdk-ng/drivers/flexspi/fsl_flexspi.c
+    ${ZEPHYR_HAL_NXP_MODULE_DIR}/mcux/mcux-sdk-ng/components/flash/mflash/${drv_folder}/mflash_drv.c
+    )
+  zephyr_code_relocate(FILES ${files} LOCATION ${CONFIG_FLASH_MCUX_FLEXSPI_XIP_MEM}_TEXT NOKEEP)
+  zephyr_code_relocate(FILES ${files} LOCATION ${CONFIG_FLASH_MCUX_FLEXSPI_XIP_MEM}_RODATA NOKEEP)
+endif()
