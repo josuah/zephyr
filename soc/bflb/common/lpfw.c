@@ -11,7 +11,7 @@
 
 LOG_MODULE_REGISTER(bflb_lpfw, LOG_LEVEL_INF);
 
-#define WRAM_ADDR (DT_REG_ADDR(DT_NODELABEL(all_ram)) + DT_REG_ADDR(DT_NODELABEL(wram)))
+#define WRAM_ADDR DT_REG_ADDR(DT_NODELABEL(wram))
 #define WRAM_SIZE DT_REG_SIZE(DT_NODELABEL(wram))
 #define HBN_STATUS_ENTER_FLAG 0x4e424845
 
@@ -41,6 +41,9 @@ void lpfw_copy(void)
 	LOG_INF("jump 0x%08x, magic 0x%08x, memstart 0x%08x, codeend 0x%08x, memend 0x%08x, '%s'",
 		info->jump_code, info->magic_code, info->lpfw_memory_start, info->lpfw_code_end,
 		info->lpfw_memory_end, lpfw_version_str);
+
+	LOG_INF("wram addr 0x%08x (0x%08x + 0x%08x)",
+		WRAM_ADDR, DT_REG_ADDR(DT_NODELABEL(all_ram)), DT_REG_ADDR(DT_NODELABEL(wram)));
 
 	memcpy((void *)WRAM_ADDR, lpfw_image_data, sizeof(lpfw_image_data));
 	sys_cache_data_flush_and_invd_range((void *)WRAM_ADDR, sizeof(lpfw_image_data));

@@ -29,6 +29,7 @@ zephyr_linker_sources(RAM_SECTIONS heap_ram.ld)
 
 zephyr_sources(
   power.c
+  power_pds.c
   checks.c
 )
 

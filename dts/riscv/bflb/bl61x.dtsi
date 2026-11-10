@@ -142,6 +142,114 @@
 		};
 	};
 
+	/*
+	 * The substate ID encodes a bitmask:
+	 * - bit 0: CPU power domain
+	 * - bit 1: Wireless power domain
+	 * - bit 2: USB power domain
+	 * - bit 3: misc power domain
+	 * Examples:
+	 * - substate-id = <7>: bits: 0, 1, 2: everything off except "misc" power domain
+	 * - substate-id = <15>: bits: 0, 1, 2, 3: everything off
+	 */
+	power-states {
+		active: active {
+			compatible = "zephyr,power-state";
+			power-state-name = "active";
+			substate-id = <0x0>;
+		};
+
+		suspend_to_idle_level1: suspend-to-idle-level1 {
+			compatible = "zephyr,power-state";
+			power-state-name = "suspend-to-idle";
+			substate-id = <0x1>;
+		};
+
+		suspend_to_idle_level2: suspend-to-idle-level2 {
+			compatible = "zephyr,power-state";
+			power-state-name = "suspend-to-idle";
+			substate-id = <0x2>;
+		};
+
+		suspend_to_idle_level3: suspend-to-idle-level3 {
+			compatible = "zephyr,power-state";
+			power-state-name = "soft-off";
+			substate-id = <0x3>;
+		};
+
+		suspend_to_idle_level4: suspend-to-idle-level4 {
+			compatible = "zephyr,power-state";
+			power-state-name = "suspend-to-idle";
+			substate-id = <0x4>;
+		};
+
+		suspend_to_idle_level5: suspend-to-idle-level5 {
+			compatible = "zephyr,power-state";
+			power-state-name = "soft-off";
+			substate-id = <0x5>;
+		};
+
+		suspend_to_idle_level6: suspend-to-idle-level6 {
+			compatible = "zephyr,power-state";
+			power-state-name = "suspend-to-idle";
+			substate-id = <0x6>;
+		};
+
+		suspend_to_idle_level7: suspend-to-idle-level7 {
+			compatible = "zephyr,power-state";
+			power-state-name = "soft-off";
+			substate-id = <0x7>;
+		};
+
+		suspend_to_idle_level8: suspend-to-idle-level8 {
+			compatible = "zephyr,power-state";
+			power-state-name = "suspend-to-idle";
+			substate-id = <0x8>;
+		};
+
+		suspend_to_idle_level9: suspend-to-idle-level9 {
+			compatible = "zephyr,power-state";
+			power-state-name = "soft-off";
+			substate-id = <0x9>;
+		};
+
+		suspend_to_idle_level10: suspend-to-idle-level10 {
+			compatible = "zephyr,power-state";
+			power-state-name = "suspend-to-idle";
+			substate-id = <0xa>;
+		};
+
+		suspend_to_idle_level11: suspend-to-idle-level11 {
+			compatible = "zephyr,power-state";
+			power-state-name = "soft-off";
+			substate-id = <0xb>;
+		};
+
+		suspend_to_idle_level12: suspend-to-idle-level12 {
+			compatible = "zephyr,power-state";
+			power-state-name = "suspend-to-idle";
+			substate-id = <0xc>;
+		};
+
+		suspend_to_idle_level13: suspend-to-idle-level13 {
+			compatible = "zephyr,power-state";
+			power-state-name = "soft-off";
+			substate-id = <0xd>;
+		};
+
+		suspend_to_idle_level14: suspend-to-idle-level14 {
+			compatible = "zephyr,power-state";
+			power-state-name = "suspend-to-idle";
+			substate-id = <0xe>;
+		};
+
+		suspend_to_idle_level15: suspend-to-idle-level15 {
+			compatible = "zephyr,power-state";
+			power-state-name = "soft-off";
+			substate-id = <0xf>;
+		};
+	};
+
 	soc {
 		compatible = "simple-bus";
 		ranges;

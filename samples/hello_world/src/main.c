@@ -16,7 +16,7 @@ int main(void)
 
 	lpfw_copy();
 	lpfw_prepare();
-	lpfw_start();
+	//lpfw_start();
 
 	return 0;
 }
