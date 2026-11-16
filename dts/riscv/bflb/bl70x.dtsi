@@ -407,19 +407,19 @@
 		};
 
 		reg_soc: regulator-soc@4000f000 {
-			compatible = "bflb,soc-regulator";
+			compatible = "bflb,ldo11-soc-regulator";
 			reg = <0x4000f000 0x1000>;
 			status = "okay";
 		};
 
 		reg_rt: regulator-rt@4000f000 {
-			compatible = "bflb,rt-regulator";
+			compatible = "bflb,ldo11-rt-regulator";
 			reg = <0x4000f000 0x1000>;
 			status = "okay";
 		};
 
 		reg_aon: regulator-aon@4000f000 {
-			compatible = "bflb,aon-regulator";
+			compatible = "bflb,ldo11-aon-regulator";
 			reg = <0x4000f000 0x1000>;
 			status = "okay";
 		};

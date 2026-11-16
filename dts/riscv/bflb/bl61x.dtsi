@@ -411,6 +411,7 @@
 			compatible = "bflb,power-controller";
 			reg = <0x2000f000 0x1000>, <0x2000f000 0x1000>;
 			reg-names = "hbn", "aon";
+			#power-domain-cells = <1>;
 
 			interrupts = <67 1>, <68 1>, <69 1>;
 			interrupt-parent = <&clic>;
@@ -418,20 +419,32 @@
 			status = "okay";
 		};
 
-		reg_soc: regulator-soc@2000f000 {
-			compatible = "bflb,soc-regulator";
+		reg_ldo11_soc: regulator-ldo11-soc@2000f000 {
+			compatible = "bflb,ldo11-soc-regulator";
 			reg = <0x2000f000 0x1000>;
 			status = "okay";
 		};
 
-		reg_rt: regulator-rt@2000f000 {
-			compatible = "bflb,rt-regulator";
+		reg_ldo11_rt: regulator-ldo11-rt@2000f000 {
+			compatible = "bflb,ldo11-rt-regulator";
 			reg = <0x2000f000 0x1000>;
 			status = "okay";
 		};
 
-		reg_aon: regulator-aon@2000f000 {
-			compatible = "bflb,aon-regulator";
+		reg_ldo11_aon: regulator-ldo11-aon@2000f000 {
+			compatible = "bflb,ldo11-aon-regulator";
+			reg = <0x2000f000 0x1000>;
+			status = "okay";
+		};
+
+		reg_ldo15_rf: regulator-ldo15-rf@2000f000 {
+			compatible = "bflb,ldo15-rf-regulator";
+			reg = <0x2000f000 0x1000>;
+			status = "okay";
+		};
+
+		reg_ldo18_io: regulator-ldo18-io@2000f000 {
+			compatible = "bflb,ldo18-io-regulator";
 			reg = <0x2000f000 0x1000>;
 			status = "okay";
 		};
