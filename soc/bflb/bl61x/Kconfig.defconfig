@@ -16,4 +16,7 @@ config ARCH_SW_ISR_TABLE_ALIGN
 config RISCV_MCAUSE_EXCEPTION_MASK
 	default 0xFFF
 
+configdefault BFLB_LPFW
+	default y
+
 endif # SOC_SERIES_BL61X

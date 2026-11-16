@@ -1,0 +1,9 @@
+# SPDX-License-Identifier: Apache-2.0
+
+config BFLB_LPFW
+	bool "Include the low-power firmware features"
+	help
+	  A vendor-provided binary runs in a dedicated retention RAM along with parameters and
+	  after a CPU reset for its start address, handles the low-power operation with fewer
+	  resources required than the main firmware, with the entire SoC powered off for everything
+	  except the bare minimum for wireless operation.

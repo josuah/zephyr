@@ -45,7 +45,7 @@ if(CONFIG_BFLB_PHYRF AND NOT CONFIG_BUILD_ONLY_NO_BLOBS)
   blob_objcopy(phyrf.a "${BLOBS_DIR}/libbl616_phyrf.a" ${BLOBS_OBJCOPY_ARGS})
 endif()
 
-if((CONFIG_BT_BFLB_BL61X OR CONFIG_WIFI_BFLB) AND NOT CONFIG_BUILD_ONLY_NO_BLOBS)
+#if((CONFIG_BT_BFLB_BL61X OR CONFIG_WIFI_BFLB) AND NOT CONFIG_BUILD_ONLY_NO_BLOBS)
 
   if(CONFIG_BT_BFLB_BL61X)
     blob_objcopy(${BLE_VARIANT_LIB} "${BLOBS_DIR}/${BLE_VARIANT_LIB}" ${BLOBS_OBJCOPY_ARGS})
@@ -60,7 +60,15 @@ if((CONFIG_BT_BFLB_BL61X OR CONFIG_WIFI_BFLB) AND NOT CONFIG_BUILD_ONLY_NO_BLOBS
     blob_objcopy(${MACSW_CFG_LIB} "${BLOBS_DIR}/${MACSW_CFG_LIB}" ${BLOBS_OBJCOPY_ARGS})
   endif()
 
-endif()
+  if(CONFIG_BFLB_LPFW)
+    generate_inc_file_for_target(zephyr_generated_headers
+      #${BLOBS_DIR}/bl616_lp_fw.bin # TODO: use this one
+      ${ZEPHYR_BASE}/soc/bflb/common/lpfw/build/lpfw.bin # temporary debug
+      ${ZEPHYR_BINARY_DIR}/include/generated/lpfw.inc
+    )
+  endif()
+
+#endif()
 
 if(CONFIG_IEEE802154_BFLB)
   if(NOT CONFIG_BUILD_ONLY_NO_BLOBS)
