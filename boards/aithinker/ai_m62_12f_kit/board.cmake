@@ -8,6 +8,7 @@ board_runner_args(openocd --file-type=elf --no-load)
 board_runner_args(openocd --gdb-init "set print asm-demangle on")
 board_runner_args(openocd --gdb-init "mem 0x90000000 0x90020000 ro")
 board_runner_args(openocd --gdb-init "mem 0xA0000000 0xA8000000 ro")
+board_runner_args(openocd --gdb-init "set mem inaccessible-by-default off")
 include(${ZEPHYR_BASE}/boards/common/openocd.board.cmake)
 
 board_runner_args(bflb_mcu_tool --chipname bl616)
