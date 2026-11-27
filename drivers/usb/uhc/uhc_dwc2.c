@@ -943,7 +943,12 @@ static uint32_t ch_handle_in_bulk_control(const struct device *dev,
 	} else if (hcint & (USB_DWC2_HCINT_ACK | USB_DWC2_HCINT_NAK | USB_DWC2_HCINT_DTGERR)) {
 		ch->error_count = 0;
 		/* TODO: Mask ACK, NAK, DTGERR */
-		LOG_WRN("ACK, NAK or DTG Error");
+		LOG_WRN("ACK (%d), NAK (%d) or DTG Error (%d)",
+			(hcint & USB_DWC2_HCINT_ACK) != 0,
+			(hcint & USB_DWC2_HCINT_NAK) != 0,
+			(hcint & USB_DWC2_HCINT_DTGERR) != 0);
+		ch_events |= BIT(UHC_DWC2_CHANNEL_EVENT_ERROR);
+		ch_events |= BIT(UHC_DWC2_CHANNEL_DO_RELEASE);
 	} else {
 		/* TODO: Add handling for other cases */
 		LOG_WRN("IN not halted, unhandled HCINT 0x%08x", hcint);
@@ -1069,7 +1074,12 @@ static uint32_t ch_handle_in_interrupt(struct uhc_dwc2_channel *const ch,
 	} else if (hcint & (USB_DWC2_HCINT_ACK | USB_DWC2_HCINT_NAK | USB_DWC2_HCINT_DTGERR)) {
 		ch->error_count = 0;
 		/* TODO: Mask ACK, NAK, DTGERR */
-		LOG_WRN("ACK, NAK or DTG Error");
+		LOG_WRN("ACK (%d), NAK (%d) or DTG Error (%d)",
+			(hcint & USB_DWC2_HCINT_ACK) != 0,
+			(hcint & USB_DWC2_HCINT_NAK) != 0,
+			(hcint & USB_DWC2_HCINT_DTGERR) != 0);
+		ch_events |= BIT(UHC_DWC2_CHANNEL_EVENT_ERROR);
+		ch_events |= BIT(UHC_DWC2_CHANNEL_DO_RELEASE);
 	} else {
 		/* TODO: Add handling for other cases */
 		LOG_WRN("IN not halted, unhandled HCINT 0x%08x", hcint);
