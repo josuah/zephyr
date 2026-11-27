@@ -241,7 +241,7 @@ int msc_bot_command(struct usbh_msc_data *msc,
 
 	buf = usbh_xfer_buf_alloc(msc->udev, sizeof(msc->cbw));
 	if (buf == NULL) {
-		usbh_xfer_free(msc->udev, xfer);
+		uhc_xfer_unref(xfer);
 		return -ENOMEM;
 	}
 
@@ -252,7 +252,7 @@ int msc_bot_command(struct usbh_msc_data *msc,
 	ret = usbh_xfer_enqueue(msc->udev, xfer);
 	if (ret != 0) {
 		net_buf_unref(buf);
-		usbh_xfer_free(msc->udev, xfer);
+		uhc_xfer_unref(xfer);
 		return ret;
 	}
 
@@ -267,7 +267,7 @@ int msc_bot_command(struct usbh_msc_data *msc,
 		net_buf_unref(msc->xfer_buf);
 		msc->xfer_buf = NULL;
 	}
-	usbh_xfer_free(msc->udev, xfer);
+	uhc_xfer_unref(xfer);
 
 	if (ret != 0) {
 		goto error_recovery;
@@ -289,7 +289,7 @@ int msc_bot_command(struct usbh_msc_data *msc,
 
 		buf = usbh_xfer_buf_alloc(msc->udev, data_len);
 		if (buf == NULL) {
-			usbh_xfer_free(msc->udev, xfer);
+			uhc_xfer_unref(xfer);
 			return -ENOMEM;
 		}
 
@@ -303,7 +303,7 @@ int msc_bot_command(struct usbh_msc_data *msc,
 		ret = usbh_xfer_enqueue(msc->udev, xfer);
 		if (ret != 0) {
 			net_buf_unref(buf);
-			usbh_xfer_free(msc->udev, xfer);
+			uhc_xfer_unref(xfer);
 			return ret;
 		}
 
@@ -317,7 +317,7 @@ int msc_bot_command(struct usbh_msc_data *msc,
 				net_buf_unref(msc->xfer_buf);
 				msc->xfer_buf = NULL;
 			}
-			usbh_xfer_free(msc->udev, xfer);
+			uhc_xfer_unref(xfer);
 
 			halt_ret = usbh_req_clear_sfs_halt(msc->udev, ep);
 			if (halt_ret != 0) {
@@ -341,7 +341,7 @@ int msc_bot_command(struct usbh_msc_data *msc,
 				net_buf_unref(msc->xfer_buf);
 				msc->xfer_buf = NULL;
 			}
-			usbh_xfer_free(msc->udev, xfer);
+			uhc_xfer_unref(xfer);
 
 			need_recovery = true;
 			ret = -ETIMEDOUT;
@@ -358,7 +358,7 @@ int msc_bot_command(struct usbh_msc_data *msc,
 			net_buf_unref(msc->xfer_buf);
 			msc->xfer_buf = NULL;
 		}
-		usbh_xfer_free(msc->udev, xfer);
+		uhc_xfer_unref(xfer);
 	}
 
 	/* CSW phase */
@@ -376,7 +376,7 @@ csw_phase:
 
 	buf = usbh_xfer_buf_alloc(msc->udev, sizeof(msc->csw));
 	if (buf == NULL) {
-		usbh_xfer_free(msc->udev, xfer);
+		uhc_xfer_unref(xfer);
 		return -ENOMEM;
 	}
 
@@ -385,7 +385,7 @@ csw_phase:
 	ret = usbh_xfer_enqueue(msc->udev, xfer);
 	if (ret != 0) {
 		net_buf_unref(buf);
-		usbh_xfer_free(msc->udev, xfer);
+		uhc_xfer_unref(xfer);
 		return ret;
 	}
 
@@ -413,7 +413,7 @@ csw_phase:
 			msc->xfer_buf->len, sizeof(msc->csw));
 		net_buf_unref(msc->xfer_buf);
 		msc->xfer_buf = NULL;
-		usbh_xfer_free(msc->udev, xfer);
+		uhc_xfer_unref(xfer);
 		need_recovery = true;
 		ret = -EIO;
 		goto error_recovery;
@@ -473,7 +473,7 @@ csw_cleanup:
 		net_buf_unref(msc->xfer_buf);
 		msc->xfer_buf = NULL;
 	}
-	usbh_xfer_free(msc->udev, xfer);
+	uhc_xfer_unref(xfer);
 
 error_recovery:
 	if (need_recovery) {
